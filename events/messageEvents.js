@@ -45,6 +45,20 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
     // Skip partial messages (Discord.js optimization)
     if (newMessage.partial || oldMessage.partial) return;
     
+    // Skip webhook messages from ProForwarder to prevent loops
+    if (newMessage.webhookId) {
+      try {
+        const webhook = await newMessage.fetchWebhook();
+        if (webhook && webhook.name === 'ProForwarder') {
+          logInfo(`Skipping edit event for our own webhook message ${newMessage.id}`);
+          return; // Skip our own webhook messages
+        }
+      } catch (error) {
+        // If we can't fetch webhook info, continue processing
+        logInfo(`Could not fetch webhook info for message ${newMessage.id}, continuing...`);
+      }
+    }
+    
     // Skip if content hasn't actually changed
     if (oldMessage.content === newMessage.content &&
         oldMessage.embeds.length === newMessage.embeds.length &&
@@ -61,12 +75,38 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
         initializeForwardHandler(client);
       }
 
-      // Get message logs to find forwarded versions of this message
-      const { getMessageLogsByOriginalMessage } = require('../utils/database');
-      const forwardedVersions = await getMessageLogsByOriginalMessage(newMessage.id);
+      // Get message logs to find forwarded versions of this message (using working approach from reactions)
+      const { getMessageLogs } = require('../utils/database');
+      const messageLogs = await getMessageLogs();
+      
+      logInfo(`🔍 EDIT DEBUG: Looking for forwarded versions of edited message ${newMessage.id}`);
+      logInfo(`📊 EDIT DEBUG: Found ${messageLogs.length} total message logs in database`);
+      
+      const targetMessageId = String(newMessage.id);
+      logInfo(`🎯 EDIT DEBUG: Searching for originalMessageId === "${targetMessageId}" (${typeof targetMessageId})`);
+      
+      const forwardedVersions = messageLogs.filter(log => {
+        const matches = log.originalMessageId === targetMessageId && log.status === 'success';
+        if (log.originalMessageId === targetMessageId) {
+          logInfo(`🔍 EDIT DEBUG: Found matching originalMessageId: ${log.originalMessageId}, status: ${log.status}, matches: ${matches}`);
+        }
+        return matches;
+      });
+
+      logInfo(`✅ EDIT DEBUG: Found ${forwardedVersions.length} forwarded versions for message ${newMessage.id}`);
 
       if (forwardedVersions.length === 0) {
-        logInfo(`Message edit detected but no forwarded versions found for message ${newMessage.id}`);
+        logInfo(`❌ Message edit detected but no forwarded versions found for message ${newMessage.id}`);
+        
+        // Extra debug: check if any logs match loosely
+        const looseMatches = messageLogs.filter(log =>
+          log.originalMessageId == newMessage.id || log.forwardedMessageId == newMessage.id
+        );
+        logInfo(`🔍 EDIT DEBUG: Loose matches (== comparison): ${looseMatches.length}`);
+        looseMatches.forEach(match => {
+          logInfo(`  - Log ${match.id}: Original:${match.originalMessageId} -> Forwarded:${match.forwardedMessageId} Status:${match.status}`);
+        });
+        
         return;
       }
 
@@ -198,18 +238,64 @@ async function handleMessageDelete(message, client) {
     // Skip partial messages
     if (message.partial) return;
 
+    // Skip webhook messages from ProForwarder to prevent loops
+    if (message.webhookId) {
+      try {
+        const webhook = await message.fetchWebhook();
+        if (webhook && webhook.name === 'ProForwarder') {
+          logInfo(`Skipping delete event for our own webhook message ${message.id}`);
+          return; // Skip our own webhook messages
+        }
+      } catch (error) {
+        // If we can't fetch webhook info, continue processing
+        logInfo(`Could not fetch webhook info for deleted message ${message.id}, continuing...`);
+      }
+    }
+
     // Skip if this message is currently being edited (to avoid interference)
     if (currentlyEditing.has(message.id)) {
       logInfo(`Skipping deletion of message ${message.id} - currently being edited`);
       return;
     }
 
-    // Get message logs to find forwarded versions of this message
-    const { getMessageLogsByOriginalMessage } = require('../utils/database');
-    const forwardedVersions = await getMessageLogsByOriginalMessage(message.id);
+    // Get message logs to find forwarded versions of this message (using working approach from reactions)
+    const { getMessageLogs } = require('../utils/database');
+    const messageLogs = await getMessageLogs();
+    
+    logInfo(`🔍 DELETE DEBUG: Looking for forwarded versions of deleted message ${message.id}`);
+    logInfo(`📊 DELETE DEBUG: Found ${messageLogs.length} total message logs in database`);
+    
+    // Log first few entries for debugging
+    logInfo(`📋 DELETE DEBUG: Recent message logs (first 5):`);
+    messageLogs.slice(0, 5).forEach((log, index) => {
+      logInfo(`  ${index + 1}. ID:${log.id} Original:${log.originalMessageId} (${typeof log.originalMessageId}) -> Forwarded:${log.forwardedMessageId} Status:${log.status}`);
+    });
+    
+    const targetMessageId = String(message.id);
+    logInfo(`🎯 DELETE DEBUG: Searching for originalMessageId === "${targetMessageId}" (${typeof targetMessageId})`);
+    
+    const forwardedVersions = messageLogs.filter(log => {
+      const matches = log.originalMessageId === targetMessageId && log.status === 'success';
+      if (log.originalMessageId === targetMessageId) {
+        logInfo(`🔍 DELETE DEBUG: Found matching originalMessageId: ${log.originalMessageId}, status: ${log.status}, matches: ${matches}`);
+      }
+      return matches;
+    });
+
+    logInfo(`✅ DELETE DEBUG: Found ${forwardedVersions.length} forwarded versions for message ${message.id}`);
 
     if (forwardedVersions.length === 0) {
-      logInfo(`Message deletion detected but no forwarded versions found for message ${message.id}`);
+      logInfo(`❌ Message deletion detected but no forwarded versions found for message ${message.id}`);
+      
+      // Extra debug: check if any logs match loosely
+      const looseMatches = messageLogs.filter(log =>
+        log.originalMessageId == message.id || log.forwardedMessageId == message.id
+      );
+      logInfo(`🔍 DELETE DEBUG: Loose matches (== comparison): ${looseMatches.length}`);
+      looseMatches.forEach(match => {
+        logInfo(`  - Log ${match.id}: Original:${match.originalMessageId} -> Forwarded:${match.forwardedMessageId} Status:${match.status}`);
+      });
+      
       return;
     }
 
@@ -223,6 +309,10 @@ async function handleMessageDelete(message, client) {
         logError(`Failed to delete forwarded message ${logEntry.forwardedMessageId}:`, error);
       }
     }
+
+    // Clean up database entries for the deleted original message
+    const { cleanupDeletedMessage } = require('../utils/database');
+    await cleanupDeletedMessage(message.id);
     
   } catch (error) {
     logError('Error in handleMessageDelete:', error);

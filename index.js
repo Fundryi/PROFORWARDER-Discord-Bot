@@ -85,6 +85,13 @@ client.on("ready", async () => {
     logError('Error initializing database:', error);
   }
 
+  // Validate recent message logs on startup
+  const { validateRecentMessageLogs, cleanupOrphanedLogs } = require('./utils/database');
+  await validateRecentMessageLogs(client, 20);
+  
+  // Clean up orphaned logs from previous sessions
+  await cleanupOrphanedLogs(client, 50);
+  
   logSuccess(`Successfully logged in as ${client.user.tag}`);
   logInfo('ProForwarder bot is ready to forward messages!');
 });

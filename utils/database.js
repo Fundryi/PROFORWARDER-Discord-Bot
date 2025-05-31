@@ -192,6 +192,256 @@ async function getMessageLogsByOriginalMessage(originalMessageId) {
   }
 }
 
+// Validate recent message logs on startup
+async function validateRecentMessageLogs(client, limit = 20) {
+  try {
+    logInfo(`🔍 Validating last ${limit} message logs on startup...`);
+    
+    const recentLogs = await getMessageLogs(null, limit);
+    logInfo(`Found ${recentLogs.length} recent message logs to validate`);
+    
+    let validCount = 0;
+    let invalidCount = 0;
+    
+    for (const log of recentLogs) {
+      try {
+        logInfo(`Checking log ${log.id}: ${log.originalMessageId} -> ${log.forwardedMessageId} (status: ${log.status})`);
+        
+        // Skip failed logs
+        if (log.status !== 'success') {
+          logInfo(`  Skipping log ${log.id} - status is ${log.status}`);
+          continue;
+        }
+        
+        // Try to find the original message
+        let originalExists = false;
+        try {
+          let sourceChannel;
+          
+          if (log.originalServerId) {
+            const sourceGuild = client.guilds.cache.get(log.originalServerId);
+            if (sourceGuild) {
+              sourceChannel = sourceGuild.channels.cache.get(log.originalChannelId);
+            }
+          } else {
+            // Find guild that has this channel
+            const sourceGuild = client.guilds.cache.find(guild =>
+              guild.channels.cache.has(log.originalChannelId)
+            );
+            if (sourceGuild) {
+              sourceChannel = sourceGuild.channels.cache.get(log.originalChannelId);
+            }
+          }
+          
+          if (sourceChannel) {
+            const originalMessage = await sourceChannel.messages.fetch(log.originalMessageId);
+            if (originalMessage) {
+              originalExists = true;
+              logInfo(`  ✅ Original message ${log.originalMessageId} exists`);
+            }
+          }
+        } catch (error) {
+          logInfo(`  ❌ Original message ${log.originalMessageId} not found: ${error.message}`);
+        }
+        
+        // Try to find the forwarded message
+        let forwardedExists = false;
+        try {
+          let targetChannel;
+          
+          if (log.forwardedServerId) {
+            const targetGuild = client.guilds.cache.get(log.forwardedServerId);
+            if (targetGuild) {
+              targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+            }
+          } else {
+            // Find guild that has this channel
+            const targetGuild = client.guilds.cache.find(guild =>
+              guild.channels.cache.has(log.forwardedChannelId)
+            );
+            if (targetGuild) {
+              targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+            }
+          }
+          
+          if (targetChannel) {
+            const forwardedMessage = await targetChannel.messages.fetch(log.forwardedMessageId);
+            if (forwardedMessage) {
+              forwardedExists = true;
+              logInfo(`  ✅ Forwarded message ${log.forwardedMessageId} exists`);
+            }
+          }
+        } catch (error) {
+          logInfo(`  ❌ Forwarded message ${log.forwardedMessageId} not found: ${error.message}`);
+        }
+        
+        if (originalExists && forwardedExists) {
+          validCount++;
+          logInfo(`  ✅ Log ${log.id} is valid - both messages exist`);
+        } else {
+          invalidCount++;
+          logInfo(`  ⚠️ Log ${log.id} is invalid - original: ${originalExists}, forwarded: ${forwardedExists}`);
+        }
+        
+      } catch (error) {
+        logError(`Error validating log ${log.id}:`, error);
+        invalidCount++;
+      }
+    }
+    
+    logSuccess(`Message log validation complete: ${validCount} valid, ${invalidCount} invalid out of ${recentLogs.length} logs`);
+    return { valid: validCount, invalid: invalidCount, total: recentLogs.length };
+    
+  } catch (error) {
+    logError('Error validating message logs:', error);
+    return { valid: 0, invalid: 0, total: 0 };
+  }
+}
+
+// Clean up database entries for deleted messages
+async function cleanupDeletedMessage(originalMessageId) {
+  try {
+    const result = await run(`
+      DELETE FROM message_logs
+      WHERE originalMessageId = ? AND status = 'success'
+    `, [String(originalMessageId)]);
+    
+    logInfo(`🗑️ Cleaned up ${result.changes || 0} database entries for deleted message ${originalMessageId}`);
+    return result.changes || 0;
+  } catch (error) {
+    logError('Error cleaning up deleted message from database:', error);
+    throw error;
+  }
+}
+
+// Clean up invalid/orphaned message logs
+async function cleanupOrphanedLogs(client, limit = 50) {
+  try {
+    logInfo(`🧹 Cleaning up orphaned message logs (checking last ${limit} entries)...`);
+    
+    const recentLogs = await getMessageLogs(null, limit);
+    let deletedCount = 0;
+    
+    for (const log of recentLogs) {
+      if (log.status !== 'success') continue;
+      
+      try {
+        // Check if original message still exists
+        let originalExists = false;
+        try {
+          let sourceChannel;
+          
+          if (log.originalServerId) {
+            const sourceGuild = client.guilds.cache.get(log.originalServerId);
+            if (sourceGuild) {
+              sourceChannel = sourceGuild.channels.cache.get(log.originalChannelId);
+            }
+          } else {
+            const sourceGuild = client.guilds.cache.find(guild =>
+              guild.channels.cache.has(log.originalChannelId)
+            );
+            if (sourceGuild) {
+              sourceChannel = sourceGuild.channels.cache.get(log.originalChannelId);
+            }
+          }
+          
+          if (sourceChannel) {
+            await sourceChannel.messages.fetch(log.originalMessageId);
+            originalExists = true;
+          }
+        } catch (error) {
+          // Original message doesn't exist
+        }
+        
+        // Check if forwarded message still exists
+        let forwardedExists = false;
+        try {
+          let targetChannel;
+          
+          if (log.forwardedServerId) {
+            const targetGuild = client.guilds.cache.get(log.forwardedServerId);
+            if (targetGuild) {
+              targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+            }
+          } else {
+            const targetGuild = client.guilds.cache.find(guild =>
+              guild.channels.cache.has(log.forwardedChannelId)
+            );
+            if (targetGuild) {
+              targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+            }
+          }
+          
+          if (targetChannel) {
+            await targetChannel.messages.fetch(log.forwardedMessageId);
+            forwardedExists = true;
+          }
+        } catch (error) {
+          // Forwarded message doesn't exist
+        }
+        
+        // Handle different cleanup scenarios
+        if (!originalExists && !forwardedExists) {
+          // Both messages are gone - just clean up database
+          await run(`DELETE FROM message_logs WHERE id = ?`, [log.id]);
+          deletedCount++;
+          logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Both messages gone - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId}`);
+        } else if (!originalExists && forwardedExists) {
+          // Original is gone but forwarded still exists - delete orphaned forwarded message
+          try {
+            let targetChannel;
+            
+            if (log.forwardedServerId) {
+              const targetGuild = client.guilds.cache.get(log.forwardedServerId);
+              if (targetGuild) {
+                targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+              }
+            } else {
+              const targetGuild = client.guilds.cache.find(guild =>
+                guild.channels.cache.has(log.forwardedChannelId)
+              );
+              if (targetGuild) {
+                targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+              }
+            }
+            
+            if (targetChannel) {
+              // Delete the orphaned forwarded message
+              const forwardedMessage = await targetChannel.messages.fetch(log.forwardedMessageId);
+              if (forwardedMessage) {
+                await forwardedMessage.delete();
+                logSuccess(`🗑️ Deleted orphaned forwarded message ${log.forwardedMessageId} in ${targetChannel.name} (original message gone)`);
+              }
+            }
+            
+            // Clean up database entry
+            await run(`DELETE FROM message_logs WHERE id = ?`, [log.id]);
+            deletedCount++;
+            logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Original gone, forwarded deleted - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId}`);
+            
+          } catch (deleteError) {
+            logError(`Failed to delete orphaned forwarded message ${log.forwardedMessageId}:`, deleteError);
+            // Still clean up database entry even if deletion failed
+            await run(`DELETE FROM message_logs WHERE id = ?`, [log.id]);
+            deletedCount++;
+            logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Original gone, forwarded deletion failed but cleaned DB - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId}`);
+          }
+        }
+        
+      } catch (error) {
+        logError(`Error checking log ${log.id}:`, error);
+      }
+    }
+    
+    logSuccess(`🧹 Cleanup complete: Removed ${deletedCount} orphaned message logs`);
+    return deletedCount;
+    
+  } catch (error) {
+    logError('Error cleaning up orphaned logs:', error);
+    return 0;
+  }
+}
+
 module.exports = {
   // Bot settings operations
   getBotSetting,
@@ -203,6 +453,9 @@ module.exports = {
   getFailedMessages,
   updateMessageLog,
   getMessageLogsByOriginalMessage,
+  validateRecentMessageLogs,
+  cleanupDeletedMessage,
+  cleanupOrphanedLogs,
   // Database utilities
   run,
   get,
