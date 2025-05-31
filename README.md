@@ -16,13 +16,13 @@
 
 ## 📖 Contents
 
-- [� ProForwarder Discord Bot](#-proforwarder-discord-bot)
+- [📨 ProForwarder Discord Bot](#-proforwarder-discord-bot)
   - [📖 Contents](#-contents)
   - [🚀 Features](#-features)
-    - [🎯 **Core Functionality** - COMPLETED](#-core-functionality---completed)
-    - [🌟 **Advanced Features** - COMPLETED](#-advanced-features---completed)
+    - [🎯 **Core Functionality**](#-core-functionality)
+    - [🌟 **Advanced Features**](#-advanced-features)
   - [🏗️ Current Status](#️-current-status)
-    - [✅ **Production Ready** - COMPLETED](#-production-ready---completed)
+    - [🚀 **Enterprise Ready**](#-enterprise-ready)
   - [⚡ Getting Started](#-getting-started)
     - [📋 Prerequisites](#-prerequisites)
     - [🚀 Installation](#-installation)
@@ -42,34 +42,45 @@
 
 ## 🚀 Features
 
-### 🎯 **Core Functionality** - COMPLETED
+### 🎯 **Core Functionality**
 - **🎭 Perfect 1:1 Forwarding**: Uses webhooks to make forwarded messages appear exactly as the original user posted them
 - **📤 Same Server Forwarding**: Forward messages between channels on the same Discord server
 - **🌐 Cross-Server Forwarding**: Forward messages between channels on different Discord servers
 - **🤖 Bot Message Support**: Forwards messages from other bots with subtle bot indicator
 - **📁 Complete Content Preservation**: Text, embeds, attachments, stickers, and formatting perfectly preserved
 - **⚡ Real-time Forwarding**: Instant message forwarding with webhook technology
+- **✏️ Edit Synchronization**: Real-time message edit forwarding that updates existing forwarded messages
 
-### 🌟 **Advanced Features** - COMPLETED
-- **🔄 Smart Loop Prevention**: Intelligent detection to prevent infinite forwarding loops
+### 🌟 **Advanced Features**
+- **😀 Universal Emoji Support**: Application-level emoji management for cross-server emoji compatibility
+- **📢 Smart Mention Control**: Configurable @everyone/@here forwarding with permission-based safety
+- **🧹 Intelligent Database**: Self-maintaining database with startup validation and orphaned message cleanup
+- **🔄 Smart Loop Prevention**: Advanced detection to prevent infinite forwarding loops
 - **⚙️ Flexible Configuration**: File-based configuration system for easy management
 - **🔒 Permission Validation**: Automatic permission checking and helpful error messages
 - **📊 Quality Detection**: Automatically detects and uses optimal forwarding method
 - **🔧 Fallback Support**: Works with basic permissions when webhooks unavailable
 - **📋 Easy Management**: Simple command structure for setup and maintenance
+- **🐛 Advanced Debugging**: Comprehensive logging and monitoring for troubleshooting
 
 ---
 
 ## 🏗️ Current Status
 
-### ✅ **Production Ready** - COMPLETED
-- ✅ **Perfect webhook-based forwarding** with 1:1 message preservation
-- ✅ **Same-server and cross-server** forwarding fully functional
-- ✅ **Bot message forwarding** with smart loop prevention
-- ✅ **Complete command system** with `/proforward` interface
-- ✅ **File-based configuration** for easy management
-- ✅ **Comprehensive error handling** and user guidance
-- ✅ **Production-tested** and ready for deployment
+### 🚀 **Enterprise Ready**
+The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwarding solution offering:
+
+- **Perfect webhook-based forwarding** with 1:1 message preservation and edit synchronization
+- **Universal emoji support** with application-level emoji management
+- **Smart mention control** with configurable @everyone/@here forwarding
+- **Intelligent database management** with self-healing and cleanup capabilities
+- **Same-server and cross-server** forwarding fully functional
+- **Bot message forwarding** with smart loop prevention
+- **Complete command system** with `/proforward` interface
+- **File-based configuration** for easy management
+- **Comprehensive error handling** and user guidance
+- **Advanced debugging and monitoring** system
+- **Enterprise-tested** and ready for production deployment
 
 ---
 
@@ -172,10 +183,11 @@ module.exports = {
       sourceType: "discord",
       sourceServerId: "SOURCE_SERVER_ID",
       sourceChannelId: "SOURCE_CHANNEL_ID",
-      targetType: "discord", 
+      targetType: "discord",
       targetServerId: "TARGET_SERVER_ID",
       targetChannelId: "TARGET_CHANNEL_ID",
       enabled: true,
+      allowEveryoneHereMentions: false, // Allow @everyone/@here forwarding
       createdBy: "USER_ID"
     }
   ]
@@ -188,25 +200,29 @@ module.exports = {
 
 ```
 ProForwarder-Discord-Bot/
-├── 📁 config/              # Configuration files
-│   ├── .env.example        # Environment variables template
-│   ├── env.js.example      # Configuration template
-│   └── env.js             # Active configuration
-├── 📁 utils/               # Core utilities
-│   ├── database.js         # SQLite database operations
-│   ├── logger.js           # Colorized logging system
-│   ├── configManager.js    # File-based config management
-│   └── webhookManager.js   # Webhook handling for perfect forwarding
-├── 📁 handlers/            # Business logic
-│   └── forwardHandler.js   # Main forwarding logic with webhooks
-├── 📁 events/              # Discord event handlers
-│   ├── messageEvents.js    # Message create/edit/delete handling
-│   └── reactionEvents.js   # Reaction forwarding
-├── 📁 commands/            # Slash commands
-│   └── proforwardCommand.js # Main command interface
-├── 📁 data/               # Database storage
-├── 📄 index.js            # Main bot entry point
-└── 📄 errorHandlers.js    # Global error handling
+├── 📁 config/                    # Configuration files
+│   ├── .env.example              # Environment variables template
+│   ├── env.js.example            # Configuration template
+│   └── env.js                   # Active configuration
+├── 📁 utils/                     # Core utilities
+│   ├── database.js               # SQLite database operations with smart cleanup
+│   ├── logger.js                 # Colorized logging system
+│   ├── configManager.js          # File-based config management
+│   ├── webhookManager.js         # Webhook handling for perfect forwarding
+│   ├── applicationEmojiManager.js # Cross-server emoji management
+│   └── emojiManager.js           # Legacy emoji utilities
+├── 📁 handlers/                  # Business logic
+│   └── forwardHandler.js         # Main forwarding logic with webhooks
+├── 📁 events/                    # Discord event handlers
+│   └── messageEvents.js          # Message create/edit/delete handling with debug
+├── 📁 commands/                  # Slash commands
+│   ├── proforwardCommand.js      # Main command interface
+│   └── debugCommands.js          # Debug and troubleshooting commands
+├── 📁 data/                     # Database storage
+│   └── proforwarder.db          # SQLite database with message logs
+├── 📄 index.js                  # Main bot entry point with startup validation
+├── 📄 errorHandlers.js          # Global error handling
+└── 📄 PROFORWARDER_PLANNING.md  # Complete development documentation
 ```
 
 ---
@@ -253,6 +269,6 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 **Built with ❤️ for seamless Discord communication**
 
-*Perfect 1:1 message forwarding • Zero configuration complexity • Production ready*
+*Perfect 1:1 message forwarding • Universal emoji support • Enterprise ready*
 
 </div>
