@@ -149,9 +149,91 @@ function hasWebhookPermissions(channel, clientUser) {
   return permissions && permissions.has(['ViewChannel', 'ManageWebhooks']);
 }
 
+// Edit an existing webhook message
+async function editWebhookMessage(webhookMessage, newMessage, client = null) {
+  try {
+    // Get the webhook that sent this message
+    const webhook = await webhookMessage.fetchWebhook();
+    if (!webhook) {
+      throw new Error('Could not fetch webhook for message');
+    }
+
+    // Initialize application emoji manager if client is provided
+    if (client && !appEmojiManager) {
+      initializeAppEmojiManager(client);
+    }
+    
+    // Process content for cross-server emojis using application-level emoji storage
+    let processedContent = newMessage.content || '';
+    if (appEmojiManager && processedContent) {
+      processedContent = await appEmojiManager.processMessageEmojis(processedContent, webhookMessage.guild);
+    }
+    
+    // Build webhook edit options to match original message format
+    const editOptions = {
+      content: processedContent || undefined,
+      embeds: newMessage.embeds.length > 0 ? newMessage.embeds.slice(0, 10) : [],
+      files: [],
+      allowedMentions: {
+        parse: [] // Disable all mentions to prevent spam/abuse
+      }
+    };
+
+    // Handle attachments
+    if (newMessage.attachments.size > 0) {
+      for (const attachment of newMessage.attachments.values()) {
+        try {
+          // Check file size (8MB limit for most servers)
+          if (attachment.size > 8 * 1024 * 1024) {
+            logInfo(`Skipping large attachment: ${attachment.name} (${attachment.size} bytes)`);
+            continue;
+          }
+
+          editOptions.files.push({
+            attachment: attachment.url,
+            name: attachment.name,
+            description: attachment.description || undefined
+          });
+        } catch (attachmentError) {
+          logError(`Error processing attachment ${attachment.name}:`, attachmentError);
+        }
+      }
+    }
+
+    // Handle stickers by adding them as text
+    if (newMessage.stickers.size > 0) {
+      const stickerText = Array.from(newMessage.stickers.values())
+        .map(sticker => `*[Sticker: ${sticker.name}]*`)
+        .join(' ');
+      
+      if (editOptions.content) {
+        editOptions.content += `\n${stickerText}`;
+      } else {
+        editOptions.content = stickerText;
+      }
+    }
+
+    // Ensure we have some content to send
+    if (!editOptions.content && !editOptions.embeds?.length && !editOptions.files?.length) {
+      editOptions.content = '*[Message with unsupported content]*';
+    }
+
+    // Edit the webhook message
+    const editedMessage = await webhook.editMessage(webhookMessage.id, editOptions);
+    
+    logSuccess(`✅ Edited webhook message in ${webhookMessage.channel.name}`);
+    return editedMessage;
+
+  } catch (error) {
+    logError(`Failed to edit webhook message:`, error);
+    throw error;
+  }
+}
+
 module.exports = {
   getWebhook,
   sendWebhookMessage,
+  editWebhookMessage,
   hasWebhookPermissions,
   initializeAppEmojiManager
 };

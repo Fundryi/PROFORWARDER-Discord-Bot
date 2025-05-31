@@ -185,24 +185,6 @@ async function getMessageLogsByOriginalMessage(originalMessageId) {
       ORDER BY forwardedAt DESC
     `, [messageIdStr]);
     
-    logInfo(`Debug: Query for message ${messageIdStr} (${typeof messageIdStr}) returned ${results.length} results`);
-    
-    // Additional debug: check if we can find it with a broader search
-    if (results.length === 0) {
-      const allMatches = await all(`
-        SELECT * FROM message_logs
-        WHERE originalMessageId = ?
-        ORDER BY forwardedAt DESC
-      `, [messageIdStr]);
-      
-      logInfo(`Debug: Broader search (without status filter) found ${allMatches.length} results`);
-      if (allMatches.length > 0) {
-        for (const match of allMatches) {
-          logInfo(`  - Status: ${match.status}, Original: ${match.originalMessageId} (${typeof match.originalMessageId})`);
-        }
-      }
-    }
-    
     return results;
   } catch (error) {
     logError('Error getting message logs by original message:', error);

@@ -67,23 +67,6 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
 
       if (forwardedVersions.length === 0) {
         logInfo(`Message edit detected but no forwarded versions found for message ${newMessage.id}`);
-        
-        // Debug: Let's check what's actually in the database
-        const { getMessageLogs } = require('../utils/database');
-        const allLogs = await getMessageLogs(null, 50);
-        logInfo(`Debug: Found ${allLogs.length} total message logs in database`);
-        
-        // Check if any logs match this message ID
-        const debugMatches = allLogs.filter(log => log.originalMessageId === newMessage.id);
-        logInfo(`Debug: Found ${debugMatches.length} logs matching message ID ${newMessage.id}`);
-        
-        if (debugMatches.length > 0) {
-          logInfo(`Debug: Matching logs found but query failed - possible data type issue`);
-          for (const match of debugMatches) {
-            logInfo(`  - ${match.originalMessageId} (${typeof match.originalMessageId}) -> ${match.forwardedMessageId} (status: ${match.status})`);
-          }
-        }
-        
         return;
       }
 
@@ -139,39 +122,49 @@ async function updateForwardedMessage(newMessage, logEntry, client) {
       throw new Error(`Forwarded message ${logEntry.forwardedMessageId} not found`);
     }
 
-    // Check if this is a webhook message (can't be edited)
+    // Check if this is a webhook message
     if (forwardedMessage.webhookId) {
-      // For webhook messages, we need to delete and recreate
-      logInfo(`Webhook message detected - deleting and recreating for edit`);
+      // For webhook messages, use direct webhook editing
+      logInfo(`Webhook message detected - editing directly`);
       
-      // Delete the old webhook message
-      await forwardedMessage.delete();
+      const { editWebhookMessage } = require('../utils/webhookManager');
       
-      // Send a new webhook message with updated content
-      const { sendWebhookMessage, hasWebhookPermissions } = require('../utils/webhookManager');
-      
-      if (hasWebhookPermissions(targetChannel, client.user)) {
-        const newForwardedMessage = await sendWebhookMessage(targetChannel, newMessage, client);
+      try {
+        await editWebhookMessage(forwardedMessage, newMessage, client);
+        logSuccess(`✅ Edited webhook message in ${targetChannel.name}`);
+      } catch (editError) {
+        // If webhook editing fails, fall back to delete and recreate
+        logInfo(`Webhook edit failed, falling back to delete and recreate: ${editError.message}`);
         
-        // Update the database log with new message ID
-        const { updateMessageLog } = require('../utils/database');
-        await updateMessageLog(logEntry.id, newForwardedMessage.id);
+        // Delete the old webhook message
+        await forwardedMessage.delete();
         
-        logSuccess(`Recreated webhook message in ${targetChannel.name} for edit`);
-      } else {
-        // Fallback to regular message if no webhook permissions
-        const updatedContent = await forwardHandler.buildEnhancedMessage(newMessage, {
-          sourceServerId: logEntry.originalServerId,
-          targetServerId: logEntry.forwardedServerId
-        });
+        // Send a new webhook message with updated content
+        const { sendWebhookMessage, hasWebhookPermissions } = require('../utils/webhookManager');
         
-        const newForwardedMessage = await targetChannel.send(updatedContent);
-        
-        // Update the database log with new message ID
-        const { updateMessageLog } = require('../utils/database');
-        await updateMessageLog(logEntry.id, newForwardedMessage.id);
-        
-        logSuccess(`Recreated fallback message in ${targetChannel.name} for edit`);
+        if (hasWebhookPermissions(targetChannel, client.user)) {
+          const newForwardedMessage = await sendWebhookMessage(targetChannel, newMessage, client);
+          
+          // Update the database log with new message ID
+          const { updateMessageLog } = require('../utils/database');
+          await updateMessageLog(logEntry.id, newForwardedMessage.id);
+          
+          logSuccess(`Recreated webhook message in ${targetChannel.name} for edit`);
+        } else {
+          // Fallback to regular message if no webhook permissions
+          const updatedContent = await forwardHandler.buildEnhancedMessage(newMessage, {
+            sourceServerId: logEntry.originalServerId,
+            targetServerId: logEntry.forwardedServerId
+          });
+          
+          const newForwardedMessage = await targetChannel.send(updatedContent);
+          
+          // Update the database log with new message ID
+          const { updateMessageLog } = require('../utils/database');
+          await updateMessageLog(logEntry.id, newForwardedMessage.id);
+          
+          logSuccess(`Recreated fallback message in ${targetChannel.name} for edit`);
+        }
       }
     } else {
       // Regular bot message - can be edited normally
