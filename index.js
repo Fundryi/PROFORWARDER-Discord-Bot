@@ -25,7 +25,6 @@ const config = require('./config/env');
 const { proforwardCommand, handleProforwardCommand } = require('./commands/proforwardCommand');
 const { debugCommand, handleDebugCommand } = require('./commands/debugCommands');
 const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
-const { handleReactionAdd, handleReactionRemove, handleReactionRemoveAll } = require('./events/reactionEvents');
 
 logInfo('Bot is starting up...');
 logInfo('Initializing client with required intents...');
@@ -34,8 +33,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMessageReactions
+    GatewayIntentBits.MessageContent
   ],
 });
 
@@ -52,17 +50,6 @@ client.on("messageDelete", async (message) => {
   await handleMessageDelete(message, client);
 });
 
-client.on("messageReactionAdd", async (reaction, user) => {
-  await handleReactionAdd(reaction, user, client);
-});
-
-client.on("messageReactionRemove", async (reaction, user) => {
-  await handleReactionRemove(reaction, user, client);
-});
-
-client.on("messageReactionRemoveAll", async (message, reactions) => {
-  await handleReactionRemoveAll(message, reactions, client);
-});
 
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;

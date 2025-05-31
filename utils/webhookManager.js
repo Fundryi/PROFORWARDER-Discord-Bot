@@ -57,7 +57,7 @@ async function getWebhook(targetChannel) {
 }
 
 // Send a message using webhook to perfectly mimic the original user
-async function sendWebhookMessage(targetChannel, originalMessage, client = null) {
+async function sendWebhookMessage(targetChannel, originalMessage, client = null, config = null) {
   try {
     const webhook = await getWebhook(targetChannel);
     
@@ -80,9 +80,51 @@ async function sendWebhookMessage(targetChannel, originalMessage, client = null)
       embeds: originalMessage.embeds.length > 0 ? originalMessage.embeds.slice(0, 10) : undefined, // Discord limit
       files: [],
       allowedMentions: {
-        parse: [] // Disable all mentions to prevent spam/abuse
+        parse: [] // Default: disable all mentions
       }
     };
+
+    // Handle @everyone/@here mentions if enabled in config
+    if (config && config.allowEveryoneHereMentions === true) {
+      const hasEveryone = processedContent && processedContent.includes('@everyone');
+      const hasHere = processedContent && processedContent.includes('@here');
+      
+      if (hasEveryone || hasHere) {
+        // Check if bot has MENTION_EVERYONE permission in target channel
+        const botMember = targetChannel.guild.members.cache.get(client?.user?.id);
+        const canMentionEveryone = botMember?.permissions?.has('MentionEveryone');
+        
+        if (canMentionEveryone) {
+          // Allow @everyone mentions, but replace @here with indicator (API limitation)
+          if (hasEveryone) {
+            webhookOptions.allowedMentions = {
+              parse: ['everyone'], // Only @everyone is supported by webhook API
+              users: [], // Still block user mentions for safety
+              roles: []  // Still block role mentions for safety
+            };
+          }
+          
+          // @here doesn't work with webhooks, so replace it with indicator
+          if (hasHere) {
+            webhookOptions.content = processedContent.replace(/@here/g, '**[📢 @here]**');
+          }
+          
+          logInfo(`Allowing @everyone mentions in ${targetChannel.name} (config enabled, @here replaced with indicator)`);
+        } else {
+          // Bot doesn't have permission, replace both with text indicators
+          webhookOptions.content = processedContent
+            .replace(/@everyone/g, '**[📢 @everyone]**')
+            .replace(/@here/g, '**[📢 @here]**');
+          logInfo(`Replaced @everyone/@here with indicators in ${targetChannel.name} (no bot permission)`);
+        }
+      }
+    } else if (processedContent && (processedContent.includes('@everyone') || processedContent.includes('@here'))) {
+      // Config disabled or not provided, replace with text indicators
+      webhookOptions.content = processedContent
+        .replace(/@everyone/g, '**[📢 @everyone]**')
+        .replace(/@here/g, '**[📢 @here]**');
+      logInfo(`Replaced @everyone/@here with indicators in ${targetChannel.name} (config disabled)`);
+    }
 
     // For bot messages, add a subtle indicator if needed
     if (originalMessage.author.bot && originalMessage.webhookId) {
@@ -150,7 +192,7 @@ function hasWebhookPermissions(channel, clientUser) {
 }
 
 // Edit an existing webhook message
-async function editWebhookMessage(webhookMessage, newMessage, client = null) {
+async function editWebhookMessage(webhookMessage, newMessage, client = null, config = null) {
   try {
     // Get the webhook that sent this message
     const webhook = await webhookMessage.fetchWebhook();
@@ -175,9 +217,51 @@ async function editWebhookMessage(webhookMessage, newMessage, client = null) {
       embeds: newMessage.embeds.length > 0 ? newMessage.embeds.slice(0, 10) : [],
       files: [],
       allowedMentions: {
-        parse: [] // Disable all mentions to prevent spam/abuse
+        parse: [] // Default: disable all mentions
       }
     };
+
+    // Handle @everyone/@here mentions if enabled in config
+    if (config && config.allowEveryoneHereMentions === true) {
+      const hasEveryone = processedContent && processedContent.includes('@everyone');
+      const hasHere = processedContent && processedContent.includes('@here');
+      
+      if (hasEveryone || hasHere) {
+        // Check if bot has MENTION_EVERYONE permission in target channel
+        const botMember = webhookMessage.guild.members.cache.get(client?.user?.id);
+        const canMentionEveryone = botMember?.permissions?.has('MentionEveryone');
+        
+        if (canMentionEveryone) {
+          // Allow @everyone mentions, but replace @here with indicator (API limitation)
+          if (hasEveryone) {
+            editOptions.allowedMentions = {
+              parse: ['everyone'], // Only @everyone is supported by webhook API
+              users: [], // Still block user mentions for safety
+              roles: []  // Still block role mentions for safety
+            };
+          }
+          
+          // @here doesn't work with webhooks, so replace it with indicator
+          if (hasHere) {
+            editOptions.content = processedContent.replace(/@here/g, '**[📢 @here]**');
+          }
+          
+          logInfo(`Allowing @everyone mentions in edit for ${webhookMessage.channel.name} (config enabled, @here replaced with indicator)`);
+        } else {
+          // Bot doesn't have permission, replace both with text indicators
+          editOptions.content = processedContent
+            .replace(/@everyone/g, '**[📢 @everyone]**')
+            .replace(/@here/g, '**[📢 @here]**');
+          logInfo(`Replaced @everyone/@here with indicators in edit for ${webhookMessage.channel.name} (no bot permission)`);
+        }
+      }
+    } else if (processedContent && (processedContent.includes('@everyone') || processedContent.includes('@here'))) {
+      // Config disabled or not provided, replace with text indicators
+      editOptions.content = processedContent
+        .replace(/@everyone/g, '**[📢 @everyone]**')
+        .replace(/@here/g, '**[📢 @here]**');
+      logInfo(`Replaced @everyone/@here with indicators in edit for ${webhookMessage.channel.name} (config disabled)`);
+    }
 
     // Handle attachments
     if (newMessage.attachments.size > 0) {

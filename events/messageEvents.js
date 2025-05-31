@@ -95,6 +95,9 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
 // Update a specific forwarded message
 async function updateForwardedMessage(newMessage, logEntry, client) {
   try {
+    // Get the config for this forward to check mention settings
+    const { getForwardConfigById } = require('../utils/configManager');
+    const config = await getForwardConfigById(logEntry.configId);
     // Get the target channel
     let targetChannel;
     
@@ -130,7 +133,7 @@ async function updateForwardedMessage(newMessage, logEntry, client) {
       const { editWebhookMessage } = require('../utils/webhookManager');
       
       try {
-        await editWebhookMessage(forwardedMessage, newMessage, client);
+        await editWebhookMessage(forwardedMessage, newMessage, client, config);
         logSuccess(`✅ Edited webhook message in ${targetChannel.name}`);
       } catch (editError) {
         // If webhook editing fails, fall back to delete and recreate
@@ -143,7 +146,7 @@ async function updateForwardedMessage(newMessage, logEntry, client) {
         const { sendWebhookMessage, hasWebhookPermissions } = require('../utils/webhookManager');
         
         if (hasWebhookPermissions(targetChannel, client.user)) {
-          const newForwardedMessage = await sendWebhookMessage(targetChannel, newMessage, client);
+          const newForwardedMessage = await sendWebhookMessage(targetChannel, newMessage, client, config);
           
           // Update the database log with new message ID
           const { updateMessageLog } = require('../utils/database');
