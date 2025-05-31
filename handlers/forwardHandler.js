@@ -82,7 +82,7 @@ class ForwardHandler {
       // Check if we can use webhooks (preferred method)
       if (hasWebhookPermissions(targetChannel, this.client.user)) {
         // Use webhook for perfect 1:1 forwarding
-        const forwardedMessage = await sendWebhookMessage(targetChannel, message);
+        const forwardedMessage = await sendWebhookMessage(targetChannel, message, this.client);
         
         // Log successful forward
         await logForwardedMessage(
@@ -97,6 +97,7 @@ class ForwardHandler {
         );
 
         logSuccess(`✅ Webhook forwarded message from ${message.channel.name} to ${targetChannel.name}`);
+        logInfo(`Debug: Logged forward - Original: ${message.id} -> Forwarded: ${forwardedMessage.id}`);
         return forwardedMessage;
       }
       

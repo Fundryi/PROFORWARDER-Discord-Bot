@@ -1,25 +1,34 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { getAllActiveForwardConfigs } = require('../utils/configManager');
-const { logInfo, logSuccess, logError } = require('../utils/logger');
+const { getMessageLogs, all } = require('../utils/database');
+const { logInfo } = require('../utils/logger');
 
 const debugCommand = new SlashCommandBuilder()
   .setName('debug')
-  .setDescription('Debug information for ProForwarder')
+  .setDescription('Debug ProForwarder database and message tracking')
   .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
   .addSubcommand(subcommand =>
     subcommand
-      .setName('servers')
-      .setDescription('List all servers the bot has access to')
+      .setName('database')
+      .setDescription('Show recent database entries for message tracking')
+      .addIntegerOption(option =>
+        option
+          .setName('limit')
+          .setDescription('Number of entries to show (default: 10)')
+          .setMinValue(1)
+          .setMaxValue(50)
+          .setRequired(false)
+      )
   )
   .addSubcommand(subcommand =>
     subcommand
-      .setName('channels')
-      .setDescription('List channels in current server with IDs')
-  )
-  .addSubcommand(subcommand =>
-    subcommand
-      .setName('configs')
-      .setDescription('Show current forward configurations')
+      .setName('search')
+      .setDescription('Search for a specific message in the database')
+      .addStringOption(option =>
+        option
+          .setName('message_id')
+          .setDescription('Original message ID to search for')
+          .setRequired(true)
+      )
   );
 
 async function handleDebugCommand(interaction) {
@@ -27,20 +36,17 @@ async function handleDebugCommand(interaction) {
 
   try {
     switch (subcommand) {
-      case 'servers':
-        await handleServers(interaction);
+      case 'database':
+        await handleDatabaseDebug(interaction);
         break;
-      case 'channels':
-        await handleChannels(interaction);
-        break;
-      case 'configs':
-        await handleConfigs(interaction);
+      case 'search':
+        await handleSearchDebug(interaction);
         break;
       default:
-        await interaction.reply({ content: 'Unknown debug subcommand', ephemeral: true });
+        await interaction.reply({ content: 'Unknown subcommand', ephemeral: true });
     }
   } catch (error) {
-    logError('Error in debug command:', error);
+    logInfo('Error in debug command:', error);
     
     const errorMessage = 'An error occurred while processing the debug command.';
     
@@ -52,120 +58,113 @@ async function handleDebugCommand(interaction) {
   }
 }
 
-async function handleServers(interaction) {
-  const servers = interaction.client.guilds.cache;
-  
-  let response = `**🌐 Servers Bot Has Access To (${servers.size}):**\n\n`;
-  
-  for (const [id, guild] of servers) {
-    const memberCount = guild.memberCount || 'Unknown';
-    const channelCount = guild.channels.cache.filter(c => c.type === 0).size;
+async function handleDatabaseDebug(interaction) {
+  try {
+    const limit = interaction.options.getInteger('limit') || 10;
+    const logs = await getMessageLogs(null, limit);
     
-    response += `**${guild.name}**\n`;
-    response += `• ID: \`${id}\`\n`;
-    response += `• Members: ${memberCount}\n`;
-    response += `• Text Channels: ${channelCount}\n`;
-    response += `• Owner: ${guild.ownerId ? `<@${guild.ownerId}>` : 'Unknown'}\n\n`;
-  }
+    if (logs.length === 0) {
+      await interaction.reply({ content: 'No message logs found in database.', ephemeral: true });
+      return;
+    }
 
-  if (response.length > 2000) {
-    // Split into multiple messages if too long
-    const chunks = response.match(/[\s\S]{1,1900}/g) || [];
-    for (let i = 0; i < chunks.length; i++) {
-      if (i === 0) {
-        await interaction.reply({ content: chunks[i], ephemeral: true });
-      } else {
+    let response = `**🔍 Recent Database Entries (${logs.length} shown)**\n\n`;
+    
+    for (const log of logs) {
+      const timestamp = Math.floor(log.forwardedAt / 1000);
+      response += `**Entry ID:** ${log.id}\n`;
+      response += `**Time:** <t:${timestamp}:f>\n`;
+      response += `**Original:** \`${log.originalMessageId}\` (Channel: ${log.originalChannelId})\n`;
+      response += `**Forwarded:** \`${log.forwardedMessageId}\` (Channel: ${log.forwardedChannelId})\n`;
+      response += `**Status:** ${log.status}\n`;
+      response += `**Config ID:** ${log.configId}\n`;
+      if (log.errorMessage) {
+        response += `**Error:** ${log.errorMessage.substring(0, 100)}...\n`;
+      }
+      response += '\n---\n\n';
+    }
+
+    // Split response if too long
+    if (response.length > 2000) {
+      const chunks = [];
+      let currentChunk = '';
+      const lines = response.split('\n');
+      
+      for (const line of lines) {
+        if (currentChunk.length + line.length > 1900) {
+          chunks.push(currentChunk);
+          currentChunk = line + '\n';
+        } else {
+          currentChunk += line + '\n';
+        }
+      }
+      if (currentChunk) chunks.push(currentChunk);
+      
+      await interaction.reply({ content: chunks[0], ephemeral: true });
+      for (let i = 1; i < chunks.length && i < 3; i++) {
         await interaction.followUp({ content: chunks[i], ephemeral: true });
       }
+    } else {
+      await interaction.reply({ content: response, ephemeral: true });
     }
-  } else {
-    await interaction.reply({ content: response, ephemeral: true });
+
+  } catch (error) {
+    logInfo('Error in handleDatabaseDebug:', error);
+    await interaction.reply({ content: 'Failed to retrieve database information.', ephemeral: true });
   }
 }
 
-async function handleChannels(interaction) {
-  const channels = interaction.guild.channels.cache.filter(c => c.type === 0);
-  
-  let response = `**📋 Text Channels in ${interaction.guild.name}:**\n\n`;
-  response += `**Server ID:** \`${interaction.guild.id}\`\n\n`;
-  
-  for (const [id, channel] of channels) {
-    response += `**#${channel.name}**\n`;
-    response += `• ID: \`${id}\`\n`;
-    response += `• Position: ${channel.position}\n\n`;
-  }
-
-  if (response.length > 2000) {
-    // Split into multiple messages if too long
-    const chunks = response.match(/[\s\S]{1,1900}/g) || [];
-    for (let i = 0; i < chunks.length; i++) {
-      if (i === 0) {
-        await interaction.reply({ content: chunks[i], ephemeral: true });
-      } else {
-        await interaction.followUp({ content: chunks[i], ephemeral: true });
-      }
-    }
-  } else {
-    await interaction.reply({ content: response, ephemeral: true });
-  }
-}
-
-async function handleConfigs(interaction) {
-  const configs = await getAllActiveForwardConfigs();
-  
-  if (configs.length === 0) {
-    await interaction.reply({ content: '❌ No forward configurations found.', ephemeral: true });
-    return;
-  }
-
-  let response = `**⚙️ Current Forward Configurations (${configs.length}):**\n\n`;
-  
-  for (const config of configs) {
-    response += `**Config ${config.id}: ${config.name || 'Unnamed'}**\n`;
-    response += `• Source Server: \`${config.sourceServerId}\`\n`;
-    response += `• Source Channel: \`${config.sourceChannelId}\`\n`;
-    response += `• Target Server: \`${config.targetServerId}\`\n`;
-    response += `• Target Channel: \`${config.targetChannelId}\`\n`;
-    response += `• Status: ${config.enabled !== false ? '✅ Active' : '❌ Disabled'}\n\n`;
+async function handleSearchDebug(interaction) {
+  try {
+    const messageId = interaction.options.getString('message_id');
     
-    // Try to resolve server and channel names
-    try {
-      const sourceGuild = interaction.client.guilds.cache.get(config.sourceServerId);
-      const targetGuild = interaction.client.guilds.cache.get(config.targetServerId);
-      
-      if (sourceGuild) {
-        const sourceChannel = sourceGuild.channels.cache.get(config.sourceChannelId);
-        response += `• Source: ${sourceChannel ? `#${sourceChannel.name}` : '❌ Channel not found'} in **${sourceGuild.name}**\n`;
-      } else {
-        response += `• Source: ❌ Server not accessible\n`;
-      }
-      
-      if (targetGuild) {
-        const targetChannel = targetGuild.channels.cache.get(config.targetChannelId);
-        response += `• Target: ${targetChannel ? `#${targetChannel.name}` : '❌ Channel not found'} in **${targetGuild.name}**\n`;
-      } else {
-        response += `• Target: ❌ Server not accessible\n`;
-      }
-      
-    } catch (error) {
-      response += `• Resolution Error: ${error.message}\n`;
-    }
+    // Search for the specific message
+    const results = await all(`
+      SELECT * FROM message_logs 
+      WHERE originalMessageId = ? OR forwardedMessageId = ?
+      ORDER BY forwardedAt DESC
+    `, [messageId, messageId]);
     
-    response += '\n---\n\n';
-  }
+    if (results.length === 0) {
+      await interaction.reply({ 
+        content: `❌ No database entries found for message ID: \`${messageId}\``, 
+        ephemeral: true 
+      });
+      return;
+    }
 
-  if (response.length > 2000) {
-    // Split into multiple messages if too long
-    const chunks = response.match(/[\s\S]{1,1900}/g) || [];
-    for (let i = 0; i < chunks.length; i++) {
-      if (i === 0) {
-        await interaction.reply({ content: chunks[i], ephemeral: true });
-      } else {
-        await interaction.followUp({ content: chunks[i], ephemeral: true });
+    let response = `**🔍 Search Results for Message ID: \`${messageId}\`**\n\n`;
+    response += `Found ${results.length} entries:\n\n`;
+    
+    for (const result of results) {
+      const timestamp = Math.floor(result.forwardedAt / 1000);
+      response += `**Entry ${result.id}:** <t:${timestamp}:f>\n`;
+      response += `• Original: \`${result.originalMessageId}\`\n`;
+      response += `• Forwarded: \`${result.forwardedMessageId}\`\n`;
+      response += `• Status: ${result.status}\n`;
+      response += `• Config: ${result.configId}\n`;
+      if (result.errorMessage) {
+        response += `• Error: ${result.errorMessage.substring(0, 100)}...\n`;
+      }
+      response += '\n';
+    }
+
+    // Test the specific query that edit handler uses
+    const { getMessageLogsByOriginalMessage } = require('../utils/database');
+    const editResults = await getMessageLogsByOriginalMessage(messageId);
+    response += `\n**Edit Handler Query Results:** ${editResults.length} entries\n`;
+    
+    if (editResults.length > 0) {
+      for (const edit of editResults) {
+        response += `• ${edit.originalMessageId} → ${edit.forwardedMessageId} (${edit.status})\n`;
       }
     }
-  } else {
+
     await interaction.reply({ content: response, ephemeral: true });
+
+  } catch (error) {
+    logInfo('Error in handleSearchDebug:', error);
+    await interaction.reply({ content: 'Failed to search database.', ephemeral: true });
   }
 }
 

@@ -4,6 +4,6 @@ data/userPoints.json
 licenses/*
 redeemed_licenses/*
 config/env.js
-data/rewards.db
-data/rewards.db-shm
-data/rewards.db-wal
+data/proforwarder.db
+data/proforwarder.db-shm
+data/proforwarder.db-wal

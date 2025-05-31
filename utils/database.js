@@ -158,6 +158,38 @@ async function getFailedMessages(limit = 50) {
   }
 }
 
+// Update message log with new forwarded message ID (for edits)
+async function updateMessageLog(logId, newForwardedMessageId) {
+  try {
+    await run(`
+      UPDATE message_logs
+      SET forwardedMessageId = ?
+      WHERE id = ?
+    `, [newForwardedMessageId, logId]);
+    return true;
+  } catch (error) {
+    logError('Error updating message log:', error);
+    throw error;
+  }
+}
+
+// Get message logs by original message ID (for edit/delete handling)
+async function getMessageLogsByOriginalMessage(originalMessageId) {
+  try {
+    const results = await all(`
+      SELECT * FROM message_logs
+      WHERE originalMessageId = ? AND status = 'success'
+      ORDER BY forwardedAt DESC
+    `, [originalMessageId]);
+    
+    logInfo(`Debug: Query for message ${originalMessageId} returned ${results.length} results`);
+    return results;
+  } catch (error) {
+    logError('Error getting message logs by original message:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   // Bot settings operations
   getBotSetting,
@@ -167,6 +199,8 @@ module.exports = {
   logForwardedMessage,
   getMessageLogs,
   getFailedMessages,
+  updateMessageLog,
+  getMessageLogsByOriginalMessage,
   // Database utilities
   run,
   get,

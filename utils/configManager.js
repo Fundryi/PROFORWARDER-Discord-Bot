@@ -4,9 +4,21 @@ const { logInfo, logSuccess, logError } = require('./logger');
 
 const CONFIG_PATH = path.join(__dirname, '..', 'config', 'env.js');
 
+// Cache for configs to avoid repeated file reads and logging
+let configCache = null;
+let lastConfigLoad = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 // Load and validate forward configurations from env.js
-async function loadForwardConfigs() {
+async function loadForwardConfigs(forceReload = false) {
   try {
+    const now = Date.now();
+    
+    // Use cache if it's still valid and not forced reload
+    if (!forceReload && configCache && (now - lastConfigLoad) < CACHE_DURATION) {
+      return configCache;
+    }
+    
     // Clear require cache to get fresh config
     const configPath = require.resolve('../config/env');
     delete require.cache[configPath];
@@ -19,7 +31,11 @@ async function loadForwardConfigs() {
     }
     
     if (!config.forwardConfigs || !Array.isArray(config.forwardConfigs)) {
-      logInfo('No forwardConfigs array found in env.js, using empty array');
+      if (!configCache) { // Only log if first time
+        logInfo('No forwardConfigs array found in env.js, using empty array');
+      }
+      configCache = [];
+      lastConfigLoad = now;
       return [];
     }
 
@@ -34,12 +50,17 @@ async function loadForwardConfigs() {
       }
     }
 
-    logInfo(`Loaded ${validConfigs.length} valid forward configurations`);
+    // Only log if configs changed or first load
+    if (!configCache || configCache.length !== validConfigs.length) {
+      logInfo(`Loaded ${validConfigs.length} valid forward configurations`);
+    }
+    
+    configCache = validConfigs;
+    lastConfigLoad = now;
     return validConfigs;
   } catch (error) {
     logError('Error loading forward configs:', error.message);
-    logError('Stack trace:', error.stack);
-    return [];
+    return configCache || [];
   }
 }
 
@@ -93,8 +114,8 @@ async function addForwardConfig(newConfig) {
     // Read current env.js content
     const envContent = await fs.readFile(CONFIG_PATH, 'utf8');
     
-    // Load current configs to check for duplicate IDs
-    const currentConfigs = await loadForwardConfigs();
+    // Load current configs to check for duplicate IDs (force reload)
+    const currentConfigs = await loadForwardConfigs(true);
     
     // Generate new ID
     const maxId = currentConfigs.length > 0 ? Math.max(...currentConfigs.map(c => c.id)) : 0;

@@ -45,13 +45,31 @@ async function getWebhook(targetChannel) {
 }
 
 // Send a message using webhook to perfectly mimic the original user
-async function sendWebhookMessage(targetChannel, originalMessage) {
+async function sendWebhookMessage(targetChannel, originalMessage, client = null) {
   try {
     const webhook = await getWebhook(targetChannel);
     
+    // Process content to handle cross-server emojis gracefully
+    let processedContent = originalMessage.content || '';
+    
+    // Convert custom emojis that won't work in target server to text names
+    if (processedContent) {
+      // Find custom emojis that don't exist in target server
+      const emojiRegex = /<(a?):(\w+):(\d+)>/g;
+      processedContent = processedContent.replace(emojiRegex, (match, animated, name, id) => {
+        // Check if emoji exists in target server
+        const existingEmoji = targetChannel.guild.emojis.cache.find(e => e.id === id || e.name === name);
+        if (existingEmoji) {
+          return match; // Keep original emoji format
+        } else {
+          return `:${name}:`; // Convert to text name
+        }
+      });
+    }
+    
     // Build webhook message options to perfectly mimic original
     const webhookOptions = {
-      content: originalMessage.content || undefined,
+      content: processedContent || undefined,
       username: originalMessage.member?.displayName || originalMessage.author.displayName || originalMessage.author.username,
       avatarURL: originalMessage.author.displayAvatarURL({ dynamic: true, size: 256 }),
       embeds: originalMessage.embeds.length > 0 ? originalMessage.embeds.slice(0, 10) : undefined, // Discord limit

@@ -58,14 +58,25 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
     }
 
     // Get message logs to find forwarded versions of this message
-    const { getMessageLogs } = require('../utils/database');
-    const messageLogs = await getMessageLogs();
-    const forwardedVersions = messageLogs.filter(log =>
-      log.originalMessageId === newMessage.id && log.status === 'success'
-    );
+    const { getMessageLogsByOriginalMessage } = require('../utils/database');
+    const forwardedVersions = await getMessageLogsByOriginalMessage(newMessage.id);
 
     if (forwardedVersions.length === 0) {
       logInfo(`Message edit detected but no forwarded versions found for message ${newMessage.id}`);
+      
+      // Debug: Let's check what's actually in the database
+      const { getMessageLogs } = require('../utils/database');
+      const allLogs = await getMessageLogs(null, 50);
+      logInfo(`Debug: Found ${allLogs.length} total message logs in database`);
+      
+      // Check if any logs match this message ID
+      const debugMatches = allLogs.filter(log => log.originalMessageId === newMessage.id);
+      logInfo(`Debug: Found ${debugMatches.length} logs matching message ID ${newMessage.id}`);
+      
+      if (debugMatches.length > 0) {
+        logInfo(`Debug: Matching logs:`, debugMatches.map(log => `${log.originalMessageId} -> ${log.forwardedMessageId} (status: ${log.status})`));
+      }
+      
       return;
     }
 
@@ -115,15 +126,50 @@ async function updateForwardedMessage(newMessage, logEntry, client) {
       throw new Error(`Forwarded message ${logEntry.forwardedMessageId} not found`);
     }
 
-    // Build updated content using the enhanced handler
-    const updatedContent = await forwardHandler.buildEnhancedMessage(newMessage, {
-      sourceServerId: logEntry.originalServerId,
-      targetServerId: logEntry.forwardedServerId
-    });
+    // Check if this is a webhook message (can't be edited)
+    if (forwardedMessage.webhookId) {
+      // For webhook messages, we need to delete and recreate
+      logInfo(`Webhook message detected - deleting and recreating for edit`);
+      
+      // Delete the old webhook message
+      await forwardedMessage.delete();
+      
+      // Send a new webhook message with updated content
+      const { sendWebhookMessage, hasWebhookPermissions } = require('../utils/webhookManager');
+      
+      if (hasWebhookPermissions(targetChannel, client.user)) {
+        const newForwardedMessage = await sendWebhookMessage(targetChannel, newMessage, client);
+        
+        // Update the database log with new message ID
+        const { updateMessageLog } = require('../utils/database');
+        await updateMessageLog(logEntry.id, newForwardedMessage.id);
+        
+        logSuccess(`Recreated webhook message in ${targetChannel.name} for edit`);
+      } else {
+        // Fallback to regular message if no webhook permissions
+        const updatedContent = await forwardHandler.buildEnhancedMessage(newMessage, {
+          sourceServerId: logEntry.originalServerId,
+          targetServerId: logEntry.forwardedServerId
+        });
+        
+        const newForwardedMessage = await targetChannel.send(updatedContent);
+        
+        // Update the database log with new message ID
+        const { updateMessageLog } = require('../utils/database');
+        await updateMessageLog(logEntry.id, newForwardedMessage.id);
+        
+        logSuccess(`Recreated fallback message in ${targetChannel.name} for edit`);
+      }
+    } else {
+      // Regular bot message - can be edited normally
+      const updatedContent = await forwardHandler.buildEnhancedMessage(newMessage, {
+        sourceServerId: logEntry.originalServerId,
+        targetServerId: logEntry.forwardedServerId
+      });
 
-    // Update the forwarded message
-    await forwardedMessage.edit(updatedContent);
-    logSuccess(`Updated forwarded message in ${targetChannel.name}`);
+      await forwardedMessage.edit(updatedContent);
+      logSuccess(`Updated forwarded message in ${targetChannel.name}`);
+    }
 
   } catch (error) {
     logError('Error updating forwarded message:', error);
@@ -141,11 +187,8 @@ async function handleMessageDelete(message, client) {
     if (message.partial) return;
 
     // Get message logs to find forwarded versions of this message
-    const { getMessageLogs } = require('../utils/database');
-    const messageLogs = await getMessageLogs();
-    const forwardedVersions = messageLogs.filter(log =>
-      log.originalMessageId === message.id && log.status === 'success'
-    );
+    const { getMessageLogsByOriginalMessage } = require('../utils/database');
+    const forwardedVersions = await getMessageLogsByOriginalMessage(message.id);
 
     if (forwardedVersions.length === 0) {
       logInfo(`Message deletion detected but no forwarded versions found for message ${message.id}`);

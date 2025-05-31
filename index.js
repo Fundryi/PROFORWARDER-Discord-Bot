@@ -23,6 +23,7 @@ const { db } = require('./utils/database');
 const { logInfo, logSuccess, logError } = require('./utils/logger');
 const config = require('./config/env');
 const { proforwardCommand, handleProforwardCommand } = require('./commands/proforwardCommand');
+const { debugCommand, handleDebugCommand } = require('./commands/debugCommands');
 const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
 const { handleReactionAdd, handleReactionRemove, handleReactionRemoveAll } = require('./events/reactionEvents');
 
@@ -68,6 +69,8 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.commandName === 'proforward') {
     await handleProforwardCommand(interaction);
+  } else if (interaction.commandName === 'debug') {
+    await handleDebugCommand(interaction);
   } else {
     await interaction.reply({ content: 'Unknown command', ephemeral: true });
   }
@@ -78,9 +81,10 @@ client.on("ready", async () => {
   
   try {
     logInfo('Started refreshing application (/) commands...');
-    await client.application.commands.set([proforwardCommand]);
-    logSuccess('Successfully registered ProForwarder command:');
+    await client.application.commands.set([proforwardCommand, debugCommand]);
+    logSuccess('Successfully registered ProForwarder commands:');
     logInfo(`- /proforward ${config.debugMode ? '(DEBUG MODE)' : '(production mode)'}`);
+    logInfo(`- /debug (admin-only debugging tools)`);
   } catch (error) {
     logError('Error registering commands:', error);
   }
