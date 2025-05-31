@@ -17,11 +17,6 @@ class ApplicationEmojiManager {
     this.applicationId = null;
     this.isCleaningUp = false;
     
-    // Debug info about setup
-    logInfo(`Initializing Application Emoji Manager`);
-    logInfo(`Bot token available: ${!!process.env.BOT_TOKEN}`);
-    logInfo(`Bot token length: ${process.env.BOT_TOKEN ? process.env.BOT_TOKEN.length : 0}`);
-    logInfo(`REST API version: 10`);
     
     // Initialize application ID
     this.initializeApplication();
@@ -288,70 +283,21 @@ class ApplicationEmojiManager {
         throw new Error('Application ID not available');
       }
 
-      // Debug info about the API call
-      const endpoint = Routes.applicationEmojis(this.applicationId);
-      logInfo(`=== APPLICATION EMOJI API DEBUG ===`);
-      logInfo(`Application ID: ${this.applicationId}`);
-      logInfo(`API Endpoint: ${endpoint}`);
-      logInfo(`Full URL: https://discord.com/api/v10${endpoint}`);
-      logInfo(`Token available: ${!!process.env.BOT_TOKEN}`);
-      logInfo(`Token starts with: ${process.env.BOT_TOKEN ? process.env.BOT_TOKEN.substring(0, 10) + '...' : 'N/A'}`);
+      const emojis = await this.rest.get(Routes.applicationEmojis(this.applicationId));
       
-      // Check bot permissions and info
-      if (this.client.user) {
-        logInfo(`Bot user ID: ${this.client.user.id}`);
-        logInfo(`Bot username: ${this.client.user.username}`);
-        logInfo(`Bot application ID matches: ${this.client.user.id === this.applicationId}`);
-      }
-
-      logInfo(`Making API call to fetch application emojis...`);
-      const startTime = Date.now();
-      
-      const emojis = await this.rest.get(endpoint);
-      
-      const duration = Date.now() - startTime;
-      logInfo(`API call completed in ${duration}ms`);
-      logInfo(`Response type: ${typeof emojis}`);
-      logInfo(`Response is array: ${Array.isArray(emojis)}`);
-      logInfo(`Response length: ${Array.isArray(emojis) ? emojis.length : 'N/A'}`);
-      
-      if (emojis && typeof emojis === 'object') {
-        logInfo(`Response keys: ${Object.keys(emojis)}`);
-        
-        // Handle paginated response format
-        if (emojis.items && Array.isArray(emojis.items)) {
-          logInfo(`Found ${emojis.items.length} emojis in paginated response`);
-          if (emojis.items.length > 0) {
-            logInfo(`First emoji structure:`, emojis.items[0]);
-          }
-          logInfo(`Emoji names found: ${emojis.items.map(e => e.name).join(', ')}`);
-          logInfo(`=== END API DEBUG ===`);
-          return emojis.items;
-        }
-        
-        // Handle direct array response (fallback)
-        if (Array.isArray(emojis) && emojis.length > 0) {
-          logInfo(`First emoji structure:`, emojis[0]);
-        }
+      // Handle paginated response format
+      if (emojis && emojis.items && Array.isArray(emojis.items)) {
+        return emojis.items;
       }
       
+      // Handle direct array response (fallback)
       if (Array.isArray(emojis)) {
-        logInfo(`Emoji names found: ${emojis.map(e => e.name).join(', ')}`);
-        logInfo(`=== END API DEBUG ===`);
         return emojis;
       }
       
-      logInfo(`Response format not recognized - returning empty array`);
-      logInfo(`=== END API DEBUG ===`);
       return [];
     } catch (error) {
-      logError('=== APPLICATION EMOJI API ERROR ===');
       logError('Error getting application emojis:', error.message);
-      logError('Error code:', error.code);
-      logError('Error status:', error.status);
-      logError('Error headers:', error.headers);
-      logError('Full error object:', error);
-      logError('=== END API ERROR ===');
       return [];
     }
   }

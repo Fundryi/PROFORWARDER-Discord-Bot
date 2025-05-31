@@ -67,6 +67,23 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
 
       if (forwardedVersions.length === 0) {
         logInfo(`Message edit detected but no forwarded versions found for message ${newMessage.id}`);
+        
+        // Debug: Let's check what's actually in the database
+        const { getMessageLogs } = require('../utils/database');
+        const allLogs = await getMessageLogs(null, 50);
+        logInfo(`Debug: Found ${allLogs.length} total message logs in database`);
+        
+        // Check if any logs match this message ID
+        const debugMatches = allLogs.filter(log => log.originalMessageId === newMessage.id);
+        logInfo(`Debug: Found ${debugMatches.length} logs matching message ID ${newMessage.id}`);
+        
+        if (debugMatches.length > 0) {
+          logInfo(`Debug: Matching logs found but query failed - possible data type issue`);
+          for (const match of debugMatches) {
+            logInfo(`  - ${match.originalMessageId} (${typeof match.originalMessageId}) -> ${match.forwardedMessageId} (status: ${match.status})`);
+          }
+        }
+        
         return;
       }
 
