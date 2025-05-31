@@ -61,10 +61,29 @@ async function initializeDatabase() {
       )
     `);
 
+    // Create message logs for tracking forwarded messages
+    await run(`
+      CREATE TABLE IF NOT EXISTS message_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        originalMessageId TEXT NOT NULL,
+        originalChannelId TEXT NOT NULL,
+        originalServerId TEXT,
+        forwardedMessageId TEXT,
+        forwardedChannelId TEXT,
+        forwardedServerId TEXT,
+        configId INTEGER NOT NULL, -- References config ID from env.js
+        forwardedAt INTEGER NOT NULL,
+        status TEXT DEFAULT 'success', -- 'success', 'failed', 'retry'
+        errorMessage TEXT
+      )
+    `);
+
     // Create indexes for common queries
     await run('CREATE INDEX IF NOT EXISTS idx_bot_settings_key ON bot_settings(key)');
+    await run('CREATE INDEX IF NOT EXISTS idx_message_logs_original ON message_logs(originalMessageId, originalChannelId)');
+    await run('CREATE INDEX IF NOT EXISTS idx_message_logs_config ON message_logs(configId, forwardedAt)');
 
-    logSuccess('Database tables ready');
+    logSuccess('Database tables ready (forward configs now in env.js)');
   } catch (error) {
     logError('Error initializing database', error);
   }
@@ -103,11 +122,51 @@ async function getAllBotSettings() {
   }
 }
 
+
+// Message logging operations
+async function logForwardedMessage(originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, status = 'success', errorMessage = null) {
+  try {
+    await run(
+      `INSERT INTO message_logs (originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, forwardedAt, status, errorMessage)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, Date.now(), status, errorMessage]
+    );
+  } catch (error) {
+    logError('Error logging forwarded message:', error);
+    throw error;
+  }
+}
+
+async function getMessageLogs(configId = null, limit = 100) {
+  try {
+    if (configId) {
+      return await all('SELECT * FROM message_logs WHERE configId = ? ORDER BY forwardedAt DESC LIMIT ?', [configId, limit]);
+    }
+    return await all('SELECT * FROM message_logs ORDER BY forwardedAt DESC LIMIT ?', [limit]);
+  } catch (error) {
+    logError('Error getting message logs:', error);
+    throw error;
+  }
+}
+
+async function getFailedMessages(limit = 50) {
+  try {
+    return await all('SELECT * FROM message_logs WHERE status = "failed" ORDER BY forwardedAt DESC LIMIT ?', [limit]);
+  } catch (error) {
+    logError('Error getting failed messages:', error);
+    throw error;
+  }
+}
+
 module.exports = {
   // Bot settings operations
   getBotSetting,
   setBotSetting,
   getAllBotSettings,
+  // Message logging operations
+  logForwardedMessage,
+  getMessageLogs,
+  getFailedMessages,
   // Database utilities
   run,
   get,

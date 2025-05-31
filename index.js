@@ -22,6 +22,9 @@ const { Client, GatewayIntentBits } = require("discord.js");
 const { db } = require('./utils/database');
 const { logInfo, logSuccess, logError } = require('./utils/logger');
 const config = require('./config/env');
+const { proforwardCommand, handleProforwardCommand } = require('./commands/proforwardCommand');
+const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
+const { handleReactionAdd, handleReactionRemove, handleReactionRemoveAll } = require('./events/reactionEvents');
 
 logInfo('Bot is starting up...');
 logInfo('Initializing client with required intents...');
@@ -36,16 +39,48 @@ const client = new Client({
 });
 
 // Event Handlers
-// TODO: Add message forwarding event handlers
+client.on("messageCreate", async (message) => {
+  await handleMessageCreate(message, client);
+});
+
+client.on("messageUpdate", async (oldMessage, newMessage) => {
+  await handleMessageUpdate(oldMessage, newMessage, client);
+});
+
+client.on("messageDelete", async (message) => {
+  await handleMessageDelete(message, client);
+});
+
+client.on("messageReactionAdd", async (reaction, user) => {
+  await handleReactionAdd(reaction, user, client);
+});
+
+client.on("messageReactionRemove", async (reaction, user) => {
+  await handleReactionRemove(reaction, user, client);
+});
+
+client.on("messageReactionRemoveAll", async (message, reactions) => {
+  await handleReactionRemoveAll(message, reactions, client);
+});
+
+client.on("interactionCreate", async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'proforward') {
+    await handleProforwardCommand(interaction);
+  } else {
+    await interaction.reply({ content: 'Unknown command', ephemeral: true });
+  }
+});
 
 client.on("ready", async () => {
   logInfo('Bot is ready!');
   
   try {
     logInfo('Started refreshing application (/) commands...');
-    // TODO: Register forward commands
-    await client.application.commands.set([]);
-    logSuccess('Commands registered successfully');
+    await client.application.commands.set([proforwardCommand]);
+    logSuccess('Successfully registered ProForwarder command:');
+    logInfo(`- /proforward ${config.debugMode ? '(DEBUG MODE)' : '(production mode)'}`);
   } catch (error) {
     logError('Error registering commands:', error);
   }
