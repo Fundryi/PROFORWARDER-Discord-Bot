@@ -151,6 +151,32 @@ async function handleStats(interaction) {
           **Cross-Server:** ${configStats.crossServer}`,
           inline: true
         }
+      );
+
+    // Try to get emoji stats if available
+    try {
+      const { initializeAppEmojiManager } = require('../utils/webhookManager');
+      const appEmojiManager = initializeAppEmojiManager(interaction.client);
+      if (appEmojiManager) {
+        const emojiStats = appEmojiManager.getEmojiStats();
+        statsEmbed.addFields({
+          name: '😀 Application Emojis',
+          value: `**Uploaded:** ${emojiStats.cachedEmojis}/2000
+          **Total Usage:** ${emojiStats.totalUsage}
+          **Memory:** ${emojiStats.cacheMemoryUsage}`,
+          inline: true
+        });
+      }
+    } catch (emojiError) {
+      // Emoji stats not available
+    }
+
+    statsEmbed.addFields(
+        {
+          name: '\u200b', // Empty field for spacing
+          value: '\u200b',
+          inline: false
+        }
       )
       .setFooter({ text: 'Statistics based on recent activity' })
       .setTimestamp();

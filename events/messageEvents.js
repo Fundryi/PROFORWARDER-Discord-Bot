@@ -52,43 +52,39 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
       return;
     }
 
-    // Initialize handler if not already done
-    if (!forwardHandler) {
-      initializeForwardHandler(client);
-    }
+    // Mark message as being edited to prevent deletion interference
+    currentlyEditing.add(newMessage.id);
 
-    // Get message logs to find forwarded versions of this message
-    const { getMessageLogsByOriginalMessage } = require('../utils/database');
-    const forwardedVersions = await getMessageLogsByOriginalMessage(newMessage.id);
-
-    if (forwardedVersions.length === 0) {
-      logInfo(`Message edit detected but no forwarded versions found for message ${newMessage.id}`);
-      
-      // Debug: Let's check what's actually in the database
-      const { getMessageLogs } = require('../utils/database');
-      const allLogs = await getMessageLogs(null, 50);
-      logInfo(`Debug: Found ${allLogs.length} total message logs in database`);
-      
-      // Check if any logs match this message ID
-      const debugMatches = allLogs.filter(log => log.originalMessageId === newMessage.id);
-      logInfo(`Debug: Found ${debugMatches.length} logs matching message ID ${newMessage.id}`);
-      
-      if (debugMatches.length > 0) {
-        logInfo(`Debug: Matching logs:`, debugMatches.map(log => `${log.originalMessageId} -> ${log.forwardedMessageId} (status: ${log.status})`));
+    try {
+      // Initialize handler if not already done
+      if (!forwardHandler) {
+        initializeForwardHandler(client);
       }
-      
-      return;
-    }
 
-    logInfo(`Message edit detected: updating ${forwardedVersions.length} forwarded versions`);
+      // Get message logs to find forwarded versions of this message
+      const { getMessageLogsByOriginalMessage } = require('../utils/database');
+      const forwardedVersions = await getMessageLogsByOriginalMessage(newMessage.id);
 
-    // Update each forwarded version
-    for (const logEntry of forwardedVersions) {
-      try {
-        await updateForwardedMessage(newMessage, logEntry, client);
-      } catch (error) {
-        logError(`Failed to update forwarded message ${logEntry.forwardedMessageId}:`, error);
+      if (forwardedVersions.length === 0) {
+        logInfo(`Message edit detected but no forwarded versions found for message ${newMessage.id}`);
+        return;
       }
+
+      logInfo(`Message edit detected: updating ${forwardedVersions.length} forwarded versions`);
+
+      // Update each forwarded version
+      for (const logEntry of forwardedVersions) {
+        try {
+          await updateForwardedMessage(newMessage, logEntry, client);
+        } catch (error) {
+          logError(`Failed to update forwarded message ${logEntry.forwardedMessageId}:`, error);
+        }
+      }
+    } finally {
+      // Remove from editing set after a delay to allow deletion to complete
+      setTimeout(() => {
+        currentlyEditing.delete(newMessage.id);
+      }, 5000); // 5 second delay
     }
     
   } catch (error) {
@@ -177,6 +173,9 @@ async function updateForwardedMessage(newMessage, logEntry, client) {
   }
 }
 
+// Track messages being edited to avoid double-deletion
+const currentlyEditing = new Set();
+
 // Handle message deletions
 async function handleMessageDelete(message, client) {
   try {
@@ -185,6 +184,12 @@ async function handleMessageDelete(message, client) {
     
     // Skip partial messages
     if (message.partial) return;
+
+    // Skip if this message is currently being edited (to avoid interference)
+    if (currentlyEditing.has(message.id)) {
+      logInfo(`Skipping deletion of message ${message.id} - currently being edited`);
+      return;
+    }
 
     // Get message logs to find forwarded versions of this message
     const { getMessageLogsByOriginalMessage } = require('../utils/database');

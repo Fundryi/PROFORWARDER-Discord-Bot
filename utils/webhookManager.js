@@ -1,7 +1,19 @@
 const { logInfo, logSuccess, logError } = require('./logger');
+const ApplicationEmojiManager = require('./applicationEmojiManager');
 
 // Cache for webhooks to avoid recreating them
 const webhookCache = new Map();
+
+// Global application emoji manager instance
+let appEmojiManager = null;
+
+// Initialize application emoji manager
+function initializeAppEmojiManager(client) {
+  if (!appEmojiManager && client) {
+    appEmojiManager = new ApplicationEmojiManager(client);
+  }
+  return appEmojiManager;
+}
 
 // Get or create a webhook for a target channel
 async function getWebhook(targetChannel) {
@@ -49,22 +61,15 @@ async function sendWebhookMessage(targetChannel, originalMessage, client = null)
   try {
     const webhook = await getWebhook(targetChannel);
     
-    // Process content to handle cross-server emojis gracefully
-    let processedContent = originalMessage.content || '';
+    // Initialize application emoji manager if client is provided
+    if (client && !appEmojiManager) {
+      initializeAppEmojiManager(client);
+    }
     
-    // Convert custom emojis that won't work in target server to text names
-    if (processedContent) {
-      // Find custom emojis that don't exist in target server
-      const emojiRegex = /<(a?):(\w+):(\d+)>/g;
-      processedContent = processedContent.replace(emojiRegex, (match, animated, name, id) => {
-        // Check if emoji exists in target server
-        const existingEmoji = targetChannel.guild.emojis.cache.find(e => e.id === id || e.name === name);
-        if (existingEmoji) {
-          return match; // Keep original emoji format
-        } else {
-          return `:${name}:`; // Convert to text name
-        }
-      });
+    // Process content for cross-server emojis using application-level emoji storage
+    let processedContent = originalMessage.content || '';
+    if (appEmojiManager && processedContent) {
+      processedContent = await appEmojiManager.processMessageEmojis(processedContent, targetChannel.guild);
     }
     
     // Build webhook message options to perfectly mimic original
@@ -147,5 +152,6 @@ function hasWebhookPermissions(channel, clientUser) {
 module.exports = {
   getWebhook,
   sendWebhookMessage,
-  hasWebhookPermissions
+  hasWebhookPermissions,
+  initializeAppEmojiManager
 };
