@@ -78,10 +78,24 @@ async function initializeDatabase() {
       )
     `);
 
+    // Create translation threads table for persistent thread tracking
+    await run(`
+      CREATE TABLE IF NOT EXISTS translation_threads (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        forwardedMessageId TEXT NOT NULL,
+        threadId TEXT NOT NULL,
+        language TEXT NOT NULL,
+        createdAt INTEGER NOT NULL,
+        archived INTEGER DEFAULT 0
+      )
+    `);
+
     // Create indexes for common queries
     await run('CREATE INDEX IF NOT EXISTS idx_bot_settings_key ON bot_settings(key)');
     await run('CREATE INDEX IF NOT EXISTS idx_message_logs_original ON message_logs(originalMessageId, originalChannelId)');
     await run('CREATE INDEX IF NOT EXISTS idx_message_logs_config ON message_logs(configId, forwardedAt)');
+    await run('CREATE INDEX IF NOT EXISTS idx_translation_threads_message ON translation_threads(forwardedMessageId)');
+    await run('CREATE INDEX IF NOT EXISTS idx_translation_threads_thread ON translation_threads(threadId)');
 
     logSuccess('Database tables ready (forward configs now in env.js)');
   } catch (error) {
@@ -442,6 +456,97 @@ async function cleanupOrphanedLogs(client, limit = 50) {
   }
 }
 
+// Translation threads operations
+async function logTranslationThread(forwardedMessageId, threadId, language) {
+  try {
+    await run(
+      `INSERT INTO translation_threads (forwardedMessageId, threadId, language, createdAt)
+       VALUES (?, ?, ?, ?)`,
+      [forwardedMessageId, threadId, language, Date.now()]
+    );
+  } catch (error) {
+    logError('Error logging translation thread:', error);
+    throw error;
+  }
+}
+
+async function getTranslationThreads(forwardedMessageId) {
+  try {
+    return await all(
+      'SELECT * FROM translation_threads WHERE forwardedMessageId = ? AND archived = 0',
+      [forwardedMessageId]
+    );
+  } catch (error) {
+    logError('Error getting translation threads:', error);
+    throw error;
+  }
+}
+
+async function archiveTranslationThread(threadId) {
+  try {
+    await run(
+      'UPDATE translation_threads SET archived = 1 WHERE threadId = ?',
+      [threadId]
+    );
+  } catch (error) {
+    logError('Error archiving translation thread:', error);
+    throw error;
+  }
+}
+
+async function deleteTranslationThreads(forwardedMessageId) {
+  try {
+    const result = await run(
+      'DELETE FROM translation_threads WHERE forwardedMessageId = ?',
+      [forwardedMessageId]
+    );
+    logInfo(`🗑️ Cleaned up ${result.changes || 0} translation thread entries for message ${forwardedMessageId}`);
+    return result.changes || 0;
+  } catch (error) {
+    logError('Error deleting translation threads:', error);
+    throw error;
+  }
+}
+
+// Clean up orphaned translation threads (where thread no longer exists on Discord)
+async function cleanupOrphanedThreads(client, limit = 50) {
+  try {
+    logInfo(`🧹 Cleaning up orphaned translation threads (checking last ${limit} entries)...`);
+    
+    const threads = await all(
+      'SELECT * FROM translation_threads WHERE archived = 0 ORDER BY createdAt DESC LIMIT ?',
+      [limit]
+    );
+    
+    let deletedCount = 0;
+    
+    for (const threadData of threads) {
+      try {
+        // Try to fetch the thread from Discord
+        const thread = await client.channels.fetch(threadData.threadId);
+        if (!thread) {
+          // Thread doesn't exist, remove from database
+          await run('DELETE FROM translation_threads WHERE id = ?', [threadData.id]);
+          deletedCount++;
+          logInfo(`🗑️ Cleaned up orphaned thread entry: ${threadData.threadId} (${threadData.language})`);
+        }
+      } catch (error) {
+        // Thread doesn't exist or can't be accessed, remove from database
+        await run('DELETE FROM translation_threads WHERE id = ?', [threadData.id]);
+        deletedCount++;
+        logInfo(`🗑️ Cleaned up orphaned thread entry: ${threadData.threadId} (${threadData.language}) - Error: ${error.message}`);
+      }
+    }
+    
+    logSuccess(`🧹 Thread cleanup complete: Removed ${deletedCount} orphaned thread entries`);
+    return deletedCount;
+    
+  } catch (error) {
+    logError('Error cleaning up orphaned threads:', error);
+    return 0;
+  }
+}
+
 module.exports = {
   // Bot settings operations
   getBotSetting,
@@ -456,6 +561,12 @@ module.exports = {
   validateRecentMessageLogs,
   cleanupDeletedMessage,
   cleanupOrphanedLogs,
+  // Translation threads operations
+  logTranslationThread,
+  getTranslationThreads,
+  archiveTranslationThread,
+  deleteTranslationThreads,
+  cleanupOrphanedThreads,
   // Database utilities
   run,
   get,

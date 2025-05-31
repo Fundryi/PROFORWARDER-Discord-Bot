@@ -6,9 +6,12 @@ const { getForwardConfigsForChannel } = require('../utils/configManager');
 let forwardHandler = null;
 
 // Initialize forward handler
-function initializeForwardHandler(client) {
+async function initializeForwardHandler(client) {
   if (!forwardHandler) {
     forwardHandler = new ForwardHandler(client);
+    
+    // Initialize AI features
+    await forwardHandler.initialize();
     
     // Start retry queue processor (runs every 5 minutes)
     setInterval(() => {
@@ -25,7 +28,7 @@ async function handleMessageCreate(message, client) {
   try {
     // Initialize handler if not already done
     if (!forwardHandler) {
-      initializeForwardHandler(client);
+      await initializeForwardHandler(client);
     }
 
     // Use enhanced forward handler
@@ -72,7 +75,13 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
     try {
       // Initialize handler if not already done
       if (!forwardHandler) {
-        initializeForwardHandler(client);
+        await initializeForwardHandler(client);
+      }
+
+      // Handle AI-related processing for message edits
+      const configs = await getForwardConfigsForChannel(newMessage.channel.id);
+      for (const config of configs) {
+        await forwardHandler.handleMessageEdit(oldMessage, newMessage, config);
       }
 
       // Get message logs to find forwarded versions of this message (using working approach from reactions)
@@ -258,6 +267,14 @@ async function handleMessageDelete(message, client) {
       return;
     }
 
+    // Initialize handler if not already done for AI processing
+    if (!forwardHandler) {
+      await initializeForwardHandler(client);
+    }
+
+    // Handle AI-related processing for message deletion
+    await forwardHandler.handleMessageDelete(message);
+
     // Get message logs to find forwarded versions of this message (using working approach from reactions)
     const { getMessageLogs } = require('../utils/database');
     const messageLogs = await getMessageLogs();
@@ -319,7 +336,7 @@ async function handleMessageDelete(message, client) {
   }
 }
 
-// Delete a specific forwarded message
+// Delete a specific forwarded message and its translation threads
 async function deleteForwardedMessage(logEntry, client) {
   try {
     // Get the target channel
@@ -343,11 +360,25 @@ async function deleteForwardedMessage(logEntry, client) {
       throw new Error(`Target channel ${logEntry.forwardedChannelId} not found`);
     }
 
-    // Get and delete the forwarded message
-    const forwardedMessage = await targetChannel.messages.fetch(logEntry.forwardedMessageId);
+    // Get the forwarded message first (before deleting)
+    let forwardedMessage = null;
+    try {
+      forwardedMessage = await targetChannel.messages.fetch(logEntry.forwardedMessageId);
+    } catch (fetchError) {
+      if (fetchError.code === 10008) { // Unknown Message
+        logInfo(`Forwarded message ${logEntry.forwardedMessageId} already deleted`);
+        return; // Message already gone, no threads to clean up
+      }
+      throw fetchError;
+    }
+
+    // Delete translation threads if they exist
     if (forwardedMessage) {
+      await deleteTranslationThreads(forwardedMessage, client);
+      
+      // Delete the forwarded message
       await forwardedMessage.delete();
-      logSuccess(`Deleted forwarded message in ${targetChannel.name}`);
+      logSuccess(`Deleted forwarded message and translation threads in ${targetChannel.name}`);
     }
 
   } catch (error) {
@@ -357,6 +388,47 @@ async function deleteForwardedMessage(logEntry, client) {
     } else {
       throw error;
     }
+  }
+}
+
+// Delete translation threads for a forwarded message
+async function deleteTranslationThreads(forwardedMessage, client) {
+  try {
+    const threadManager = require('../utils/threadManager');
+    
+    // Get threads associated with this message (now async)
+    const messageThreads = await threadManager.getThreadsForMessage(forwardedMessage.id);
+    
+    if (messageThreads.length === 0) {
+      logInfo(`No translation threads found for message ${forwardedMessage.id}`);
+      return;
+    }
+
+    logInfo(`Found ${messageThreads.length} translation threads to delete for message ${forwardedMessage.id}`);
+
+    // Delete each thread
+    for (const threadData of messageThreads) {
+      try {
+        const thread = await client.channels.fetch(threadData.threadId);
+        if (thread) {
+          await thread.delete('Source message deleted');
+          logSuccess(`Deleted translation thread: ${thread.name} (${threadData.language})`);
+        }
+      } catch (threadError) {
+        if (threadError.code === 10008) { // Unknown Channel (thread already deleted)
+          logInfo(`Translation thread ${threadData.threadId} already deleted`);
+        } else {
+          logError(`Failed to delete translation thread ${threadData.threadId}:`, threadError);
+        }
+      }
+    }
+
+    // Clean up thread tracking for this specific message (now async)
+    await threadManager.cleanupMessageThreads(forwardedMessage.id);
+    
+  } catch (error) {
+    logError('Error deleting translation threads:', error);
+    // Don't throw - we still want to delete the main message
   }
 }
 

@@ -196,6 +196,26 @@ async function disableForwardConfig(configId) {
   }
 }
 
+// Get default AI configuration for new forward configs
+function getDefaultAIConfig() {
+  return {
+    enabled: false, // Disabled by default
+    translation: {
+      enabled: false,
+      targetLanguages: ['ru', 'zh'], // Default to Russian and Chinese
+      createThreads: true,
+      provider: 'gemini', // Default to Google Gemini AI
+      preserveFormatting: true,
+      notifyTranslations: false
+    },
+    contentOptimization: {
+      enabled: false, // Disabled by default (requires paid OpenAI)
+      level: 'enhanced',
+      platformSpecific: false
+    }
+  };
+}
+
 // Format a config object as a string for insertion into env.js
 function formatConfigObject(config) {
   const lines = ['{'];
@@ -209,7 +229,30 @@ function formatConfigObject(config) {
   if (config.targetServerId) lines.push(`      targetServerId: "${config.targetServerId}",`);
   lines.push(`      targetChannelId: "${config.targetChannelId}",`);
   lines.push(`      enabled: true,`);
-  if (config.createdBy) lines.push(`      createdBy: "${config.createdBy}"`);
+  if (config.allowEveryoneHereMentions !== undefined) {
+    lines.push(`      allowEveryoneHereMentions: ${config.allowEveryoneHereMentions},`);
+  }
+  if (config.createdBy) lines.push(`      createdBy: "${config.createdBy}",`);
+  
+  // Add default AI configuration for new configs
+  lines.push(`      `);
+  lines.push(`      // AI Translation Configuration (customize as needed)`);
+  lines.push(`      ai: {`);
+  lines.push(`        enabled: false, // Set to true to enable AI features`);
+  lines.push(`        translation: {`);
+  lines.push(`          enabled: false, // Enable translation`);
+  lines.push(`          targetLanguages: ['ru', 'zh'], // Languages to translate to (Russian, Chinese)`);
+  lines.push(`          createThreads: true, // Create Discord threads for translations`);
+  lines.push(`          provider: 'gemini', // 'gemini' (free AI), 'google' (free fallback)`);
+  lines.push(`          preserveFormatting: true, // Keep Discord formatting`);
+  lines.push(`          notifyTranslations: false // Notification when translations complete`);
+  lines.push(`        },`);
+  lines.push(`        contentOptimization: {`);
+  lines.push(`          enabled: false, // Enable content optimization (requires OpenAI)`);
+  lines.push(`          level: 'enhanced', // 'basic', 'enhanced', 'custom'`);
+  lines.push(`          platformSpecific: false // Optimize for target platform`);
+  lines.push(`        }`);
+  lines.push(`      }`);
   
   lines.push('    }');
   

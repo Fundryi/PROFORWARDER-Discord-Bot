@@ -2,6 +2,7 @@ const { logInfo, logSuccess, logError } = require('../utils/logger');
 const { logForwardedMessage } = require('../utils/database');
 const { getForwardConfigsForChannel } = require('../utils/configManager');
 const { sendWebhookMessage, hasWebhookPermissions } = require('../utils/webhookManager');
+const AIHandler = require('./aiHandler');
 
 // Enhanced forward handler with advanced message processing
 class ForwardHandler {
@@ -9,6 +10,25 @@ class ForwardHandler {
     this.client = client;
     this.forwardQueue = new Map(); // For rate limiting and batching
     this.retryQueue = new Map(); // For failed messages
+    this.aiHandler = new AIHandler(client);
+    this.aiInitialized = false;
+  }
+
+  /**
+   * Initialize the ForwardHandler with AI features
+   */
+  async initialize() {
+    try {
+      this.aiInitialized = await this.aiHandler.initialize();
+      if (this.aiInitialized) {
+        logSuccess('ForwardHandler initialized with AI features');
+      } else {
+        logInfo('ForwardHandler initialized without AI features');
+      }
+    } catch (error) {
+      logError('Error initializing ForwardHandler AI features:', error);
+      this.aiInitialized = false;
+    }
   }
 
   // Main forwarding orchestrator
@@ -98,6 +118,12 @@ class ForwardHandler {
 
         logSuccess(`✅ Webhook forwarded message from ${message.channel.name} to ${targetChannel.name}`);
         logInfo(`Debug: Logged forward - Original: ${message.id} -> Forwarded: ${forwardedMessage.id}`);
+        
+        // Process AI features for the forwarded message
+        if (this.aiInitialized && config.ai?.enabled) {
+          this.processAIFeatures(forwardedMessage, message, config);
+        }
+        
         return forwardedMessage;
       }
       
@@ -133,6 +159,12 @@ class ForwardHandler {
       );
 
       logSuccess(`✅ Fallback forwarded message from ${message.channel.name} to ${targetChannel.name}`);
+      
+      // Process AI features for the forwarded message
+      if (this.aiInitialized && config.ai?.enabled) {
+        this.processAIFeatures(forwardedMessage, message, config);
+      }
+      
       return forwardedMessage;
 
     } catch (error) {
@@ -394,6 +426,66 @@ class ForwardHandler {
         error: data.error
       }))
     };
+  }
+
+  /**
+   * Process AI features for forwarded message (async, non-blocking)
+   */
+  processAIFeatures(forwardedMessage, originalMessage, config) {
+    // Process AI features asynchronously to not block forwarding
+    setImmediate(async () => {
+      try {
+        await this.aiHandler.processForwardedMessage(forwardedMessage, originalMessage, config);
+      } catch (error) {
+        logError('AI processing error (non-blocking):', error);
+      }
+    });
+  }
+
+  /**
+   * Handle message edits for AI-processed messages
+   */
+  async handleMessageEdit(oldMessage, newMessage, config) {
+    if (this.aiInitialized && config.ai?.enabled) {
+      try {
+        await this.aiHandler.handleMessageEdit(oldMessage, newMessage, config);
+      } catch (error) {
+        logError('AI message edit handling error:', error);
+      }
+    }
+  }
+
+  /**
+   * Handle message deletion for AI-processed messages
+   */
+  async handleMessageDelete(message) {
+    if (this.aiInitialized) {
+      try {
+        await this.aiHandler.handleMessageDelete(message);
+      } catch (error) {
+        logError('AI message deletion handling error:', error);
+      }
+    }
+  }
+
+  /**
+   * Get AI processing statistics
+   */
+  getAIStats() {
+    if (this.aiInitialized) {
+      return this.aiHandler.getStats();
+    }
+    return { initialized: false, reason: 'AI Handler not initialized' };
+  }
+
+  /**
+   * Test AI functionality
+   */
+  async testAI() {
+    if (this.aiInitialized) {
+      return await this.aiHandler.testAIFunctionality();
+    }
+    return { error: 'AI Handler not initialized' };
   }
 }
 

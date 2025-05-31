@@ -86,11 +86,14 @@ client.on("ready", async () => {
   }
 
   // Validate recent message logs on startup
-  const { validateRecentMessageLogs, cleanupOrphanedLogs } = require('./utils/database');
+  const { validateRecentMessageLogs, cleanupOrphanedLogs, cleanupOrphanedThreads } = require('./utils/database');
   await validateRecentMessageLogs(client, 20);
   
   // Clean up orphaned logs from previous sessions
   await cleanupOrphanedLogs(client, 50);
+  
+  // Clean up orphaned translation threads from previous sessions
+  await cleanupOrphanedThreads(client, 50);
   
   logSuccess(`Successfully logged in as ${client.user.tag}`);
   logInfo('ProForwarder bot is ready to forward messages!');
