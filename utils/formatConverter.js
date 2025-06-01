@@ -94,7 +94,7 @@ class FormatConverter {
           protectedElements.push(`\`\`\`${language}\n${escapedCode}\`\`\``);
         } else {
           const escapedCode = code.replace(/([`\\])/g, '\\$1');
-          protectedElements.push(`\`\`\`\n${escapedCode}\`\`\``);
+          protectedElements.push(`\`\`\`${escapedCode}\`\`\``);
         }
         return `XPROTECTEDX${index}XPROTECTEDX`;
       });
