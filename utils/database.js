@@ -209,7 +209,10 @@ async function getMessageLogsByOriginalMessage(originalMessageId) {
 // Validate recent message logs on startup
 async function validateRecentMessageLogs(client, limit = 20) {
   try {
-    logInfo(`🔍 Validating last ${limit} message logs on startup...`);
+    const envConfig = require('../config/env');
+    if (envConfig.debugMode) {
+      logInfo(`🔍 Validating last ${limit} message logs on startup...`);
+    }
     
     const recentLogs = await getMessageLogs(null, limit);
     logInfo(`Found ${recentLogs.length} recent message logs to validate`);

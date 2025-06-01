@@ -10,11 +10,13 @@ class FormatConverter {
    */
   static discordToTelegramHTML(text) {
     if (!text) {
-      logInfo('Converting Discord to Telegram HTML: (empty text)');
       return '';
     }
     
-    logInfo(`Converting Discord to Telegram HTML: "${text}"`);
+    const envConfig = require('../config/env');
+    if (envConfig.debugMode) {
+      logInfo(`Converting Discord to Telegram HTML: "${text}"`);
+    }
     
     let converted = text;
     
@@ -67,7 +69,9 @@ class FormatConverter {
       converted = converted.replace(`__PROTECTED_${index}__`, element);
     });
     
-    logInfo(`Conversion result: "${converted}"`);
+    if (envConfig.debugMode) {
+      logInfo(`Conversion result: "${converted}"`);
+    }
     return converted.trim();
   }
   
@@ -78,7 +82,10 @@ class FormatConverter {
   static discordToTelegramMarkdownV2(text) {
     if (!text) return '';
     
-    logInfo('Converting Discord to Telegram MarkdownV2:', text);
+    const envConfig = require('../config/env');
+    if (envConfig.debugMode) {
+      logInfo('Converting Discord to Telegram MarkdownV2:', text);
+    }
     
     try {
       let converted = text;
@@ -113,7 +120,9 @@ class FormatConverter {
       converted = converted.replace(/^## (.+)$/gm, '**$1**');       // ## heading -> **heading**
       converted = converted.replace(/^# (.+)$/gm, '**$1**');        // # heading -> **heading**
       
-      logInfo(`🔍 HEADING DEBUG: After heading conversion: "${converted}"`);
+      if (envConfig.debugMode) {
+        logInfo(`🔍 HEADING DEBUG: After heading conversion: "${converted}"`);
+      }
       
       // Step 2B: Convert Discord mentions to plain text (since Telegram doesn't support them)
       
@@ -140,7 +149,9 @@ class FormatConverter {
       // Simple formatting - be more surgical about the conversion
       converted = converted.replace(/\*\*(.*?)\*\*/g, '*$1*');                // **text** -> *text*
       
-      logInfo(`🔍 BOLD DEBUG: After bold conversion: "${converted}"`);
+      if (envConfig.debugMode) {
+        logInfo(`🔍 BOLD DEBUG: After bold conversion: "${converted}"`);
+      }
       
       // Note: We skip italic conversion completely - Discord *italic* will just stay as *italic* (plain text)
       converted = converted.replace(/~~(.*?)~~/g, '~$1~');                    // ~~text~~ -> ~text~
@@ -256,7 +267,9 @@ class FormatConverter {
         }
       });
       
-      logInfo('Conversion result:', converted);
+      if (envConfig.debugMode) {
+        logInfo('Conversion result:', converted);
+      }
       return converted.trim();
       
     } catch (error) {

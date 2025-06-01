@@ -39,7 +39,10 @@ class AIFormatConverter {
       mentions.users.push({ id: userId, fullMention, name: userName });
       mentions.replacements.push(`Replace "${fullMention}" with "${userName}"`);
       
-      logInfo(`🔍 Found user mention: ${fullMention} -> ${userName}`);
+      const envConfig = require('../config/env');
+      if (envConfig.debugMode) {
+        logInfo(`🔍 Found user mention: ${fullMention} -> ${userName}`);
+      }
     }
 
     // Extract role mentions: <@&123456>
@@ -55,7 +58,10 @@ class AIFormatConverter {
       mentions.roles.push({ id: roleId, fullMention, name: roleName });
       mentions.replacements.push(`Replace "${fullMention}" with "${roleName}"`);
       
-      logInfo(`🔍 Found role mention: ${fullMention} -> ${roleName}`);
+      const envConfig = require('../config/env');
+      if (envConfig.debugMode) {
+        logInfo(`🔍 Found role mention: ${fullMention} -> ${roleName}`);
+      }
     }
 
     // Extract channel mentions: <#123456>
@@ -74,10 +80,16 @@ class AIFormatConverter {
       mentions.channels.push({ id: channelId, fullMention, name: channelName });
       mentions.replacements.push(`Replace "${fullMention}" with "${channelName}"`);
       
-      logInfo(`🔍 Found channel mention: ${fullMention} -> ${channelName}`);
+      const envConfig = require('../config/env');
+      if (envConfig.debugMode) {
+        logInfo(`🔍 Found channel mention: ${fullMention} -> ${channelName}`);
+      }
     }
 
-    logInfo(`🔍 Total mentions found: ${mentions.users.length} users, ${mentions.roles.length} roles, ${mentions.channels.length} channels`);
+    const envConfig = require('../config/env');
+    if (envConfig.debugMode) {
+      logInfo(`🔍 Total mentions found: ${mentions.users.length} users, ${mentions.roles.length} roles, ${mentions.channels.length} channels`);
+    }
     return mentions;
   }
 
@@ -93,17 +105,24 @@ class AIFormatConverter {
     try {
       // Check if we have AI manager available
       const aiManager = require('./aiManager');
+      const envConfig = require('../config/env');
       
-      logInfo('🤖 AI Debug: Checking AI manager status...');
-      logInfo(`🤖 AI Debug: aiManager exists: ${!!aiManager}`);
-      logInfo(`🤖 AI Debug: aiManager.initialized: ${aiManager?.initialized}`);
+      if (envConfig.debugMode) {
+        logInfo('🤖 AI Debug: Checking AI manager status...');
+        logInfo(`🤖 AI Debug: aiManager exists: ${!!aiManager}`);
+        logInfo(`🤖 AI Debug: aiManager.initialized: ${aiManager?.initialized}`);
+      }
       
       if (!aiManager || !aiManager.initialized) {
-        logInfo('🤖 AI manager not initialized, falling back to regular conversion');
+        if (envConfig.debugMode) {
+          logInfo('🤖 AI manager not initialized, falling back to regular conversion');
+        }
         return FormatConverter.discordToTelegramMarkdownV2(text);
       }
       
-      logInfo('🤖 Using AI-powered format conversion for:', text);
+      if (envConfig.debugMode) {
+        logInfo(`🤖 Using AI-powered format conversion for: ${text.substring(0, 100)}${text.length > 100 ? '...' : ''}`);
+      }
       
       // Extract mentions and create replacement mapping if message object is provided
       let mentionInstructions = '';
@@ -111,7 +130,9 @@ class AIFormatConverter {
         const mentionData = this.extractMentionsAndCreateMapping(text, message);
         if (mentionData.replacements.length > 0) {
           mentionInstructions = `\n\nSPECIFIC MENTION REPLACEMENTS:\n${mentionData.replacements.join('\n')}\n`;
-          logInfo(`🔍 Generated mention replacement instructions: ${mentionData.replacements.length} replacements`);
+          if (envConfig.debugMode) {
+            logInfo(`🔍 Generated mention replacement instructions: ${mentionData.replacements.length} replacements`);
+          }
         }
       }
       
@@ -151,17 +172,21 @@ ${text}
 Converted text:`;
 
       // Get the Gemini provider and use its makeRequest method directly
-      logInfo('🤖 AI Debug: Getting Gemini provider for format conversion...');
+      if (envConfig.debugMode) {
+        logInfo('🤖 AI Debug: Getting Gemini provider for format conversion...');
+      }
       const geminiProvider = aiManager.providers.get('gemini');
       
       if (!geminiProvider) {
         throw new Error('Gemini provider not available');
       }
       
-      logInfo('🤖 AI Debug: Calling Gemini API directly with enhanced logging...');
-      logInfo('🤖 AI Debug: Prompt being sent:', aiPrompt.substring(0, 200) + '...');
-      logInfo('🤖 AI Debug: Input text length:', text.length);
-      logInfo('🤖 AI Debug: Input text preview:', text.substring(0, 100));
+      if (envConfig.debugMode) {
+        logInfo('🤖 AI Debug: Calling Gemini API directly with enhanced logging...');
+        logInfo('🤖 AI Debug: Prompt being sent:', aiPrompt.substring(0, 200) + '...');
+        logInfo('🤖 AI Debug: Input text length:', text.length);
+        logInfo('🤖 AI Debug: Input text preview:', text.substring(0, 100));
+      }
       
       // Call Gemini API directly to get full response details
       const url = `${geminiProvider.baseURL}/models/${geminiProvider.model}:generateContent?key=${geminiProvider.apiKey}`;
@@ -198,7 +223,9 @@ Converted text:`;
         ]
       };
 
-      logInfo('🤖 AI Debug: Making direct Gemini API call...');
+      if (envConfig.debugMode) {
+        logInfo('🤖 AI Debug: Making direct Gemini API call...');
+      }
       
       const axios = require('axios');
       const response = await axios.post(url, requestBody, {
@@ -208,38 +235,53 @@ Converted text:`;
         timeout: 30000
       });
 
-      logInfo('🤖 AI Debug: Full Gemini response:', JSON.stringify(response.data, null, 2));
+      if (envConfig.debugMode) {
+        logInfo('🤖 AI Debug: Full Gemini response:', JSON.stringify(response.data, null, 2));
+      }
       
       let aiResult = '';
       if (response.data && response.data.candidates && response.data.candidates[0]) {
         const candidate = response.data.candidates[0];
         
-        logInfo('🤖 AI Debug: Candidate data:', JSON.stringify(candidate, null, 2));
-        logInfo('🤖 AI Debug: Finish reason:', candidate.finishReason);
-        logInfo('🤖 AI Debug: Safety ratings:', JSON.stringify(candidate.safetyRatings, null, 2));
+        if (envConfig.debugMode) {
+          logInfo('🤖 AI Debug: Candidate data:', JSON.stringify(candidate, null, 2));
+          logInfo('🤖 AI Debug: Finish reason:', candidate.finishReason);
+          logInfo('🤖 AI Debug: Safety ratings:', JSON.stringify(candidate.safetyRatings, null, 2));
+        }
         
         if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
           aiResult = candidate.content.parts[0].text;
-          logInfo('🤖 AI Debug: Extracted text:', aiResult);
+          if (envConfig.debugMode) {
+            logInfo('🤖 AI Debug: Extracted text:', aiResult);
+          }
         } else {
           logError('🤖 AI Debug: No content in candidate, likely blocked by safety filters');
-          logError('🤖 AI Debug: Candidate structure:', JSON.stringify(candidate, null, 2));
+          if (envConfig.debugMode) {
+            logError('🤖 AI Debug: Candidate structure:', JSON.stringify(candidate, null, 2));
+          }
         }
       } else {
         logError('🤖 AI Debug: No candidates in response');
-        logError('🤖 AI Debug: Response structure:', JSON.stringify(response.data, null, 2));
+        if (envConfig.debugMode) {
+          logError('🤖 AI Debug: Response structure:', JSON.stringify(response.data, null, 2));
+        }
       }
       
-      logInfo('🤖 AI Debug: AI result received:', typeof aiResult, aiResult?.length || 0, 'chars');
-      logInfo('🤖 AI Debug: AI result content:', JSON.stringify(aiResult));
-      logInfo('🤖 AI Debug: AI result raw string:', aiResult);
+      if (envConfig.debugMode) {
+        logInfo('🤖 AI Debug: AI result received:', typeof aiResult, aiResult?.length || 0, 'chars');
+        logInfo('🤖 AI Debug: AI result content:', JSON.stringify(aiResult));
+        logInfo('🤖 AI Debug: AI result raw string:', aiResult);
+      }
       
       // makeRequest returns a string directly
       if (aiResult && typeof aiResult === 'string' && aiResult.trim()) {
-        logInfo('🤖 AI conversion result:', aiResult);
+        if (envConfig.debugMode) {
+          logInfo('🤖 AI conversion result:', aiResult);
+        }
         
         // Validate AI result - check for basic formatting integrity
         if (this.validateAIResult(aiResult.trim(), text)) {
+          logInfo('🤖 AI result passed validation');
           return aiResult.trim();
         } else {
           logError('🤖 AI result failed validation, falling back to regular conversion');
@@ -247,7 +289,9 @@ Converted text:`;
         }
       } else {
         logError('🤖 AI conversion returned empty or invalid result');
-        logError('🤖 AI Debug: Original aiResult was:', JSON.stringify(aiResult));
+        if (envConfig.debugMode) {
+          logError('🤖 AI Debug: Original aiResult was:', JSON.stringify(aiResult));
+        }
         logInfo('🤖 AI conversion failed, falling back to regular conversion');
         return FormatConverter.discordToTelegramMarkdownV2(text);
       }
@@ -306,7 +350,9 @@ Converted text:`;
         return false;
       }
       
-      logInfo('🤖 AI result passed validation');
+      if (require('../config/env').debugMode) {
+        logInfo('🤖 AI result passed validation');
+      }
       return true;
     } catch (error) {
       logError('🤖 AI result validation error:', error);
@@ -334,6 +380,9 @@ Converted text:`;
         return FormatConverter.discordToTelegramMarkdownV2(text);
       }
     } else {
+      if (envConfig.debugMode) {
+        logInfo('Using regular format conversion (AI disabled)');
+      }
       // Use regular format conversion
       return FormatConverter.discordToTelegramMarkdownV2(text);
     }
