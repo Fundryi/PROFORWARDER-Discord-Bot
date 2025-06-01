@@ -254,7 +254,7 @@ module.exports = {
 #### Telegram Integration
 - **Discord to Telegram**: Cross-platform message forwarding with content optimization
 - **Telegram Markdown Conversion**: Platform-specific formatting adaptation
-- **Telegram Multi-language Support**: Thread-like organization for translations
+- (Do not implement yet)**Telegram Multi-language Support**: Thread-like organization for translations
 
 #### Advanced AI Features
 - **Content Optimization Engine**: AI-powered content enhancement for different platforms
