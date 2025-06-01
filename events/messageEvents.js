@@ -462,28 +462,21 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
     const telegramHandler = new TelegramHandler();
     await telegramHandler.initialize();
 
-    // Convert the Discord message to Telegram format
-    const telegramMessage = await telegramHandler.convertDiscordMessage(newMessage, config);
+    // Use the same simple conversion as the main send function
+    const convertedText = telegramHandler.simpleMarkdownV2Convert(newMessage.content || '');
 
     try {
       // Use editMessageText API to edit the message in place
       const result = await telegramHandler.callTelegramAPI('editMessageText', {
         chat_id: logEntry.forwardedChannelId,
         message_id: logEntry.forwardedMessageId,
-        text: telegramMessage.text,
+        text: convertedText,
         parse_mode: 'MarkdownV2',
         disable_web_page_preview: false
       });
 
       if (result && result.ok) {
         logSuccess(`✅ Edited Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
-        
-        // Note: Media attachments in edits are more complex in Telegram
-        // For now, we handle text edits. Media edits would need editMessageMedia API
-        if (telegramMessage.media && telegramMessage.media.length > 0) {
-          logInfo(`ℹ️ Note: New media attachments in edited message cannot be added to existing message`);
-        }
-        
         return result.result;
       } else {
         throw new Error(`Telegram edit API error: ${result ? result.description : 'Unknown error'}`);
@@ -504,15 +497,24 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
         logError(`Failed to delete old Telegram message: ${deleteError.message}`);
       }
 
-      // Send new message with updated content
-      const newTelegramMessage = await telegramHandler.sendMessage(logEntry.forwardedChannelId, newMessage, config);
+      // Fallback: Send new message with updated content
+      const fallbackResult = await telegramHandler.callTelegramAPI('sendMessage', {
+        chat_id: logEntry.forwardedChannelId,
+        text: convertedText,
+        parse_mode: 'MarkdownV2',
+        disable_web_page_preview: false
+      });
       
-      // Update the database log with new message ID
-      const { updateMessageLog } = require('../utils/database');
-      await updateMessageLog(logEntry.id, newTelegramMessage.message_id.toString());
-      
-      logSuccess(`Recreated Telegram message in chat ${logEntry.forwardedChannelId} (fallback)`);
-      return newTelegramMessage;
+      if (fallbackResult && fallbackResult.ok) {
+        // Update the database log with new message ID
+        const { updateMessageLog } = require('../utils/database');
+        await updateMessageLog(logEntry.id, fallbackResult.result.message_id.toString());
+        
+        logSuccess(`Recreated Telegram message in chat ${logEntry.forwardedChannelId} (fallback)`);
+        return fallbackResult.result;
+      } else {
+        throw new Error(`Fallback send failed: ${fallbackResult ? fallbackResult.description : 'Unknown error'}`);
+      }
     }
 
   } catch (error) {
