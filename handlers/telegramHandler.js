@@ -1,5 +1,6 @@
 const { logInfo, logSuccess, logError } = require('../utils/logger');
 const https = require('https');
+const FormatConverter = require('../utils/formatConverter');
 
 /**
  * Telegram Bot API Handler for ProForwarder
@@ -66,10 +67,10 @@ class TelegramHandler {
         const result = await this.sendMediaWithCaption(chatId, telegramMessage.media, telegramMessage.text);
         return result;
       } else {
-        // Send message with MarkdownV2 using our proven conversion method
+        // Send message with MarkdownV2 parsing using FormatConverter
         const messagePayload = {
           chat_id: chatId,
-          text: this.simpleMarkdownV2Convert(message.content || ''),
+          text: FormatConverter.discordToTelegramMarkdownV2(message.content || ''),
           parse_mode: 'MarkdownV2',
           disable_web_page_preview: false
         };
@@ -82,7 +83,7 @@ class TelegramHandler {
         const result = await this.callTelegramAPI('sendMessage', messagePayload);
 
         if (result && result.ok) {
-          logSuccess(`✅ Message sent to Telegram chat ${chatId} (using Markdown)`);
+          logSuccess(`✅ Message sent to Telegram chat ${chatId} (using MarkdownV2)`);
           return result.result;
         } else {
           throw new Error(`Telegram API error: ${result ? result.description : 'Unknown error'}`);
@@ -193,7 +194,7 @@ class TelegramHandler {
         }
         
         if (embed.title) {
-          text += `*${this.escapeMarkdownV2ForText(embed.title)}*\n`;
+          text += `*${FormatConverter.escapeMarkdownV2ForText(embed.title)}*\n`;
         }
         
         if (embed.description) {
@@ -207,7 +208,7 @@ class TelegramHandler {
         // Add fields with better formatting
         if (embed.fields && embed.fields.length > 0) {
           for (const field of embed.fields) {
-            text += `\n*${this.escapeMarkdownV2ForText(field.name)}:*\n${this.convertDiscordToTelegramMarkdown(field.value)}\n`;
+            text += `\n*${FormatConverter.escapeMarkdownV2ForText(field.name)}:*\n${this.convertDiscordToTelegramMarkdown(field.value)}\n`;
           }
         }
       }
@@ -232,9 +233,9 @@ class TelegramHandler {
           // Add as file link in text only if we don't have media
           // (if we have media, the text will be sent as caption)
           if (text.trim()) {
-            text += `\n📎 [${this.escapeMarkdownV2ForText(attachment.name)}](${attachment.url})`;
+            text += `\n📎 [${FormatConverter.escapeMarkdownV2ForText(attachment.name)}](${attachment.url})`;
           } else {
-            text += `📎 [${this.escapeMarkdownV2ForText(attachment.name)}](${attachment.url})`;
+            text += `📎 [${FormatConverter.escapeMarkdownV2ForText(attachment.name)}](${attachment.url})`;
           }
         }
       }
@@ -247,9 +248,9 @@ class TelegramHandler {
         .join(', ');
       
       if (text.trim()) {
-        text += `\n🎭 ${this.escapeMarkdownV2ForText(stickerNames)}`;
+        text += `\n🎭 ${FormatConverter.escapeMarkdownV2ForText(stickerNames)}`;
       } else {
-        text += `🎭 ${this.escapeMarkdownV2ForText(stickerNames)}`;
+        text += `🎭 ${FormatConverter.escapeMarkdownV2ForText(stickerNames)}`;
       }
     }
 
@@ -266,57 +267,19 @@ class TelegramHandler {
   }
 
   /**
-   * Convert Discord markdown to Telegram MarkdownV2
+   * Legacy compatibility methods - redirect to FormatConverter
    */
-  /**
-   * Simple MarkdownV2 conversion - only fix italic and escape what's absolutely necessary
-   */
+  convertToHTML(text) {
+    return FormatConverter.discordToTelegramHTML(text);
+  }
+
   simpleMarkdownV2Convert(text) {
-    if (!text) return '';
-    
-    // Exact conversions needed:
-    // **Bold** > *Bold* (Discord bold to Telegram bold)
-    // *Italic* > _Italic_ (Discord italic to Telegram italic)
-    // ~~Strike~~ > ~Strike~ (Discord strike to Telegram strike)
-    
-    let converted = text;
-    
-    // Convert Discord formatting to Telegram MarkdownV2
-    converted = converted.replace(/\*\*(.*?)\*\*/g, '*$1*');    // **Bold** -> *Bold*
-    converted = converted.replace(/\*([^*]+?)\*/g, '_$1_');     // *Italic* -> _Italic_
-    converted = converted.replace(/~~(.*?)~~/g, '~$1~');        // ~~Strike~~ -> ~Strike~
-    
-    // Escape periods for MarkdownV2
-    converted = converted.replace(/\./g, '\\.');
-    
-    return converted.trim();
+    return FormatConverter.discordToTelegramHTML(text);
   }
 
-
-  /**
-   * Convert Discord to Telegram Markdown (wrapper for compatibility)
-   */
   convertDiscordToTelegramMarkdown(text) {
-    return this.simpleMarkdownV2Convert(text);
+    return FormatConverter.discordToTelegramMarkdownV2(text);
   }
-
-  /**
-   * Escape special characters for Telegram MarkdownV2
-   */
-  escapeMarkdownV2(text) {
-    if (!text) return '';
-    
-    // MarkdownV2 special characters that need escaping
-    const specialChars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
-    
-    let escaped = text;
-    for (const char of specialChars) {
-      escaped = escaped.replace(new RegExp('\\' + char, 'g'), '\\' + char);
-    }
-    
-    return escaped;
-  }
-
 
   /**
    * Check if file is an image

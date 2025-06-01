@@ -462,8 +462,9 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
     const telegramHandler = new TelegramHandler();
     await telegramHandler.initialize();
 
-    // Use the simple conversion that works for new messages
-    const convertedText = telegramHandler.simpleMarkdownV2Convert(newMessage.content || '');
+    // Use FormatConverter directly for better compatibility
+    const FormatConverter = require('../utils/formatConverter');
+    const convertedText = FormatConverter.discordToTelegramHTML(newMessage.content || '');
 
     try {
       // Use editMessageText API to edit the message in place
@@ -471,7 +472,7 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
         chat_id: logEntry.forwardedChannelId,
         message_id: logEntry.forwardedMessageId,
         text: convertedText,
-        parse_mode: 'MarkdownV2',
+        parse_mode: 'HTML',
         disable_web_page_preview: false
       });
 
@@ -497,11 +498,11 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
         logError(`Failed to delete old Telegram message: ${deleteError.message}`);
       }
 
-      // Fallback: Send new message with same simple conversion
+      // Fallback: Send new message with HTML conversion
       const fallbackResult = await telegramHandler.callTelegramAPI('sendMessage', {
         chat_id: logEntry.forwardedChannelId,
         text: convertedText,
-        parse_mode: 'MarkdownV2',
+        parse_mode: 'HTML',
         disable_web_page_preview: false
       });
       
