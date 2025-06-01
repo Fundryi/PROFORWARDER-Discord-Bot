@@ -464,7 +464,7 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
 
     // Use AIFormatConverter which conditionally uses AI or regular conversion
     const AIFormatConverter = require('../utils/aiFormatConverter');
-    const convertedText = await AIFormatConverter.convertDiscordToTelegramMarkdownV2(newMessage.content || '');
+    const convertedText = await AIFormatConverter.convertDiscordToTelegramMarkdownV2(newMessage.content || '', newMessage);
 
     try {
       // Use editMessageText API to edit the message in place

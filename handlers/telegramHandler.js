@@ -226,7 +226,7 @@ class TelegramHandler {
       if (isDebugMode) {
         logInfo(`🔍 EMBED DEBUG: Converting main content: "${discordMessage.content}"`);
       }
-      const convertedContent = await this.convertDiscordToTelegramMarkdown(discordMessage.content);
+      const convertedContent = await this.convertDiscordToTelegramMarkdown(discordMessage.content, discordMessage);
       if (isDebugMode) {
         logInfo(`🔍 EMBED DEBUG: Converted main content: "${convertedContent}"`);
       }
@@ -268,7 +268,7 @@ class TelegramHandler {
             logInfo(`🔍 EMBED DEBUG: Description source: ${embed.rawDescription ? 'rawDescription' : 'description'}`);
           }
           
-          const convertedDescription = await this.convertDiscordToTelegramMarkdown(description);
+          const convertedDescription = await this.convertDiscordToTelegramMarkdown(description, discordMessage);
           if (isDebugMode) {
             logInfo(`🔍 EMBED DEBUG: Converted description: "${convertedDescription}"`);
           }
@@ -322,7 +322,7 @@ class TelegramHandler {
             }
             
             const escapedFieldName = FormatConverter.escapeMarkdownV2ForText(fieldName);
-            const convertedFieldValue = await this.convertDiscordToTelegramMarkdown(fieldValue);
+            const convertedFieldValue = await this.convertDiscordToTelegramMarkdown(fieldValue, discordMessage);
             
             if (isDebugMode) {
               logInfo(`🔍 EMBED DEBUG: Field ${j + 1} escaped name: "${escapedFieldName}"`);
@@ -402,16 +402,16 @@ class TelegramHandler {
   /**
    * Legacy compatibility methods - redirect to FormatConverter
    */
-  async convertToHTML(text) {
-    return await AIFormatConverter.convertDiscordToTelegramMarkdownV2(text);
+  async convertToHTML(text, message = null) {
+    return await AIFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
   }
 
-  async simpleMarkdownV2Convert(text) {
-    return await AIFormatConverter.convertDiscordToTelegramMarkdownV2(text);
+  async simpleMarkdownV2Convert(text, message = null) {
+    return await AIFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
   }
 
-  async convertDiscordToTelegramMarkdown(text) {
-    return await AIFormatConverter.convertDiscordToTelegramMarkdownV2(text);
+  async convertDiscordToTelegramMarkdown(text, message = null) {
+    return await AIFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
   }
 
   /**

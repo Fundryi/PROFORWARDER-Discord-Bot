@@ -5,12 +5,89 @@ const FormatConverter = require('./formatConverter');
  * AI-Powered Format Converter - Uses AI for complex Discord to Telegram formatting
  */
 class AIFormatConverter {
-  
+
   /**
-   * AI-powered Discord to Telegram MarkdownV2 conversion
-   * Uses AI for complex edge cases while falling back to regular conversion
+   * Extract Discord mentions from text and get replacement mapping
+   * @param {string} text - The text to extract mentions from
+   * @param {Object} message - Discord message object with mentions data
+   * @returns {Object} Object containing mentions and replacement instructions
    */
-  static async discordToTelegramMarkdownV2WithAI(text) {
+  static extractMentionsAndCreateMapping(text, message = null) {
+    const mentions = {
+      users: [],
+      roles: [],
+      channels: [],
+      replacements: []
+    };
+
+    if (!message) {
+      logError('No Discord message object provided for mention resolution');
+      return mentions;
+    }
+
+    // Extract user mentions: <@123456> or <@!123456>
+    const userMentionRegex = /<@!?(\d+)>/g;
+    let match;
+    while ((match = userMentionRegex.exec(text)) !== null) {
+      const userId = match[1];
+      const fullMention = match[0];
+      
+      // Get actual username from message.mentions.users
+      const user = message.mentions.users.get(userId);
+      const userName = user ? (user.globalName || user.username || user.displayName) : `User${userId}`;
+      
+      mentions.users.push({ id: userId, fullMention, name: userName });
+      mentions.replacements.push(`Replace "${fullMention}" with "${userName}"`);
+      
+      logInfo(`🔍 Found user mention: ${fullMention} -> ${userName}`);
+    }
+
+    // Extract role mentions: <@&123456>
+    const roleMentionRegex = /<@&(\d+)>/g;
+    while ((match = roleMentionRegex.exec(text)) !== null) {
+      const roleId = match[1];
+      const fullMention = match[0];
+      
+      // Get actual role name from message.mentions.roles
+      const role = message.mentions.roles.get(roleId);
+      const roleName = role ? role.name : `Role${roleId}`;
+      
+      mentions.roles.push({ id: roleId, fullMention, name: roleName });
+      mentions.replacements.push(`Replace "${fullMention}" with "${roleName}"`);
+      
+      logInfo(`🔍 Found role mention: ${fullMention} -> ${roleName}`);
+    }
+
+    // Extract channel mentions: <#123456>
+    const channelMentionRegex = /<#(\d+)>/g;
+    while ((match = channelMentionRegex.exec(text)) !== null) {
+      const channelId = match[1];
+      const fullMention = match[0];
+      
+      // Get actual channel name from message.mentions.channels or guild channels
+      let channel = message.mentions.channels.get(channelId);
+      if (!channel && message.guild) {
+        channel = message.guild.channels.cache.get(channelId);
+      }
+      const channelName = channel ? channel.name : `channel${channelId}`;
+      
+      mentions.channels.push({ id: channelId, fullMention, name: channelName });
+      mentions.replacements.push(`Replace "${fullMention}" with "${channelName}"`);
+      
+      logInfo(`🔍 Found channel mention: ${fullMention} -> ${channelName}`);
+    }
+
+    logInfo(`🔍 Total mentions found: ${mentions.users.length} users, ${mentions.roles.length} roles, ${mentions.channels.length} channels`);
+    return mentions;
+  }
+
+  /**
+   * AI-powered Discord to Telegram MarkdownV2 conversion with mention resolution
+   * Uses AI for complex edge cases while falling back to regular conversion
+   * @param {string} text - Text to convert
+   * @param {Object} message - Discord message object (optional, for mention resolution)
+   */
+  static async discordToTelegramMarkdownV2WithAI(text, message = null) {
     if (!text) return '';
     
     try {
@@ -28,6 +105,16 @@ class AIFormatConverter {
       
       logInfo('🤖 Using AI-powered format conversion for:', text);
       
+      // Extract mentions and create replacement mapping if message object is provided
+      let mentionInstructions = '';
+      if (message) {
+        const mentionData = this.extractMentionsAndCreateMapping(text, message);
+        if (mentionData.replacements.length > 0) {
+          mentionInstructions = `\n\nSPECIFIC MENTION REPLACEMENTS:\n${mentionData.replacements.join('\n')}\n`;
+          logInfo(`🔍 Generated mention replacement instructions: ${mentionData.replacements.length} replacements`);
+        }
+      }
+      
       const aiPrompt = `Convert this Discord markdown text to Telegram MarkdownV2 format. Return ONLY the converted text, no explanations.
 
 RULES:
@@ -42,21 +129,21 @@ RULES:
 9. Discord headings (# ## ###) → Convert to *bold text* format, don't use # in output
 
 DISCORD MENTIONS - CONVERT TO CLEAN TEXT:
-10. User mentions <@123456> or <@!123456> → Username (remove all <>, @, and IDs - just username)
-11. Role mentions <@&123456> → RoleName (remove all <>, @, &, and IDs - just role name)
-12. Channel mentions <#123456> → channelname (remove all <>, #, and IDs - just channel name)
+10. User mentions <@123456> or <@!123456> → Replace with actual username (see specific replacements below)
+11. Role mentions <@&123456> → Replace with actual role name (see specific replacements below)
+12. Channel mentions <#123456> → Replace with actual channel name (see specific replacements below)
 13. Custom emojis <:name:123456> → :name: (keep emoji name, remove ID and <>)
 
 ESCAPING - CRITICAL: These characters MUST be escaped with backslash in ALL text: _ * [ ] ( ) ~ \` # + - = | { } . ! \\
 
 EXAMPLES:
-- Discord: "<@151671554806251520>" → Telegram: "Username"
-- Discord: "<@&456789>" → Telegram: "RoleName"
-- Discord: "<#123456>" → Telegram: "channelname"
+- Discord: "Hello <@151671554806251520>!" → Telegram: "Hello JohnDoe\\!" (if JohnDoe is the username)
+- Discord: "Check <@&456789> role" → Telegram: "Check Moderators role" (if Moderators is the role name)
+- Discord: "Go to <#123456>" → Telegram: "Go to general" (if general is the channel name)
 - Discord: "# Heading" → Telegram: "*Heading*"
 - Discord: "Text with . and !" → Telegram: "Text with \\. and \\!"
 - Discord: "Amazing!" → Telegram: "Amazing\\!"
-- Discord: "Booster!" → Telegram: "Booster\\!"
+- Discord: "Booster!" → Telegram: "Booster\\!"${mentionInstructions}
 
 Discord text to convert:
 ${text}
@@ -230,15 +317,17 @@ Converted text:`;
   /**
    * Static helper method to conditionally use AI or regular conversion
    * Can be called from anywhere in the codebase
+   * @param {string} text - Text to convert
+   * @param {Object} message - Discord message object (optional, for mention resolution)
    */
-  static async convertDiscordToTelegramMarkdownV2(text) {
+  static async convertDiscordToTelegramMarkdownV2(text, message = null) {
     const envConfig = require('../config/env');
     
     // Check if AI format converter is enabled
     if (envConfig.useAIFormatConverter) {
       try {
-        // Use AI-powered format conversion
-        return await AIFormatConverter.discordToTelegramMarkdownV2WithAI(text);
+        // Use AI-powered format conversion with message object for mention resolution
+        return await AIFormatConverter.discordToTelegramMarkdownV2WithAI(text, message);
       } catch (error) {
         logError('AI format conversion failed, falling back to regular conversion:', error);
         // Fallback to regular conversion if AI fails
