@@ -67,10 +67,10 @@ class TelegramHandler {
         const result = await this.sendMediaWithCaption(chatId, telegramMessage.media, telegramMessage.text);
         return result;
       } else {
-        // Send message with MarkdownV2 parsing using FormatConverter
+        // Send message with MarkdownV2 parsing using the converted message (includes embeds!)
         const messagePayload = {
           chat_id: chatId,
-          text: FormatConverter.discordToTelegramMarkdownV2(message.content || ''),
+          text: telegramMessage.text,
           parse_mode: 'MarkdownV2',
           disable_web_page_preview: false
         };
@@ -197,8 +197,9 @@ class TelegramHandler {
           text += `*${FormatConverter.escapeMarkdownV2ForText(embed.title)}*\n`;
         }
         
-        if (embed.description) {
-          text += `${this.convertDiscordToTelegramMarkdown(embed.description)}\n`;
+        if (embed.description || embed.rawDescription) {
+          const description = embed.rawDescription || embed.description;
+          text += `${this.convertDiscordToTelegramMarkdown(description)}\n`;
         }
         
         if (embed.url) {
@@ -208,7 +209,9 @@ class TelegramHandler {
         // Add fields with better formatting
         if (embed.fields && embed.fields.length > 0) {
           for (const field of embed.fields) {
-            text += `\n*${FormatConverter.escapeMarkdownV2ForText(field.name)}:*\n${this.convertDiscordToTelegramMarkdown(field.value)}\n`;
+            const fieldName = field.rawName || field.name;
+            const fieldValue = field.rawValue || field.value;
+            text += `\n*${FormatConverter.escapeMarkdownV2ForText(fieldName)}:*\n${this.convertDiscordToTelegramMarkdown(fieldValue)}\n`;
           }
         }
       }

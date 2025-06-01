@@ -107,7 +107,21 @@ class FormatConverter {
         return `XPROTECTEDX${index}XPROTECTEDX`;
       });
       
-      // Step 2: Convert Discord formatting to Telegram MarkdownV2
+      // Step 2: Convert Discord mentions to plain text (since Telegram doesn't support them)
+      
+      // Convert Discord user mentions <@123> or <@!123> to plain text
+      converted = converted.replace(/<@!?(\d+)>/g, '@User');
+      
+      // Convert Discord role mentions <@&123> to plain text
+      converted = converted.replace(/<@&(\d+)>/g, '@Role');
+      
+      // Convert Discord channel mentions <#123> to plain text
+      converted = converted.replace(/<#(\d+)>/g, '#Channel');
+      
+      // Convert Discord custom emojis <:name:123> to emoji name
+      converted = converted.replace(/<:(\w+):\d+>/g, ':$1:');
+      
+      // Step 3: Convert Discord formatting to Telegram MarkdownV2
       
       // Complex combinations first
       converted = converted.replace(/__\*\*\*(.*?)\*\*\*__/g, '*_\\_$1\\_*');  // __***text***__
