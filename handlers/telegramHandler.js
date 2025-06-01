@@ -66,50 +66,7 @@ class TelegramHandler {
         const result = await this.sendMediaWithCaption(chatId, telegramMessage.media, telegramMessage.text);
         return result;
       } else {
-        // Check if message has italic text for debugging
-        const hasItalic = message.content && message.content.includes('*') && !message.content.includes('**');
-        
-        if (hasItalic) {
-          // DEBUG: Send both versions for comparison
-          logInfo('🔍 DEBUG: Found italic text, sending both Markdown and MarkdownV2 versions');
-          
-          // First try with regular Markdown
-          try {
-            const markdownPayload = {
-              chat_id: chatId,
-              text: this.convertToRegularMarkdown(message.content),
-              parse_mode: 'Markdown',
-              disable_web_page_preview: false
-            };
-            
-            const markdownResult = await this.callTelegramAPI('sendMessage', markdownPayload);
-            if (markdownResult && markdownResult.ok) {
-              logInfo('✅ Markdown version sent successfully');
-            }
-          } catch (markdownError) {
-            logError('❌ Markdown version failed:', markdownError.message);
-          }
-          
-          // Then try with MarkdownV2
-          try {
-            const markdownV2Payload = {
-              chat_id: chatId,
-              text: telegramMessage.text,
-              parse_mode: 'MarkdownV2',
-              disable_web_page_preview: false
-            };
-            
-            const markdownV2Result = await this.callTelegramAPI('sendMessage', markdownV2Payload);
-            if (markdownV2Result && markdownV2Result.ok) {
-              logInfo('✅ MarkdownV2 version sent successfully');
-              return markdownV2Result.result;
-            }
-          } catch (markdownV2Error) {
-            logError('❌ MarkdownV2 version failed:', markdownV2Error.message);
-          }
-        }
-        
-        // Send message with MarkdownV2 but minimal conversion
+        // Send message with MarkdownV2 using our proven conversion method
         const messagePayload = {
           chat_id: chatId,
           text: this.simpleMarkdownV2Convert(message.content || ''),
@@ -424,44 +381,6 @@ class TelegramHandler {
     return escaped;
   }
 
-  /**
-   * Escape special characters for Telegram MarkdownV2 but preserve Discord formatting
-   */
-  escapeSpecialCharsExceptFormatting(text) {
-    if (!text) return '';
-    
-    // MarkdownV2 special characters that need escaping
-    // BUT excluding Discord formatting chars: * (bold/italic), ~ (strikethrough), | (spoiler), > (quote)
-    const specialChars = ['_', '[', ']', '(', ')', '#', '+', '-', '=', '{', '}', '.', '!'];
-    
-    let escaped = text;
-    for (const char of specialChars) {
-      // Properly escape regex special characters
-      const escapedChar = char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      escaped = escaped.replace(new RegExp(escapedChar, 'g'), '\\' + char);
-    }
-    
-    return escaped;
-  }
-
-  /**
-   * Escape special characters for Telegram MarkdownV2 but preserve code formatting
-   */
-  escapeMarkdownV2ForText(text) {
-    if (!text) return '';
-    
-    // MarkdownV2 special characters that need escaping (excluding backticks for code)
-    const specialChars = ['_', '*', '[', ']', '(', ')', '~', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'];
-    
-    let escaped = text;
-    for (const char of specialChars) {
-      // Properly escape regex special characters
-      const escapedChar = char.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      escaped = escaped.replace(new RegExp(escapedChar, 'g'), '\\' + char);
-    }
-    
-    return escaped;
-  }
 
   /**
    * Check if file is an image
