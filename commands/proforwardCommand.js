@@ -32,6 +32,29 @@ const proforwardCommand = new SlashCommandBuilder()
   )
   .addSubcommand(subcommand =>
     subcommand
+      .setName('telegram')
+      .setDescription('Set up message forwarding from Discord channel to Telegram chat')
+      .addChannelOption(option =>
+        option
+          .setName('source')
+          .setDescription('Source Discord channel to forward messages from')
+          .setRequired(true)
+      )
+      .addStringOption(option =>
+        option
+          .setName('chat_id')
+          .setDescription('Telegram chat ID (negative for groups/channels, positive for private chats)')
+          .setRequired(true)
+      )
+      .addStringOption(option =>
+        option
+          .setName('name')
+          .setDescription('Custom name for this forward configuration')
+          .setRequired(false)
+      )
+  )
+  .addSubcommand(subcommand =>
+    subcommand
       .setName('list')
       .setDescription('List all active forward configurations')
   )
@@ -50,6 +73,17 @@ const proforwardCommand = new SlashCommandBuilder()
     subcommand
       .setName('status')
       .setDescription('Show bot status and quick server/channel info')
+  )
+  .addSubcommand(subcommand =>
+    subcommand
+      .setName('test')
+      .setDescription('Test Telegram connection')
+      .addStringOption(option =>
+        option
+          .setName('chat_id')
+          .setDescription('Telegram chat ID to test')
+          .setRequired(true)
+      )
   );
 
 async function handleProforwardCommand(interaction) {
@@ -60,6 +94,9 @@ async function handleProforwardCommand(interaction) {
       case 'setup':
         await handleSetup(interaction);
         break;
+      case 'telegram':
+        await handleTelegram(interaction);
+        break;
       case 'list':
         await handleList(interaction);
         break;
@@ -68,6 +105,9 @@ async function handleProforwardCommand(interaction) {
         break;
       case 'status':
         await handleStatus(interaction);
+        break;
+      case 'test':
+        await handleTest(interaction);
         break;
       default:
         await interaction.reply({ content: 'Unknown subcommand', ephemeral: true });
@@ -239,6 +279,73 @@ async function handleSetup(interaction) {
   }
 }
 
+async function handleTelegram(interaction) {
+  const sourceChannel = interaction.options.getChannel('source');
+  const chatId = interaction.options.getString('chat_id');
+  const customName = interaction.options.getString('name');
+  
+  // Validate source channel
+  if (sourceChannel.type !== 0) { // 0 = GUILD_TEXT
+    await interaction.reply({
+      content: '❌ Source channel must be a text channel.',
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Validate chat ID format
+  if (!/^-?\d+$/.test(chatId)) {
+    await interaction.reply({
+      content: '❌ Invalid Telegram chat ID format.\n\n**Examples:**\n• Group/Channel: `-1001234567890` (negative)\n• Private chat: `123456789` (positive)\n\n**How to get chat ID:**\n1. Add @userinfobot to your chat\n2. Send any message\n3. Use the chat ID it provides',
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Check if Telegram is enabled
+  const config = require('../config/env');
+  if (!config.telegram?.enabled) {
+    await interaction.reply({
+      content: '❌ **Telegram integration is not enabled.**\n\nTo enable Telegram forwarding:\n1. Set `TELEGRAM_ENABLED=true` in your .env file\n2. Add your `TELEGRAM_BOT_TOKEN`\n3. Restart the bot\n\n**Need help?** Check the README for Telegram setup instructions.',
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Test Telegram connection
+  await interaction.deferReply({ ephemeral: true });
+  
+  try {
+    // Create the forward configuration name
+    const configName = customName || `${sourceChannel.name} to Telegram (${chatId})`;
+
+    // Create the forward configuration
+    const newConfig = {
+      name: configName,
+      sourceType: 'discord',
+      sourceServerId: interaction.guild.id,
+      sourceChannelId: sourceChannel.id,
+      targetType: 'telegram',
+      targetChatId: chatId,
+      createdBy: interaction.user.id
+    };
+
+    const configId = await addForwardConfig(newConfig);
+
+    await interaction.editReply({
+      content: `✅ **Telegram forward configured!**\n**From:** ${sourceChannel} (${interaction.guild.name})\n**To:** Telegram chat \`${chatId}\`\n**Name:** ${configName}\n**ID:** ${configId}\n\n🚀 **Ready to forward messages!**\n\n💡 **Tip:** Send a test message in ${sourceChannel} to verify the connection.`,
+    });
+
+    logSuccess(`Telegram forward: ${sourceChannel.name} -> ${chatId} by ${interaction.user.username}`);
+  } catch (error) {
+    logError('Error creating Telegram forward:', error);
+    
+    await interaction.editReply({
+      content: `❌ **Failed to create Telegram forward configuration.**\n\n**Possible issues:**\n• Invalid Telegram chat ID\n• Bot not added to the Telegram chat\n• Telegram bot token invalid\n\n**Error:** ${error.message}\n\n**Need help?** Check the bot logs or README for troubleshooting.`,
+    });
+  }
+}
+
 async function handleList(interaction) {
   const allConfigs = await getAllActiveForwardConfigs();
   const configs = allConfigs.filter(config => config.sourceServerId === interaction.guild.id);
@@ -257,16 +364,19 @@ async function handleList(interaction) {
     const sourceChannel = interaction.guild.channels.cache.get(config.sourceChannelId);
     let targetInfo;
 
-    if (config.targetServerId === interaction.guild.id) {
-      // Same server
+    if (config.targetType === 'telegram') {
+      // Telegram target
+      targetInfo = `📱 Telegram chat \`${config.targetChatId}\``;
+    } else if (config.targetServerId === interaction.guild.id) {
+      // Same server Discord
       const targetChannel = interaction.guild.channels.cache.get(config.targetChannelId);
       targetInfo = targetChannel ? `${targetChannel}` : `❌ Channel deleted`;
     } else {
-      // Cross server
+      // Cross server Discord
       const targetGuild = interaction.client.guilds.cache.get(config.targetServerId);
       if (targetGuild) {
         const targetChannel = targetGuild.channels.cache.get(config.targetChannelId);
-        targetInfo = targetChannel 
+        targetInfo = targetChannel
           ? `#${targetChannel.name} in **${targetGuild.name}**`
           : `❌ Channel deleted in **${targetGuild.name}**`;
       } else {
@@ -306,10 +416,15 @@ async function handleRemove(interaction) {
 
 async function handleStatus(interaction) {
   const servers = interaction.client.guilds.cache;
+  const config = require('../config/env');
   
   let response = `**🤖 ProForwarder Status**\n\n`;
   response += `**Servers:** ${servers.size}\n`;
-  response += `**Current Server:** ${interaction.guild.name} (\`${interaction.guild.id}\`)\n\n`;
+  response += `**Current Server:** ${interaction.guild.name} (\`${interaction.guild.id}\`)\n`;
+  
+  // Telegram status
+  const telegramStatus = config.telegram?.enabled ? '✅ Enabled' : '❌ Disabled';
+  response += `**Telegram Integration:** ${telegramStatus}\n\n`;
   
   response += `**📡 Available Servers:**\n`;
   for (const [id, guild] of servers) {
@@ -320,6 +435,9 @@ async function handleStatus(interaction) {
   response += `\n**💡 Quick Tips:**\n`;
   response += `• Same server: \`/proforward setup source:#from target_channel:#to\`\n`;
   response += `• Cross server: \`/proforward setup source:#from target_channel:CHANNEL_ID target_server:SERVER_ID\`\n`;
+  if (config.telegram?.enabled) {
+    response += `• Telegram: \`/proforward telegram source:#from chat_id:CHAT_ID\`\n`;
+  }
   response += `• Right-click → Copy ID to get channel/server IDs (Developer Mode required)`;
 
   if (response.length > 2000) {
@@ -328,6 +446,65 @@ async function handleStatus(interaction) {
     await interaction.followUp({ content: chunks[1], ephemeral: true });
   } else {
     await interaction.reply({ content: response, ephemeral: true });
+  }
+}
+
+async function handleTest(interaction) {
+  const chatId = interaction.options.getString('chat_id');
+  
+  // Validate chat ID format
+  if (!/^-?\d+$/.test(chatId)) {
+    await interaction.reply({
+      content: '❌ Invalid Telegram chat ID format.\n\n**Examples:**\n• Group/Channel: `-1001234567890` (negative)\n• Private chat: `123456789` (positive)',
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Check if Telegram is enabled
+  const config = require('../config/env');
+  if (!config.telegram?.enabled) {
+    await interaction.reply({
+      content: '❌ **Telegram integration is not enabled.**\n\nTo enable Telegram forwarding:\n1. Set `TELEGRAM_ENABLED=true` in your .env file\n2. Add your `TELEGRAM_BOT_TOKEN`\n3. Restart the bot',
+      ephemeral: true
+    });
+    return;
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+
+  try {
+    // Import the TelegramHandler
+    const TelegramHandler = require('../handlers/telegramHandler');
+    const telegramHandler = new TelegramHandler();
+    
+    // Initialize and test
+    const initialized = await telegramHandler.initialize();
+    if (!initialized) {
+      await interaction.editReply({
+        content: '❌ **Failed to initialize Telegram handler.**\n\nCheck your Telegram bot token and try again.',
+      });
+      return;
+    }
+
+    // Send test message
+    const testResult = await telegramHandler.testTelegram(chatId);
+    
+    if (testResult.success) {
+      await interaction.editReply({
+        content: `✅ **Telegram test successful!**\n\n**Chat ID:** \`${chatId}\`\n**Message ID:** ${testResult.messageId}\n\n🎉 **Your Telegram integration is working perfectly!**\n\nYou can now use \`/proforward telegram\` to set up message forwarding.`,
+      });
+    } else {
+      await interaction.editReply({
+        content: `❌ **Telegram test failed.**\n\n**Chat ID:** \`${chatId}\`\n**Error:** ${testResult.error}\n\n**Common issues:**\n• Bot not added to the Telegram chat\n• Invalid chat ID\n• Missing bot permissions in the chat\n\n**Fix:** Add your bot to the Telegram chat and make sure it has permission to send messages.`,
+      });
+    }
+  } catch (error) {
+    logError('Error testing Telegram:', error);
+    
+    await interaction.editReply({
+      content: `❌ **Telegram test failed with error.**\n\n**Error:** ${error.message}\n\nCheck the bot logs for more details.`,
+    });
   }
 }
 

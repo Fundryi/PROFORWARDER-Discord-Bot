@@ -3,6 +3,7 @@ const { logForwardedMessage } = require('../utils/database');
 const { getForwardConfigsForChannel } = require('../utils/configManager');
 const { sendWebhookMessage, hasWebhookPermissions } = require('../utils/webhookManager');
 const AIHandler = require('./aiHandler');
+const TelegramHandler = require('./telegramHandler');
 
 // Enhanced forward handler with advanced message processing
 class ForwardHandler {
@@ -11,7 +12,9 @@ class ForwardHandler {
     this.forwardQueue = new Map(); // For rate limiting and batching
     this.retryQueue = new Map(); // For failed messages
     this.aiHandler = new AIHandler(client);
+    this.telegramHandler = new TelegramHandler();
     this.aiInitialized = false;
+    this.telegramInitialized = false;
   }
 
   /**
@@ -19,15 +22,25 @@ class ForwardHandler {
    */
   async initialize() {
     try {
+      // Initialize AI handler
       this.aiInitialized = await this.aiHandler.initialize();
       if (this.aiInitialized) {
         logSuccess('ForwardHandler initialized with AI features');
       } else {
         logInfo('ForwardHandler initialized without AI features');
       }
+
+      // Initialize Telegram handler
+      this.telegramInitialized = await this.telegramHandler.initialize();
+      if (this.telegramInitialized) {
+        logSuccess('ForwardHandler initialized with Telegram support');
+      } else {
+        logInfo('ForwardHandler initialized without Telegram support');
+      }
     } catch (error) {
-      logError('Error initializing ForwardHandler AI features:', error);
+      logError('Error initializing ForwardHandler features:', error);
       this.aiInitialized = false;
+      this.telegramInitialized = false;
     }
   }
 
@@ -88,11 +101,51 @@ class ForwardHandler {
   // Forward message to specific target based on configuration
   async forwardToTarget(message, config) {
     try {
-      // Only handle Discord forwarding for now
-      if (config.sourceType !== 'discord' || config.targetType !== 'discord') {
-        logInfo(`Skipping non-Discord forward: ${config.sourceType} -> ${config.targetType}`);
+      // Only support Discord as source for now
+      if (config.sourceType !== 'discord') {
+        logInfo(`Skipping non-Discord source: ${config.sourceType} -> ${config.targetType}`);
         return;
       }
+
+      // Route to appropriate handler based on target type
+      if (config.targetType === 'discord') {
+        return await this.forwardToDiscord(message, config);
+      } else if (config.targetType === 'telegram') {
+        return await this.forwardToTelegram(message, config);
+      } else {
+        logInfo(`Unsupported target type: ${config.targetType}`);
+        return;
+      }
+    } catch (error) {
+      logError(`❌ Failed to forward message: ${error.message}`);
+      
+      // Log failed forward
+      try {
+        await logForwardedMessage(
+          message.id,
+          message.channel.id,
+          message.guild?.id || null,
+          null,
+          config.targetChannelId || config.targetChatId,
+          config.targetServerId,
+          config.id,
+          'failed',
+          error.message
+        );
+      } catch (logError) {
+        logError('Error logging failed forward:', logError);
+      }
+
+      // Add to retry queue for later processing
+      this.addToRetryQueue(message, config, error);
+    }
+  }
+
+  /**
+   * Forward message to Discord target
+   */
+  async forwardToDiscord(message, config) {
+    try {
 
       const targetChannel = await this.getTargetChannel(config);
       if (!targetChannel) {
@@ -166,29 +219,44 @@ class ForwardHandler {
       }
       
       return forwardedMessage;
-
     } catch (error) {
-      logError(`❌ Failed to forward message: ${error.message}`);
-      
-      // Log failed forward
-      try {
-        await logForwardedMessage(
-          message.id,
-          message.channel.id,
-          message.guild?.id || null,
-          null,
-          config.targetChannelId,
-          config.targetServerId,
-          config.id,
-          'failed',
-          error.message
-        );
-      } catch (logError) {
-        logError('Error logging failed forward:', logError);
+      throw error; // Re-throw to be handled by forwardToTarget
+    }
+  }
+
+  /**
+   * Forward message to Telegram target
+   */
+  async forwardToTelegram(message, config) {
+    try {
+      if (!this.telegramInitialized) {
+        throw new Error('Telegram handler not initialized');
       }
 
-      // Add to retry queue for later processing
-      this.addToRetryQueue(message, config, error);
+      if (!config.targetChatId) {
+        throw new Error('Telegram chat ID not specified in config');
+      }
+
+      // Send message to Telegram
+      const telegramMessage = await this.telegramHandler.sendMessage(config.targetChatId, message, config);
+      
+      // Log successful forward
+      await logForwardedMessage(
+        message.id,
+        message.channel.id,
+        message.guild?.id || null,
+        telegramMessage.message_id.toString(),
+        config.targetChatId,
+        null, // No server ID for Telegram
+        config.id,
+        'success'
+      );
+
+      logSuccess(`✅ Forwarded message from ${message.channel.name} to Telegram chat ${config.targetChatId}`);
+      
+      return telegramMessage;
+    } catch (error) {
+      throw error; // Re-throw to be handled by forwardToTarget
     }
   }
 

@@ -6,9 +6,9 @@
 
 # 📨 ProForwarder Discord Bot
 
-**A powerful Discord bot for seamless message forwarding between channels and servers with perfect 1:1 message preservation and AI-powered translation threads.**
+**A powerful Discord bot for seamless message forwarding between channels, servers, and platforms with perfect 1:1 message preservation and AI-powered translation threads.**
 
-*Perfect for communities that need reliable, native-looking message forwarding with automatic multi-language translation support.*
+*Perfect for communities that need reliable, native-looking message forwarding with automatic multi-language translation support and cross-platform integration.*
 
 ---
 
@@ -46,6 +46,7 @@
 - **🎭 Perfect 1:1 Forwarding**: Uses webhooks to make forwarded messages appear exactly as the original user posted them
 - **📤 Same Server Forwarding**: Forward messages between channels on the same Discord server
 - **🌐 Cross-Server Forwarding**: Forward messages between channels on different Discord servers
+- **📱 Telegram Integration**: Forward Discord messages to Telegram chats/channels with optimized formatting
 - **🤖 Bot Message Support**: Forwards messages from other bots with subtle bot indicator
 - **📁 Complete Content Preservation**: Text, embeds, attachments, stickers, and formatting perfectly preserved
 - **⚡ Real-time Forwarding**: Instant message forwarding with webhook technology
@@ -143,12 +144,19 @@ The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwa
 /proforward setup source:#news target_channel:1375900190460084445 target_server:812312654705328154
 ```
 
+**Telegram Forwarding:**
+```
+/proforward telegram source:#announcements chat_id:-1001234567890
+```
+
 ### 📋 Available Commands
 
-- **`/proforward setup`** - Set up message forwarding between channels
+- **`/proforward setup`** - Set up message forwarding between Discord channels
+- **`/proforward telegram`** - Set up message forwarding from Discord to Telegram
 - **`/proforward list`** - List all active forward configurations
 - **`/proforward remove`** - Remove a forward configuration
-- **`/proforward status`** - Show bot status and available servers
+- **`/proforward status`** - Show bot status and integration status
+- **`/proforward test`** - Test Telegram connection
 
 ---
 
@@ -164,8 +172,8 @@ GEMINI_API_KEY=your_gemini_api_key_here
 OPENAI_API_KEY=your_openai_api_key_here
 DEEPL_API_KEY=your_deepl_api_key_here
 
-# Optional features (ready for future expansion)
-TELEGRAM_ENABLED=false
+# Telegram Integration
+TELEGRAM_ENABLED=true
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 ```
 
@@ -203,6 +211,18 @@ module.exports = {
           preserveFormatting: true
         }
       }
+    },
+    // Telegram forwarding example
+    {
+      id: 2,
+      name: "Discord to Telegram Bridge",
+      sourceType: "discord",
+      sourceServerId: "SOURCE_SERVER_ID",
+      sourceChannelId: "SOURCE_CHANNEL_ID",
+      targetType: "telegram",
+      targetChatId: "-1001234567890", // Telegram chat ID
+      enabled: true,
+      createdBy: "USER_ID"
     }
   ]
 };
@@ -234,7 +254,8 @@ ProForwarder-Discord-Bot/
 │   └── deeplProvider.js          # DeepL translation provider
 ├── 📁 handlers/                  # Business logic
 │   ├── forwardHandler.js         # Main forwarding logic with webhooks
-│   └── aiHandler.js              # AI processing orchestrator
+│   ├── aiHandler.js              # AI processing orchestrator
+│   └── telegramHandler.js        # Telegram Bot API integration
 ├── 📁 events/                    # Discord event handlers
 │   └── messageEvents.js          # Message create/edit/delete handling with debug
 ├── 📁 commands/                  # Slash commands
@@ -253,6 +274,7 @@ ProForwarder-Discord-Bot/
 
 - **🟢 Node.js** - Runtime environment
 - **🔵 Discord.js v14** - Discord API wrapper with webhook support
+- **📱 Telegram Bot API** - Cross-platform message forwarding
 - **🤖 AI Integration** - Multi-provider AI translation system
 - **🌐 Google Gemini** - Primary AI provider for translations
 - **🧠 OpenAI GPT-4** - Advanced AI content processing
@@ -294,8 +316,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 <div align="center">
 
-**Built with ❤️ for seamless Discord communication**
+**Built with ❤️ for seamless cross-platform communication**
 
-*Perfect 1:1 message forwarding • AI translation threads • Universal emoji support • Enterprise ready*
+*Perfect 1:1 message forwarding • Telegram integration • AI translation threads • Universal emoji support • Enterprise ready*
 
 </div>
