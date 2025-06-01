@@ -462,7 +462,7 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
     const telegramHandler = new TelegramHandler();
     await telegramHandler.initialize();
 
-    // Use the same simple conversion as the main send function
+    // Use the simple conversion that works for new messages
     const convertedText = telegramHandler.simpleMarkdownV2Convert(newMessage.content || '');
 
     try {
@@ -497,7 +497,7 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
         logError(`Failed to delete old Telegram message: ${deleteError.message}`);
       }
 
-      // Fallback: Send new message with updated content
+      // Fallback: Send new message with same simple conversion
       const fallbackResult = await telegramHandler.callTelegramAPI('sendMessage', {
         chat_id: logEntry.forwardedChannelId,
         text: convertedText,
