@@ -40,12 +40,23 @@ RULES:
 7. [links](url) → [links](url) (keep unchanged)
 8. ||spoilers|| → ||spoilers|| (keep unchanged)
 9. Discord headings (# ## ###) → Convert to *bold text* format, don't use # in output
-10. CRITICAL: Escape these special characters with backslash in plain text: _ * [ ] ( ) ~ \` > # + - = | { } . ! \\
+
+DISCORD MENTIONS - CONVERT TO CLEAN TEXT:
+10. User mentions <@123456> or <@!123456> → Username (remove all <>, @, and IDs - just username)
+11. Role mentions <@&123456> → RoleName (remove all <>, @, &, and IDs - just role name)
+12. Channel mentions <#123456> → channelname (remove all <>, #, and IDs - just channel name)
+13. Custom emojis <:name:123456> → :name: (keep emoji name, remove ID and <>)
+
+ESCAPING - CRITICAL: These characters MUST be escaped with backslash in ALL text: _ * [ ] ( ) ~ \` # + - = | { } . ! \\
 
 EXAMPLES:
+- Discord: "<@151671554806251520>" → Telegram: "Username"
+- Discord: "<@&456789>" → Telegram: "RoleName"
+- Discord: "<#123456>" → Telegram: "channelname"
 - Discord: "# Heading" → Telegram: "*Heading*"
-- Discord: "## Sub heading" → Telegram: "*Sub heading*"
-- Discord: "Regular text with . and !" → Telegram: "Regular text with \\. and \\!"
+- Discord: "Text with . and !" → Telegram: "Text with \\. and \\!"
+- Discord: "Amazing!" → Telegram: "Amazing\\!"
+- Discord: "Booster!" → Telegram: "Booster\\!"
 
 Discord text to convert:
 ${text}
@@ -60,11 +71,81 @@ Converted text:`;
         throw new Error('Gemini provider not available');
       }
       
-      logInfo('🤖 AI Debug: Calling Gemini makeRequest directly...');
-      const aiResult = await geminiProvider.makeRequest(aiPrompt);
+      logInfo('🤖 AI Debug: Calling Gemini API directly with enhanced logging...');
+      logInfo('🤖 AI Debug: Prompt being sent:', aiPrompt.substring(0, 200) + '...');
+      logInfo('🤖 AI Debug: Input text length:', text.length);
+      logInfo('🤖 AI Debug: Input text preview:', text.substring(0, 100));
+      
+      // Call Gemini API directly to get full response details
+      const url = `${geminiProvider.baseURL}/models/${geminiProvider.model}:generateContent?key=${geminiProvider.apiKey}`;
+      
+      const requestBody = {
+        contents: [{
+          parts: [{
+            text: aiPrompt
+          }]
+        }],
+        generationConfig: {
+          temperature: 0.3,
+          topK: 40,
+          topP: 0.95,
+          maxOutputTokens: 2048
+        },
+        safetySettings: [
+          {
+            category: "HARM_CATEGORY_HARASSMENT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_HATE_SPEECH",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          },
+          {
+            category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+            threshold: "BLOCK_MEDIUM_AND_ABOVE"
+          }
+        ]
+      };
+
+      logInfo('🤖 AI Debug: Making direct Gemini API call...');
+      
+      const axios = require('axios');
+      const response = await axios.post(url, requestBody, {
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        timeout: 30000
+      });
+
+      logInfo('🤖 AI Debug: Full Gemini response:', JSON.stringify(response.data, null, 2));
+      
+      let aiResult = '';
+      if (response.data && response.data.candidates && response.data.candidates[0]) {
+        const candidate = response.data.candidates[0];
+        
+        logInfo('🤖 AI Debug: Candidate data:', JSON.stringify(candidate, null, 2));
+        logInfo('🤖 AI Debug: Finish reason:', candidate.finishReason);
+        logInfo('🤖 AI Debug: Safety ratings:', JSON.stringify(candidate.safetyRatings, null, 2));
+        
+        if (candidate.content && candidate.content.parts && candidate.content.parts[0]) {
+          aiResult = candidate.content.parts[0].text;
+          logInfo('🤖 AI Debug: Extracted text:', aiResult);
+        } else {
+          logError('🤖 AI Debug: No content in candidate, likely blocked by safety filters');
+          logError('🤖 AI Debug: Candidate structure:', JSON.stringify(candidate, null, 2));
+        }
+      } else {
+        logError('🤖 AI Debug: No candidates in response');
+        logError('🤖 AI Debug: Response structure:', JSON.stringify(response.data, null, 2));
+      }
       
       logInfo('🤖 AI Debug: AI result received:', typeof aiResult, aiResult?.length || 0, 'chars');
       logInfo('🤖 AI Debug: AI result content:', JSON.stringify(aiResult));
+      logInfo('🤖 AI Debug: AI result raw string:', aiResult);
       
       // makeRequest returns a string directly
       if (aiResult && typeof aiResult === 'string' && aiResult.trim()) {
