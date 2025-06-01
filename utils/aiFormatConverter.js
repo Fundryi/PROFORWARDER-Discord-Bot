@@ -138,7 +138,9 @@ class AIFormatConverter {
       
       const aiPrompt = `Convert this Discord markdown text to Telegram MarkdownV2 format. Return ONLY the converted text, no explanations.
 
-RULES:
+TELEGRAM MARKDOWNV2 IS EXTREMELY STRICT - FOLLOW THESE RULES EXACTLY:
+
+FORMATTING CONVERSIONS:
 1. **Bold text** → *bold text*
 2. *Italic text* → _italic text_
 3. ***Bold+Italic*** → *_bold+italic_*
@@ -147,29 +149,88 @@ RULES:
 6. \`inline code\` → \`inline code\` (keep unchanged)
 7. [links](url) → [links](url) (keep unchanged)
 8. ||spoilers|| → ||spoilers|| (keep unchanged)
-9. Discord headings (# ## ###) → Convert to *bold text* format, don't use # in output
+9. Discord headings:
+   - # ## ### → Convert to *bold text* format
+   - #### ##### ###### → Keep as plain text but escape # characters
+
+CRITICAL ESCAPING RULES - TELEGRAM WILL REJECT THE MESSAGE IF THESE ARE WRONG:
+- ALWAYS escape these characters in plain text: [ ] ( ) ~ \` > # + - = | { } . ! \\
+- Inside *bold* or _italic_ formatting, escape special characters BUT NOT the formatting markers themselves
+- FORMATTING MARKERS MUST NEVER BE ESCAPED:
+  * The * character that starts bold: *
+  * The * character that ends bold: *
+  * The _ character that starts italic: _
+  * The _ character that ends italic: _
+  * The ~ character that starts strikethrough: ~
+  * The ~ character that ends strikethrough: ~
+  * The \` character that starts code: \`
+  * The \` character that ends code: \`
+
+CORRECT EXAMPLES:
+- Discord: "**Welcome!**" → Telegram: "*Welcome\\!*" (! escaped, both * NOT escaped)
+- Discord: "**UNI EMPIRE**" → Telegram: "*UNI EMPIRE*" (both * NOT escaped)
+- Discord: "### 🌟 Welcome!" → Telegram: "*🌟 Welcome\\!*" (heading to bold, ! escaped, both * NOT escaped)
+- Discord: "**Boost Rewards:**" → Telegram: "*Boost Rewards\\:*" (: escaped, both * NOT escaped)
+- Discord: "**Genshin Impact | Update 26.05**" → Telegram: "*Genshin Impact \\| Update 26\\.05*" (| and . escaped, both * NOT escaped)
+
+WRONG EXAMPLES (DO NOT DO THIS):
+- Discord: "**Welcome!**" → Telegram: "*Welcome\\!\\*" ❌ (closing * should NOT be escaped)
+- Discord: "**Update**" → Telegram: "*Update\\*" ❌ (closing * should NOT be escaped)
+
+NEWLINE HANDLING:
+- Keep ALL line breaks exactly as they appear
+- Do NOT convert newlines to literal "n" characters
+- Preserve bullet points and spacing
 
 DISCORD MENTIONS - CONVERT TO CLEAN TEXT:
-10. User mentions <@123456> or <@!123456> → Replace with actual username (see specific replacements below)
-11. Role mentions <@&123456> → Replace with actual role name (see specific replacements below)
-12. Channel mentions <#123456> → Replace with actual channel name (see specific replacements below)
-13. Custom emojis <:name:123456> → :name: (keep emoji name, remove ID and <>)
+- User mentions <@123456> or <@!123456> → Replace with actual username (see specific replacements below)
+- Role mentions <@&123456> → Replace with actual role name (see specific replacements below)
+- Channel mentions <#123456> → Replace with actual channel name (see specific replacements below)
 
-ESCAPING - CRITICAL: These characters MUST be escaped with backslash in ALL text: _ * [ ] ( ) ~ \` # + - = | { } . ! \\
+DISCORD EMOJIS - REMOVE OR REPLACE:
+- Custom emojis <:name:123456> → Remove completely OR replace with standard emoji if applicable
+- Animated emojis <a:name:123456> → Remove completely OR replace with standard emoji if applicable
+- If emoji name contains "heart" → ❤️
+- If emoji name contains "fire" → 🔥
+- If emoji name contains "star" → ⭐
+- If emoji name contains "check" or "tick" → ✅
+- If emoji name contains "cross" or "x" → ❌
+- If emoji name contains "laugh" or "joy" → 😂
+- If emoji name contains "sad" or "cry" → 😢
+- All other custom emojis → Remove completely (don't leave :name:)
 
-EXAMPLES:
-- Discord: "Hello <@151671554806251520>!" → Telegram: "Hello JohnDoe\\!" (if JohnDoe is the username)
-- Discord: "Check <@&456789> role" → Telegram: "Check Moderators role" (if Moderators is the role name)
-- Discord: "Go to <#123456>" → Telegram: "Go to general" (if general is the channel name)
-- Discord: "# Heading" → Telegram: "*Heading*"
-- Discord: "Text with . and !" → Telegram: "Text with \\. and \\!"
-- Discord: "Amazing!" → Telegram: "Amazing\\!"
-- Discord: "Booster!" → Telegram: "Booster\\!"${mentionInstructions}
+EXAMPLE CONVERSION:
+Discord input:
+**Bold text**
+# test
+## test
+### test
+#### test
+##### test
+###### test
+
+Should become:
+*Bold text*
+*test*
+*test*
+*test*
+\\#\\#\\#\\# test
+\\#\\#\\#\\#\\# test
+\\#\\#\\#\\#\\#\\# test
+
+CRITICAL:
+- Convert Discord headings # ## ### to *bold text* format (remove the #)
+- For #### ##### ###### keep as plain text but escape ALL # characters as \\#
+- Remove all Discord custom emojis unless they match common patterns for replacement
+- NEVER EVER escape the * characters that are used for bold formatting
+- Bold formatting must be: *text* NOT *text\\*
+- The closing * must NEVER have a backslash before it
+- ALL # characters must be escaped as \\# if not converted to bold${mentionInstructions}
 
 Discord text to convert:
 ${text}
 
-Converted text:`;
+Converted text (escape ALL special characters even inside formatting):`;
 
       // Get the Gemini provider and use its makeRequest method directly
       if (envConfig.debugMode) {
@@ -198,10 +259,12 @@ Converted text:`;
           }]
         }],
         generationConfig: {
-          temperature: 0.3,
-          topK: 40,
-          topP: 0.95,
-          maxOutputTokens: 2048
+          temperature: 0,    // Absolutely zero randomness
+          topK: 1,           // Only the single most likely token
+          topP: 0,           // Zero nucleus sampling
+          maxOutputTokens: 2048,
+          candidateCount: 1, // Only generate one candidate
+          stopSequences: []  // No stop sequences
         },
         safetySettings: [
           {
@@ -279,10 +342,13 @@ Converted text:`;
           logInfo('🤖 AI conversion result:', aiResult);
         }
         
+        // Fix any malformed bold formatting the AI might have produced
+        let fixedResult = this.fixMalformedBoldFormatting(aiResult.trim());
+        
         // Validate AI result - check for basic formatting integrity
-        if (this.validateAIResult(aiResult.trim(), text)) {
+        if (this.validateAIResult(fixedResult, text)) {
           logInfo('🤖 AI result passed validation');
-          return aiResult.trim();
+          return fixedResult;
         } else {
           logError('🤖 AI result failed validation, falling back to regular conversion');
           return FormatConverter.discordToTelegramMarkdownV2(text);
@@ -314,6 +380,18 @@ Converted text:`;
         return false;
       }
       
+      // Check for malformed newlines (literal "n" instead of actual newlines)
+      if (aiResult.includes('nn') && !aiResult.includes('\n\n')) {
+        logError('🤖 AI result has malformed newlines (literal "n" characters)');
+        return false;
+      }
+      
+      // Check if AI converted newlines to literal "n"
+      if (aiResult.match(/[a-zA-Z]n[A-Z•]/)) {
+        logError('🤖 AI result appears to have corrupted newlines');
+        return false;
+      }
+      
       // Check for reasonable length (AI result shouldn't be drastically different)
       if (aiResult.length > originalText.length * 5) {
         logError('🤖 AI result too long, possibly hallucinated');
@@ -323,6 +401,16 @@ Converted text:`;
       // Check if result contains our internal placeholders (means AI got pre-processed text)
       if (aiResult.includes('XPROTECTEDX')) {
         logError('🤖 AI result contains internal placeholders - AI got pre-processed text');
+        return false;
+      }
+      
+      // Check for completely missing formatting when original had it
+      const originalHasBold = originalText.includes('**');
+      const resultHasBold = aiResult.includes('*');
+      
+      // Only fail if original had bold but result has NO asterisks at all
+      if (originalHasBold && !resultHasBold) {
+        logError('🤖 AI result lost all bold formatting');
         return false;
       }
       
@@ -357,6 +445,35 @@ Converted text:`;
     } catch (error) {
       logError('🤖 AI result validation error:', error);
       return false;
+    }
+  }
+
+  /**
+   * Fix malformed bold formatting that AI might produce
+   * @param {string} text - Text to fix
+   * @returns {string} Fixed text
+   */
+  static fixMalformedBoldFormatting(text) {
+    if (!text) return text;
+    
+    try {
+      // Fix escaped closing asterisks: \* -> *
+      // But only when they appear to be closing bold formatting
+      let fixed = text;
+      
+      // Pattern: find \* that should be closing bold (after text that starts with unescaped *)
+      // This regex finds: *some text\* and replaces with *some text*
+      fixed = fixed.replace(/\*([^*]*?)\\\*/g, '*$1*');
+      
+      // Also fix cases where AI puts punctuation outside bold instead of inside
+      // Pattern: *text.* should stay as is, but *text*.  should become *text.*
+      // This is more complex, so we'll just log it for now
+      
+      logInfo('🔧 Fixed bold formatting issues in AI result');
+      return fixed;
+    } catch (error) {
+      logError('Error fixing bold formatting:', error);
+      return text;
     }
   }
 
