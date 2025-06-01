@@ -274,94 +274,24 @@ class TelegramHandler {
   simpleMarkdownV2Convert(text) {
     if (!text) return '';
     
-    let converted = text;
-    
-    // Protect bold first
-    const boldTexts = [];
-    converted = converted.replace(/\*\*(.*?)\*\*/g, (match, content) => {
-      const index = boldTexts.length;
-      boldTexts.push(match);
-      return `__BOLD_${index}__`;
-    });
-    
-    // Convert ONLY italic: *text* -> _text_
-    converted = converted.replace(/\*([^*]+?)\*/g, '_$1_');
-    
-    // Restore bold
-    boldTexts.forEach((bold, index) => {
-      converted = converted.replace(`__BOLD_${index}__`, bold);
-    });
-    
-    // Escape ONLY the characters that actually break MarkdownV2
-    // Based on error messages, start with just the period
-    converted = converted.replace(/\./g, '\\.');
-    
-    // Clean up mentions
-    converted = converted.replace(/<@!?(\d+)>/g, '');
-    converted = converted.replace(/<@&(\d+)>/g, '');
-    converted = converted.replace(/<#(\d+)>/g, '');
-    
-    // Convert custom emojis
-    converted = converted.replace(/<a?:(\w+):\d+>/g, ':$1:');
+    // MarkdownV2 is 99% same as Discord - only convert italic and escape periods
+    let converted = text
+      .replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '_$1_')  // *italic* -> _italic_ (avoid **bold**)
+      .replace(/\./g, '\\.')                          // Escape periods for MarkdownV2
+      .replace(/<@!?(\d+)>/g, '')                     // Remove mentions
+      .replace(/<@&(\d+)>/g, '')                      // Remove role mentions
+      .replace(/<#(\d+)>/g, '')                       // Remove channel mentions
+      .replace(/<a?:(\w+):\d+>/g, ':$1:');            // Convert emojis
     
     return converted.trim();
   }
+
 
   /**
-   * Convert Discord to regular Telegram Markdown (for testing)
+   * Convert Discord to Telegram Markdown (wrapper for compatibility)
    */
-  convertToRegularMarkdown(text) {
-    if (!text) return '';
-    
-    let converted = text;
-    
-    // Regular Markdown is simpler - just convert italic
-    // Bold: **text** stays **text**
-    // Italic: *text* -> _text_
-    converted = converted.replace(/\*([^*]+?)\*/g, '_$1_');
-    
-    // Clean up mentions
-    converted = converted.replace(/<@!?(\d+)>/g, '');
-    converted = converted.replace(/<@&(\d+)>/g, '');
-    converted = converted.replace(/<#(\d+)>/g, '');
-    
-    // Convert custom emojis
-    converted = converted.replace(/<a?:(\w+):\d+>/g, ':$1:');
-    
-    return converted.trim();
-  }
-
   convertDiscordToTelegramMarkdown(text) {
-    if (!text) return '';
-
-    let converted = text;
-    
-    // Since you said everything else works 1:1, let's try minimal conversion
-    // First protect bold formatting
-    const boldTexts = [];
-    converted = converted.replace(/\*\*(.*?)\*\*/g, (match, content) => {
-      const index = boldTexts.length;
-      boldTexts.push(match); // Keep original **text**
-      return `__BOLD_${index}__`;
-    });
-    
-    // Convert ONLY italic: *text* -> _text_
-    converted = converted.replace(/\*([^*]+?)\*/g, '_$1_');
-    
-    // Restore bold formatting as-is
-    boldTexts.forEach((bold, index) => {
-      converted = converted.replace(`__BOLD_${index}__`, bold);
-    });
-    
-    // Clean up mentions
-    converted = converted.replace(/<@!?(\d+)>/g, '');
-    converted = converted.replace(/<@&(\d+)>/g, '');
-    converted = converted.replace(/<#(\d+)>/g, '');
-    
-    // Convert custom emojis
-    converted = converted.replace(/<a?:(\w+):\d+>/g, ':$1:');
-
-    return converted.trim();
+    return this.simpleMarkdownV2Convert(text);
   }
 
   /**
