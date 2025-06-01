@@ -274,14 +274,20 @@ class TelegramHandler {
   simpleMarkdownV2Convert(text) {
     if (!text) return '';
     
-    // MarkdownV2 is 99% same as Discord - only convert italic and escape periods
-    let converted = text
-      .replace(/(?<!\*)\*([^*]+?)\*(?!\*)/g, '_$1_')  // *italic* -> _italic_ (avoid **bold**)
-      .replace(/\./g, '\\.')                          // Escape periods for MarkdownV2
-      .replace(/<@!?(\d+)>/g, '')                     // Remove mentions
-      .replace(/<@&(\d+)>/g, '')                      // Remove role mentions
-      .replace(/<#(\d+)>/g, '')                       // Remove channel mentions
-      .replace(/<a?:(\w+):\d+>/g, ':$1:');            // Convert emojis
+    // Exact conversions needed:
+    // **Bold** > *Bold* (Discord bold to Telegram bold)
+    // *Italic* > _Italic_ (Discord italic to Telegram italic)
+    // ~~Strike~~ > ~Strike~ (Discord strike to Telegram strike)
+    
+    let converted = text;
+    
+    // Convert Discord formatting to Telegram MarkdownV2
+    converted = converted.replace(/\*\*(.*?)\*\*/g, '*$1*');    // **Bold** -> *Bold*
+    converted = converted.replace(/\*([^*]+?)\*/g, '_$1_');     // *Italic* -> _Italic_
+    converted = converted.replace(/~~(.*?)~~/g, '~$1~');        // ~~Strike~~ -> ~Strike~
+    
+    // Escape periods for MarkdownV2
+    converted = converted.replace(/\./g, '\\.');
     
     return converted.trim();
   }
