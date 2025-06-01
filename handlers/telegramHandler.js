@@ -61,12 +61,27 @@ class TelegramHandler {
       // Convert Discord message to Telegram format
       const telegramMessage = await this.convertDiscordMessage(message, config);
       
+      const envConfig = require('../config/env');
+      const isDebugMode = envConfig.debugMode;
+      
       // If we have media, send it with the text as caption
       if (telegramMessage.media && telegramMessage.media.length > 0) {
+        if (isDebugMode) {
+          logInfo(`🔍 SEND DEBUG: Sending ${telegramMessage.media.length} media items with caption`);
+          logInfo(`🔍 SEND DEBUG: Caption text: "${telegramMessage.text}"`);
+          logInfo(`🔍 SEND DEBUG: Caption length: ${telegramMessage.text.length} characters`);
+        }
+        
         // Send media with text as caption
         const result = await this.sendMediaWithCaption(chatId, telegramMessage.media, telegramMessage.text);
         return result;
       } else {
+        if (isDebugMode) {
+          logInfo(`🔍 SEND DEBUG: Sending text-only message`);
+          logInfo(`🔍 SEND DEBUG: Final text: "${telegramMessage.text}"`);
+          logInfo(`🔍 SEND DEBUG: Text length: ${telegramMessage.text.length} characters`);
+        }
+        
         // Send message with MarkdownV2 parsing using the converted message (includes embeds!)
         const messagePayload = {
           chat_id: chatId,
@@ -100,6 +115,9 @@ class TelegramHandler {
    */
   async sendMediaWithCaption(chatId, media, caption) {
     try {
+      const envConfig = require('../config/env');
+      const isDebugMode = envConfig.debugMode;
+      
       if (media.length === 1) {
         // Single media item - use sendPhoto/sendVideo with caption
         const mediaItem = media[0];
@@ -109,6 +127,12 @@ class TelegramHandler {
           method = 'sendPhoto';
         } else if (mediaItem.type === 'video') {
           method = 'sendVideo';
+        }
+        
+        if (isDebugMode) {
+          logInfo(`🔍 MEDIA DEBUG: Sending ${method} with caption`);
+          logInfo(`🔍 MEDIA DEBUG: Raw caption: "${caption}"`);
+          logInfo(`🔍 MEDIA DEBUG: Media URL: "${mediaItem.media}"`);
         }
         
         const result = await this.callTelegramAPI(method, {
@@ -126,11 +150,20 @@ class TelegramHandler {
         }
       } else {
         // Multiple media items - use sendMediaGroup with caption on first item
+        if (isDebugMode) {
+          logInfo(`🔍 MEDIA DEBUG: Sending media group with ${media.length} items`);
+          logInfo(`🔍 MEDIA DEBUG: Caption on first item: "${caption}"`);
+        }
+        
         const mediaWithCaption = media.map((item, index) => ({
           ...item,
           caption: index === 0 ? caption : undefined,
           parse_mode: index === 0 ? 'MarkdownV2' : undefined
         }));
+
+        if (isDebugMode) {
+          logInfo(`🔍 MEDIA DEBUG: Media group payload: ${JSON.stringify(mediaWithCaption, null, 2)}`);
+        }
 
         const result = await this.callTelegramAPI('sendMediaGroup', {
           chat_id: chatId,
@@ -176,44 +209,140 @@ class TelegramHandler {
    * Convert Discord message to Telegram format
    */
   async convertDiscordMessage(discordMessage, config = {}) {
+    const envConfig = require('../config/env');
+    const isDebugMode = envConfig.debugMode;
+    
     let text = '';
     const media = [];
 
+    if (isDebugMode) {
+      logInfo('🔍 EMBED DEBUG: Starting Discord message conversion');
+      logInfo(`🔍 EMBED DEBUG: Message content: "${discordMessage.content || 'NO CONTENT'}"`);
+    }
+
     // Convert message content directly without author prefix
     if (discordMessage.content) {
+      if (isDebugMode) {
+        logInfo(`🔍 EMBED DEBUG: Converting main content: "${discordMessage.content}"`);
+      }
       const convertedContent = this.convertDiscordToTelegramMarkdown(discordMessage.content);
+      if (isDebugMode) {
+        logInfo(`🔍 EMBED DEBUG: Converted main content: "${convertedContent}"`);
+      }
       text += convertedContent;
     }
 
     // Handle embeds with better formatting
     if (discordMessage.embeds && discordMessage.embeds.length > 0) {
-      for (const embed of discordMessage.embeds) {
+      if (isDebugMode) {
+        logInfo(`🔍 EMBED DEBUG: Processing ${discordMessage.embeds.length} embeds`);
+      }
+      
+      for (let i = 0; i < discordMessage.embeds.length; i++) {
+        const embed = discordMessage.embeds[i];
+        if (isDebugMode) {
+          logInfo(`🔍 EMBED DEBUG: --- Processing Embed ${i + 1} ---`);
+        }
+        
         // Add spacing if there's already content
         if (text.trim()) {
           text += '\n\n';
         }
         
         if (embed.title) {
-          text += `*${FormatConverter.escapeMarkdownV2ForText(embed.title)}*\n`;
+          if (isDebugMode) {
+            logInfo(`🔍 EMBED DEBUG: Embed title: "${embed.title}"`);
+          }
+          const escapedTitle = FormatConverter.escapeMarkdownV2ForText(embed.title);
+          if (isDebugMode) {
+            logInfo(`🔍 EMBED DEBUG: Escaped title: "${escapedTitle}"`);
+          }
+          text += `*${escapedTitle}*\n`;
         }
         
         if (embed.description || embed.rawDescription) {
           const description = embed.rawDescription || embed.description;
-          text += `${this.convertDiscordToTelegramMarkdown(description)}\n`;
+          if (isDebugMode) {
+            logInfo(`🔍 EMBED DEBUG: Raw embed description: "${description}"`);
+            logInfo(`🔍 EMBED DEBUG: Description source: ${embed.rawDescription ? 'rawDescription' : 'description'}`);
+          }
+          
+          const convertedDescription = this.convertDiscordToTelegramMarkdown(description);
+          if (isDebugMode) {
+            logInfo(`🔍 EMBED DEBUG: Converted description: "${convertedDescription}"`);
+          }
+          
+          text += `${convertedDescription}\n`;
         }
         
         if (embed.url) {
+          if (isDebugMode) {
+            logInfo(`🔍 EMBED DEBUG: Embed URL: "${embed.url}"`);
+          }
           text += `🔗 [Link](${embed.url})\n`;
+        }
+        
+        // Handle embed images
+        if (embed.image && embed.image.url) {
+          if (isDebugMode) {
+            logInfo(`🔍 EMBED DEBUG: Adding embed image: "${embed.image.url}"`);
+          }
+          media.push({
+            type: 'photo',
+            media: embed.image.url
+          });
+        }
+        
+        // Handle embed thumbnails
+        if (embed.thumbnail && embed.thumbnail.url) {
+          if (isDebugMode) {
+            logInfo(`🔍 EMBED DEBUG: Adding embed thumbnail: "${embed.thumbnail.url}"`);
+          }
+          media.push({
+            type: 'photo',
+            media: embed.thumbnail.url
+          });
         }
         
         // Add fields with better formatting
         if (embed.fields && embed.fields.length > 0) {
-          for (const field of embed.fields) {
+          if (isDebugMode) {
+            logInfo(`🔍 EMBED DEBUG: Processing ${embed.fields.length} fields`);
+          }
+          
+          for (let j = 0; j < embed.fields.length; j++) {
+            const field = embed.fields[j];
             const fieldName = field.rawName || field.name;
             const fieldValue = field.rawValue || field.value;
-            text += `\n*${FormatConverter.escapeMarkdownV2ForText(fieldName)}:*\n${this.convertDiscordToTelegramMarkdown(fieldValue)}\n`;
+            
+            if (isDebugMode) {
+              logInfo(`🔍 EMBED DEBUG: Field ${j + 1} name: "${fieldName}"`);
+              logInfo(`🔍 EMBED DEBUG: Field ${j + 1} value: "${fieldValue}"`);
+            }
+            
+            const escapedFieldName = FormatConverter.escapeMarkdownV2ForText(fieldName);
+            const convertedFieldValue = this.convertDiscordToTelegramMarkdown(fieldValue);
+            
+            if (isDebugMode) {
+              logInfo(`🔍 EMBED DEBUG: Field ${j + 1} escaped name: "${escapedFieldName}"`);
+              logInfo(`🔍 EMBED DEBUG: Field ${j + 1} converted value: "${convertedFieldValue}"`);
+            }
+            
+            text += `\n*${escapedFieldName}:*\n${convertedFieldValue}\n`;
           }
         }
+        
+        if (isDebugMode) {
+          logInfo(`🔍 EMBED DEBUG: Text after embed ${i + 1}: "${text}"`);
+        }
+      }
+      
+      if (isDebugMode) {
+        logInfo(`🔍 EMBED DEBUG: Final combined text with all embeds: "${text}"`);
+        logInfo(`🔍 EMBED DEBUG: Media items found: ${media.length}`);
+        media.forEach((item, index) => {
+          logInfo(`🔍 EMBED DEBUG: Media ${index + 1}: ${item.type} - ${item.media}`);
+        });
       }
     }
 

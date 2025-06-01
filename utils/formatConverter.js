@@ -107,7 +107,15 @@ class FormatConverter {
         return `XPROTECTEDX${index}XPROTECTEDX`;
       });
       
-      // Step 2: Convert Discord mentions to plain text (since Telegram doesn't support them)
+      // Step 2A: Convert Discord headings to Discord bold syntax FIRST
+      // This way our existing bold conversion will handle them normally
+      converted = converted.replace(/^### (.+)$/gm, '**$1**');      // ### heading -> **heading**
+      converted = converted.replace(/^## (.+)$/gm, '**$1**');       // ## heading -> **heading**
+      converted = converted.replace(/^# (.+)$/gm, '**$1**');        // # heading -> **heading**
+      
+      logInfo(`🔍 HEADING DEBUG: After heading conversion: "${converted}"`);
+      
+      // Step 2B: Convert Discord mentions to plain text (since Telegram doesn't support them)
       
       // Convert Discord user mentions <@123> or <@!123> to plain text
       converted = converted.replace(/<@!?(\d+)>/g, '@User');
@@ -132,61 +140,9 @@ class FormatConverter {
       // Simple formatting - be more surgical about the conversion
       converted = converted.replace(/\*\*(.*?)\*\*/g, '*$1*');                // **text** -> *text*
       
-      // For italic conversion, we need to distinguish between:
-      // 1. Bold text we just converted: *bold* (should be left alone)
-      // 2. Original italic text: *italic* (should become _italic_)
+      logInfo(`🔍 BOLD DEBUG: After bold conversion: "${converted}"`);
       
-      // Strategy: Mark the text, then check what was originally bold vs italic
-      const originalText = text; // Keep reference to original
-      
-      // Find all original **bold** positions to avoid converting them when they become *bold*
-      const originalBoldRanges = [];
-      const boldRegex = /\*\*(.*?)\*\*/g;
-      let boldMatch;
-      while ((boldMatch = boldRegex.exec(originalText)) !== null) {
-        // In the converted text, this will be *content* instead of **content**
-        // So we need to find where "*content*" appears and protect it
-        const content = boldMatch[1];
-        const boldInConverted = `*${content}*`;
-        const pos = converted.indexOf(boldInConverted);
-        if (pos !== -1) {
-          originalBoldRanges.push({
-            start: pos,
-            end: pos + boldInConverted.length,
-            text: boldInConverted
-          });
-        }
-      }
-      
-      // Now convert italic, but skip ranges that were originally bold
-      let italicResult = '';
-      let italicPos = 0;
-      const italicRegex = /\*([^*\n]+?)\*/g;
-      let italicMatch;
-      
-      while ((italicMatch = italicRegex.exec(converted)) !== null) {
-        // Add text before this match
-        italicResult += converted.substring(italicPos, italicMatch.index);
-        
-        // Check if this asterisk pair is in a protected bold range
-        const isProtectedBold = originalBoldRanges.some(range =>
-          italicMatch.index >= range.start && italicMatch.index + italicMatch[0].length <= range.end
-        );
-        
-        if (isProtectedBold) {
-          // This was originally bold, keep as *text*
-          italicResult += italicMatch[0];
-        } else {
-          // This was originally italic, convert to _text_
-          italicResult += `_${italicMatch[1]}_`;
-        }
-        
-        italicPos = italicMatch.index + italicMatch[0].length;
-      }
-      
-      // Add remaining text
-      italicResult += converted.substring(italicPos);
-      converted = italicResult;
+      // Note: We skip italic conversion completely - Discord *italic* will just stay as *italic* (plain text)
       converted = converted.replace(/~~(.*?)~~/g, '~$1~');                    // ~~text~~ -> ~text~
       // __text__ stays __text__ (underline)
       // ||text|| stays ||text|| (spoiler)
@@ -212,8 +168,8 @@ class FormatConverter {
         /__\*[^*]*\*__/g,      // __*text*__ (underline bold)
         /___[^_]*___/g,        // ___text___ (underline italic)
         /__[^_]*__/g,          // __text__ (underline)
-        /\*[^*]*\*/g,          // *text* (bold)
-        /_[^_]*_/g,            // _text_ (italic)
+        /\*[^*]*\*/g,          // *text* (bold) - this will be treated as formatting to preserve
+        // Note: We removed _text_ pattern since we ignore italic completely
         /~[^~]*~/g,            // ~text~ (strikethrough)
         /\|\|[^|]*\|\|/g,      // ||text|| (spoiler)
         /\[[^\]]+\]\([^)]+\)/g, // [text](url) (link)
