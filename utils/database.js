@@ -369,26 +369,39 @@ async function cleanupOrphanedLogs(client, limit = 50) {
         
         // Check if forwarded message still exists
         let forwardedExists = false;
+        let isTelegramTarget = false;
+        
         try {
-          let targetChannel;
-          
           if (log.forwardedServerId) {
+            // Discord target
             const targetGuild = client.guilds.cache.get(log.forwardedServerId);
             if (targetGuild) {
-              targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+              const targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+              if (targetChannel) {
+                await targetChannel.messages.fetch(log.forwardedMessageId);
+                forwardedExists = true;
+              }
             }
           } else {
-            const targetGuild = client.guilds.cache.find(guild =>
-              guild.channels.cache.has(log.forwardedChannelId)
-            );
-            if (targetGuild) {
-              targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+            // Check if this is a Telegram target (negative chat ID)
+            if (log.forwardedChannelId && log.forwardedChannelId.startsWith('-')) {
+              isTelegramTarget = true;
+              // For Telegram, we'll assume the message exists unless we can verify it doesn't
+              // We'll handle Telegram deletion in the cleanup section below
+              forwardedExists = true;
+            } else {
+              // Discord target with null serverId - find guild
+              const targetGuild = client.guilds.cache.find(guild =>
+                guild.channels.cache.has(log.forwardedChannelId)
+              );
+              if (targetGuild) {
+                const targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+                if (targetChannel) {
+                  await targetChannel.messages.fetch(log.forwardedMessageId);
+                  forwardedExists = true;
+                }
+              }
             }
-          }
-          
-          if (targetChannel) {
-            await targetChannel.messages.fetch(log.forwardedMessageId);
-            forwardedExists = true;
           }
         } catch (error) {
           // Forwarded message doesn't exist
@@ -403,42 +416,74 @@ async function cleanupOrphanedLogs(client, limit = 50) {
         } else if (!originalExists && forwardedExists) {
           // Original is gone but forwarded still exists - delete orphaned forwarded message
           try {
-            let targetChannel;
-            
-            if (log.forwardedServerId) {
-              const targetGuild = client.guilds.cache.get(log.forwardedServerId);
-              if (targetGuild) {
-                targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+            if (isTelegramTarget) {
+              // Handle Telegram orphaned message
+              logInfo(`🗑️ TELEGRAM CLEANUP: Deleting orphaned Telegram message ${log.forwardedMessageId} in chat ${log.forwardedChannelId}`);
+              
+              const TelegramHandler = require('../handlers/telegramHandler');
+              const telegramHandler = new TelegramHandler();
+              const initialized = await telegramHandler.initialize();
+              
+              if (initialized) {
+                try {
+                  await telegramHandler.callTelegramAPI('deleteMessage', {
+                    chat_id: log.forwardedChannelId,
+                    message_id: parseInt(log.forwardedMessageId)
+                  });
+                  logSuccess(`🗑️ Deleted orphaned Telegram message ${log.forwardedMessageId} in chat ${log.forwardedChannelId} (original Discord message gone)`);
+                } catch (telegramError) {
+                  if (telegramError.message && (
+                      telegramError.message.includes('message to delete not found') ||
+                      telegramError.message.includes('Message to delete not found') ||
+                      telegramError.message.includes('Bad Request: message can\'t be deleted')
+                    )) {
+                    logInfo(`🗑️ Telegram message ${log.forwardedMessageId} already deleted or cannot be deleted`);
+                  } else {
+                    logError(`Failed to delete orphaned Telegram message ${log.forwardedMessageId}:`, telegramError);
+                  }
+                }
+              } else {
+                logError(`Telegram handler failed to initialize - cannot delete orphaned message ${log.forwardedMessageId}`);
               }
             } else {
-              const targetGuild = client.guilds.cache.find(guild =>
-                guild.channels.cache.has(log.forwardedChannelId)
-              );
-              if (targetGuild) {
-                targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+              // Handle Discord orphaned message
+              let targetChannel;
+              
+              if (log.forwardedServerId) {
+                const targetGuild = client.guilds.cache.get(log.forwardedServerId);
+                if (targetGuild) {
+                  targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+                }
+              } else {
+                const targetGuild = client.guilds.cache.find(guild =>
+                  guild.channels.cache.has(log.forwardedChannelId)
+                );
+                if (targetGuild) {
+                  targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+                }
               }
-            }
-            
-            if (targetChannel) {
-              // Delete the orphaned forwarded message
-              const forwardedMessage = await targetChannel.messages.fetch(log.forwardedMessageId);
-              if (forwardedMessage) {
-                await forwardedMessage.delete();
-                logSuccess(`🗑️ Deleted orphaned forwarded message ${log.forwardedMessageId} in ${targetChannel.name} (original message gone)`);
+              
+              if (targetChannel) {
+                // Delete the orphaned forwarded Discord message
+                const forwardedMessage = await targetChannel.messages.fetch(log.forwardedMessageId);
+                if (forwardedMessage) {
+                  await forwardedMessage.delete();
+                  logSuccess(`🗑️ Deleted orphaned Discord forwarded message ${log.forwardedMessageId} in ${targetChannel.name} (original message gone)`);
+                }
               }
             }
             
             // Clean up database entry
             await run(`DELETE FROM message_logs WHERE id = ?`, [log.id]);
             deletedCount++;
-            logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Original gone, forwarded deleted - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId}`);
+            logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Original gone, forwarded deleted - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId} (${isTelegramTarget ? 'Telegram' : 'Discord'})`);
             
           } catch (deleteError) {
             logError(`Failed to delete orphaned forwarded message ${log.forwardedMessageId}:`, deleteError);
             // Still clean up database entry even if deletion failed
             await run(`DELETE FROM message_logs WHERE id = ?`, [log.id]);
             deletedCount++;
-            logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Original gone, forwarded deletion failed but cleaned DB - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId}`);
+            logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Original gone, forwarded deletion failed but cleaned DB - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId} (${isTelegramTarget ? 'Telegram' : 'Discord'})`);
           }
         }
         

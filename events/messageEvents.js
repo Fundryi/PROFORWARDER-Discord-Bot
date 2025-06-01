@@ -327,17 +327,11 @@ async function handleMessageDelete(message, client) {
     // Delete each forwarded version
     for (const logEntry of forwardedVersions) {
       try {
-        logInfo(`🗑️ DELETE DEBUG: Processing forwarded message ${logEntry.forwardedMessageId}`);
-        logInfo(`🗑️ DELETE DEBUG: forwardedServerId = "${logEntry.forwardedServerId}" (${typeof logEntry.forwardedServerId})`);
-        logInfo(`🗑️ DELETE DEBUG: forwardedChannelId = "${logEntry.forwardedChannelId}"`);
-        
         if (logEntry.forwardedServerId) {
           // Discord target
-          logInfo(`🗑️ DELETE DEBUG: Routing to Discord deletion`);
           await deleteForwardedMessage(logEntry, client);
         } else {
           // Telegram target - handle differently
-          logInfo(`🗑️ DELETE DEBUG: Routing to Telegram deletion`);
           await deleteTelegramForwardedMessage(logEntry, client);
         }
       } catch (error) {
@@ -533,7 +527,7 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
 // Delete a Telegram forwarded message
 async function deleteTelegramForwardedMessage(logEntry, client) {
   try {
-    logInfo(`🗑️ TELEGRAM DELETE: Attempting to delete Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+    logInfo(`Deleting Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
     
     const TelegramHandler = require('../handlers/telegramHandler');
     const telegramHandler = new TelegramHandler();
@@ -543,27 +537,22 @@ async function deleteTelegramForwardedMessage(logEntry, client) {
     if (!initialized) {
       throw new Error('Telegram handler failed to initialize');
     }
-    
-    logInfo(`🗑️ TELEGRAM DELETE: Telegram handler initialized, calling deleteMessage API`);
 
-    const result = await telegramHandler.callTelegramAPI('deleteMessage', {
+    await telegramHandler.callTelegramAPI('deleteMessage', {
       chat_id: logEntry.forwardedChannelId,
       message_id: parseInt(logEntry.forwardedMessageId) // Ensure it's a number
     });
     
-    logInfo(`🗑️ TELEGRAM DELETE: API response:`, result);
-    logSuccess(`✅ Deleted Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+    logSuccess(`Deleted Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
 
   } catch (error) {
-    logError(`🗑️ TELEGRAM DELETE ERROR: ${error.message}`, error);
-    
     // If message is already deleted, that's ok
     if (error.message && (
         error.message.includes('message to delete not found') ||
         error.message.includes('Message to delete not found') ||
         error.message.includes('Bad Request: message can\'t be deleted')
       )) {
-      logInfo(`🗑️ TELEGRAM DELETE: Message ${logEntry.forwardedMessageId} already deleted or cannot be deleted`);
+      logInfo(`Telegram message ${logEntry.forwardedMessageId} already deleted or cannot be deleted`);
     } else {
       throw error;
     }
