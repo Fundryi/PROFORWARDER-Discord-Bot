@@ -84,7 +84,7 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
         await forwardHandler.handleMessageEdit(oldMessage, newMessage, config);
       }
 
-      // Get message logs to find forwarded versions of this message (using working approach from reactions)
+      // Get message logs to find forwarded versions of this message (all targets)
       const { getMessageLogs } = require('../utils/database');
       const messageLogs = await getMessageLogs();
       
@@ -124,7 +124,13 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
       // Update each forwarded version
       for (const logEntry of forwardedVersions) {
         try {
-          await updateForwardedMessage(newMessage, logEntry, client);
+          if (logEntry.forwardedServerId) {
+            // Discord target
+            await updateForwardedMessage(newMessage, logEntry, client);
+          } else {
+            // Telegram target - handle differently
+            await updateTelegramForwardedMessage(newMessage, logEntry, client);
+          }
         } catch (error) {
           logError(`Failed to update forwarded message ${logEntry.forwardedMessageId}:`, error);
         }
@@ -275,7 +281,7 @@ async function handleMessageDelete(message, client) {
     // Handle AI-related processing for message deletion
     await forwardHandler.handleMessageDelete(message);
 
-    // Get message logs to find forwarded versions of this message (using working approach from reactions)
+    // Get message logs to find forwarded versions of this message (all targets)
     const { getMessageLogs } = require('../utils/database');
     const messageLogs = await getMessageLogs();
     
@@ -321,7 +327,13 @@ async function handleMessageDelete(message, client) {
     // Delete each forwarded version
     for (const logEntry of forwardedVersions) {
       try {
-        await deleteForwardedMessage(logEntry, client);
+        if (logEntry.forwardedServerId) {
+          // Discord target
+          await deleteForwardedMessage(logEntry, client);
+        } else {
+          // Telegram target - handle differently
+          await deleteTelegramForwardedMessage(logEntry, client);
+        }
       } catch (error) {
         logError(`Failed to delete forwarded message ${logEntry.forwardedMessageId}:`, error);
       }
@@ -429,6 +441,109 @@ async function deleteTranslationThreads(forwardedMessage, client) {
   } catch (error) {
     logError('Error deleting translation threads:', error);
     // Don't throw - we still want to delete the main message
+  }
+}
+
+// Update a Telegram forwarded message using editMessageText API
+async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
+  try {
+    logInfo(`Editing Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+    
+    // Get the config for this forward
+    const { getForwardConfigById } = require('../utils/configManager');
+    const config = await getForwardConfigById(logEntry.configId);
+    
+    if (!config) {
+      throw new Error(`Config ${logEntry.configId} not found`);
+    }
+
+    // Initialize Telegram handler
+    const TelegramHandler = require('../handlers/telegramHandler');
+    const telegramHandler = new TelegramHandler();
+    await telegramHandler.initialize();
+
+    // Convert the Discord message to Telegram format
+    const telegramMessage = await telegramHandler.convertDiscordMessage(newMessage, config);
+
+    try {
+      // Use editMessageText API to edit the message in place
+      const result = await telegramHandler.callTelegramAPI('editMessageText', {
+        chat_id: logEntry.forwardedChannelId,
+        message_id: logEntry.forwardedMessageId,
+        text: telegramMessage.text,
+        parse_mode: 'MarkdownV2',
+        disable_web_page_preview: false
+      });
+
+      if (result && result.ok) {
+        logSuccess(`✅ Edited Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+        
+        // Note: Media attachments in edits are more complex in Telegram
+        // For now, we handle text edits. Media edits would need editMessageMedia API
+        if (telegramMessage.media && telegramMessage.media.length > 0) {
+          logInfo(`ℹ️ Note: New media attachments in edited message cannot be added to existing message`);
+        }
+        
+        return result.result;
+      } else {
+        throw new Error(`Telegram edit API error: ${result ? result.description : 'Unknown error'}`);
+      }
+
+    } catch (editError) {
+      // If edit fails (e.g., message too old, contains media, etc.), fall back to delete and resend
+      logInfo(`Edit failed (${editError.message}), falling back to delete and resend`);
+      
+      try {
+        // Delete the old message
+        await telegramHandler.callTelegramAPI('deleteMessage', {
+          chat_id: logEntry.forwardedChannelId,
+          message_id: logEntry.forwardedMessageId
+        });
+        logInfo(`Deleted old Telegram message ${logEntry.forwardedMessageId}`);
+      } catch (deleteError) {
+        logError(`Failed to delete old Telegram message: ${deleteError.message}`);
+      }
+
+      // Send new message with updated content
+      const newTelegramMessage = await telegramHandler.sendMessage(logEntry.forwardedChannelId, newMessage, config);
+      
+      // Update the database log with new message ID
+      const { updateMessageLog } = require('../utils/database');
+      await updateMessageLog(logEntry.id, newTelegramMessage.message_id.toString());
+      
+      logSuccess(`Recreated Telegram message in chat ${logEntry.forwardedChannelId} (fallback)`);
+      return newTelegramMessage;
+    }
+
+  } catch (error) {
+    logError('Error updating Telegram forwarded message:', error);
+    throw error;
+  }
+}
+
+// Delete a Telegram forwarded message
+async function deleteTelegramForwardedMessage(logEntry, client) {
+  try {
+    logInfo(`Deleting Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+    
+    const TelegramHandler = require('../handlers/telegramHandler');
+    const telegramHandler = new TelegramHandler();
+    await telegramHandler.initialize();
+
+    await telegramHandler.callTelegramAPI('deleteMessage', {
+      chat_id: logEntry.forwardedChannelId,
+      message_id: logEntry.forwardedMessageId
+    });
+    
+    logSuccess(`Deleted Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+
+  } catch (error) {
+    // If message is already deleted, that's ok
+    if (error.message && error.message.includes('message to delete not found')) {
+      logInfo(`Telegram message ${logEntry.forwardedMessageId} already deleted`);
+    } else {
+      throw error;
+    }
   }
 }
 

@@ -84,7 +84,18 @@ const proforwardCommand = new SlashCommandBuilder()
           .setDescription('Telegram chat ID to test')
           .setRequired(true)
       )
-  );
+ )
+ .addSubcommand(subcommand =>
+   subcommand
+     .setName('telegram-discover')
+     .setDescription('Discover available Telegram chats where your bot has been added')
+     .addStringOption(option =>
+       option
+         .setName('username')
+         .setDescription('Optional: Channel/group username (@username) or Telegram link (https://t.me/username)')
+         .setRequired(false)
+     )
+ );
 
 async function handleProforwardCommand(interaction) {
   const subcommand = interaction.options.getSubcommand();
@@ -108,6 +119,9 @@ async function handleProforwardCommand(interaction) {
         break;
       case 'test':
         await handleTest(interaction);
+        break;
+      case 'telegram-discover':
+        await handleTelegramDiscover(interaction);
         break;
       default:
         await interaction.reply({ content: 'Unknown subcommand', ephemeral: true });
@@ -296,7 +310,7 @@ async function handleTelegram(interaction) {
   // Validate chat ID format
   if (!/^-?\d+$/.test(chatId)) {
     await interaction.reply({
-      content: '❌ Invalid Telegram chat ID format.\n\n**Examples:**\n• Group/Channel: `-1001234567890` (negative)\n• Private chat: `123456789` (positive)\n\n**How to get chat ID:**\n1. Add @userinfobot to your chat\n2. Send any message\n3. Use the chat ID it provides',
+      content: '❌ Invalid Telegram chat ID format.\n\n**Examples:**\n• Group/Channel: `-1001234567890` (negative)\n• Private chat: `123456789` (positive)\n\n**Easy way to get chat ID:**\n1. Use `/proforward telegram-discover` to automatically find chat IDs\n2. Or add @userinfobot to your chat and send a message',
       ephemeral: true
     });
     return;
@@ -437,6 +451,8 @@ async function handleStatus(interaction) {
   response += `• Cross server: \`/proforward setup source:#from target_channel:CHANNEL_ID target_server:SERVER_ID\`\n`;
   if (config.telegram?.enabled) {
     response += `• Telegram: \`/proforward telegram source:#from chat_id:CHAT_ID\`\n`;
+    response += `• Discover chats: \`/proforward telegram-discover\`\n`;
+    response += `• Discover by username: \`/proforward telegram-discover username:@channelname\`\n`;
   }
   response += `• Right-click → Copy ID to get channel/server IDs (Developer Mode required)`;
 
@@ -504,6 +520,214 @@ async function handleTest(interaction) {
     
     await interaction.editReply({
       content: `❌ **Telegram test failed with error.**\n\n**Error:** ${error.message}\n\nCheck the bot logs for more details.`,
+    });
+  }
+}
+
+async function handleTelegramDiscover(interaction) {
+  // Check if Telegram is enabled
+  const config = require('../config/env');
+  if (!config.telegram?.enabled) {
+    await interaction.reply({
+      content: '❌ **Telegram integration is not enabled.**\n\nTo enable Telegram forwarding:\n1. Set `TELEGRAM_ENABLED=true` in your .env file\n2. Add your `TELEGRAM_BOT_TOKEN`\n3. Restart the bot',
+      ephemeral: true
+    });
+    return;
+  }
+
+  const username = interaction.options.getString('username');
+  await interaction.deferReply({ ephemeral: true });
+
+  try {
+    // Import the TelegramHandler
+    const TelegramHandler = require('../handlers/telegramHandler');
+    const telegramHandler = new TelegramHandler();
+    
+    // Initialize Telegram handler
+    const initialized = await telegramHandler.initialize();
+    if (!initialized) {
+      await interaction.editReply({
+        content: '❌ **Failed to initialize Telegram handler.**\n\nCheck your Telegram bot token and try again.',
+      });
+      return;
+    }
+
+    const chatMap = new Map();
+    const errors = [];
+
+    // Method 1: Get chats from updates (existing functionality)
+    try {
+      const updates = await telegramHandler.callTelegramAPI('getUpdates', {
+        limit: 100,
+        timeout: 0
+      });
+
+      if (updates && updates.ok && updates.result) {
+        for (const update of updates.result) {
+          if (update.message && update.message.chat) {
+            const chat = update.message.chat;
+            chatMap.set(chat.id, {
+              id: chat.id,
+              title: chat.title || `${chat.first_name || ''} ${chat.last_name || ''}`.trim() || 'Private Chat',
+              type: chat.type,
+              username: chat.username || null,
+              source: 'updates'
+            });
+          }
+        }
+      }
+    } catch (error) {
+      errors.push(`Updates fetch failed: ${error.message}`);
+    }
+
+    // Method 2: Get specific chat by username (new functionality)
+    if (username) {
+      try {
+        // Clean the username - handle both @username and https://t.me/username formats
+        let cleanUsername = username;
+        
+        // Handle t.me links
+        if (username.includes('t.me/')) {
+          const match = username.match(/t\.me\/([a-zA-Z0-9_]+)/);
+          if (match) {
+            cleanUsername = match[1];
+          } else {
+            throw new Error('Invalid Telegram link format');
+          }
+        }
+        // Handle @username format
+        else if (username.startsWith('@')) {
+          cleanUsername = username.slice(1);
+        }
+        // Handle plain username
+        else {
+          cleanUsername = username;
+        }
+        
+        const chatInfo = await telegramHandler.callTelegramAPI('getChat', {
+          chat_id: `@${cleanUsername}`
+        });
+
+        if (chatInfo && chatInfo.ok && chatInfo.result) {
+          const chat = chatInfo.result;
+          chatMap.set(chat.id, {
+            id: chat.id,
+            title: chat.title || `${chat.first_name || ''} ${chat.last_name || ''}`.trim() || 'Private Chat',
+            type: chat.type,
+            username: chat.username || null,
+            source: 'username_lookup'
+          });
+        } else {
+          errors.push(`Username @${cleanUsername} not found or bot not added to that chat`);
+        }
+      } catch (error) {
+        errors.push(`Username lookup failed: ${error.message}`);
+      }
+    }
+
+    // Check if we found any chats
+    if (chatMap.size === 0) {
+      let errorMsg = '🔍 **No Telegram chats discovered.**\n\n';
+      
+      if (username) {
+        errorMsg += `**Username lookup failed for: ${username}**\n\n`;
+      }
+      
+      errorMsg += '**To discover chats:**\n';
+      errorMsg += '1. Add your Telegram bot to the target group/channel\n';
+      errorMsg += '2. **For channels:** Use `/proforward telegram-discover username:@channelname`\n';
+      errorMsg += '   or `/proforward telegram-discover username:https://t.me/channelname`\n';
+      errorMsg += '3. **For groups:** Send at least one message in the chat, then run discovery\n\n';
+      
+      if (errors.length > 0) {
+        errorMsg += '**Errors encountered:**\n';
+        for (const error of errors) {
+          errorMsg += `• ${error}\n`;
+        }
+      }
+
+      await interaction.editReply({ content: errorMsg });
+      return;
+    }
+
+    // Build response with discovered chats
+    let response = `🔍 **Discovered ${chatMap.size} Telegram Chat(s):**\n\n`;
+    
+    const chats = Array.from(chatMap.values()).sort((a, b) => {
+      // Sort by type: channels first, then groups, then private
+      const typeOrder = { 'channel': 1, 'supergroup': 2, 'group': 3, 'private': 4 };
+      return (typeOrder[a.type] || 5) - (typeOrder[b.type] || 5);
+    });
+
+    for (const chat of chats) {
+      const typeEmoji = {
+        'channel': '📢',
+        'supergroup': '👥',
+        'group': '👥',
+        'private': '💬'
+      }[chat.type] || '❓';
+
+      const typeLabel = {
+        'channel': 'Channel',
+        'supergroup': 'Supergroup',
+        'group': 'Group',
+        'private': 'Private'
+      }[chat.type] || 'Unknown';
+
+      const sourceLabel = chat.source === 'username_lookup' ? ' ✨ (Found by username)' : '';
+
+      response += `${typeEmoji} **${chat.title}**${sourceLabel}\n`;
+      response += `   • Type: ${typeLabel}\n`;
+      response += `   • Chat ID: \`${chat.id}\`\n`;
+      if (chat.username) {
+        response += `   • Username: @${chat.username}\n`;
+      }
+      response += `   • Command: \`/proforward telegram source:#channel chat_id:${chat.id}\`\n\n`;
+    }
+
+    response += `\n💡 **Usage Tips:**\n`;
+    response += `• Copy the chat ID from above for use in \`/proforward telegram\`\n`;
+    response += `• For channels without messages: Use \`username:@channelname\` or \`username:https://t.me/channelname\`\n`;
+    response += `• Use \`/proforward test chat_id:CHAT_ID\` to verify connectivity\n`;
+
+    if (errors.length > 0) {
+      response += `\n⚠️ **Warnings:**\n`;
+      for (const error of errors) {
+        response += `• ${error}\n`;
+      }
+    }
+
+    // Handle Discord's 2000 character limit
+    if (response.length > 2000) {
+      const chunks = [];
+      const lines = response.split('\n');
+      let currentChunk = '';
+      
+      for (const line of lines) {
+        if ((currentChunk + line + '\n').length > 1900) {
+          chunks.push(currentChunk);
+          currentChunk = line + '\n';
+        } else {
+          currentChunk += line + '\n';
+        }
+      }
+      if (currentChunk) chunks.push(currentChunk);
+      
+      await interaction.editReply({ content: chunks[0] });
+      for (let i = 1; i < chunks.length; i++) {
+        await interaction.followUp({ content: chunks[i], ephemeral: true });
+      }
+    } else {
+      await interaction.editReply({ content: response });
+    }
+
+    logSuccess(`Telegram discovery: Found ${chatMap.size} chats for ${interaction.user.username}`);
+
+  } catch (error) {
+    logError('Error discovering Telegram chats:', error);
+    
+    await interaction.editReply({
+      content: `❌ **Telegram discovery failed.**\n\n**Error:** ${error.message}\n\n**Common issues:**\n• Invalid Telegram bot token\n• Bot not added to any chats\n• Network connectivity issues\n\nCheck the bot logs for more details.`,
     });
   }
 }

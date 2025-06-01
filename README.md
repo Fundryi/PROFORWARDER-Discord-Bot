@@ -146,6 +146,14 @@ The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwa
 
 **Telegram Forwarding:**
 ```
+# Discover available chats automatically
+/proforward telegram-discover
+
+# Discover specific channel by username (for channels where bot is admin)
+/proforward telegram-discover username:@teastast123123
+/proforward telegram-discover username:https://t.me/teastast123123
+
+# Set up forwarding using discovered chat ID
 /proforward telegram source:#announcements chat_id:-1001234567890
 ```
 
@@ -153,6 +161,7 @@ The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwa
 
 - **`/proforward setup`** - Set up message forwarding between Discord channels
 - **`/proforward telegram`** - Set up message forwarding from Discord to Telegram
+- **`/proforward telegram-discover`** - Automatically discover available Telegram chats
 - **`/proforward list`** - List all active forward configurations
 - **`/proforward remove`** - Remove a forward configuration
 - **`/proforward status`** - Show bot status and integration status

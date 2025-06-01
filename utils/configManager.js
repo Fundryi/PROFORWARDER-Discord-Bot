@@ -66,12 +66,26 @@ async function loadForwardConfigs(forceReload = false) {
 
 // Validate a single forward configuration
 function validateForwardConfig(config, index) {
-  const required = ['id', 'sourceType', 'sourceChannelId', 'targetType', 'targetChannelId'];
+  const basicRequired = ['id', 'sourceType', 'sourceChannelId', 'targetType'];
   
-  for (const field of required) {
+  // Check basic required fields
+  for (const field of basicRequired) {
     if (!config[field]) {
       return { valid: false, error: `Missing required field: ${field}` };
     }
+  }
+
+  // Check target-specific required fields
+  if (config.targetType === 'telegram') {
+    if (!config.targetChatId) {
+      return { valid: false, error: 'Missing required field for Telegram: targetChatId' };
+    }
+  } else if (config.targetType === 'discord') {
+    if (!config.targetChannelId) {
+      return { valid: false, error: 'Missing required field for Discord: targetChannelId' };
+    }
+  } else {
+    return { valid: false, error: `Unsupported target type: ${config.targetType}` };
   }
 
   // Validate types
@@ -123,11 +137,18 @@ async function addForwardConfig(newConfig) {
     newConfig.enabled = true;
     
     // Check for duplicate source->target combinations
-    const duplicate = currentConfigs.find(config => 
-      config.sourceChannelId === newConfig.sourceChannelId &&
-      config.targetChannelId === newConfig.targetChannelId &&
-      config.targetServerId === newConfig.targetServerId
-    );
+    const duplicate = currentConfigs.find(config => {
+      if (config.sourceChannelId !== newConfig.sourceChannelId) return false;
+      
+      if (config.targetType === 'telegram' && newConfig.targetType === 'telegram') {
+        return config.targetChatId === newConfig.targetChatId;
+      } else if (config.targetType === 'discord' && newConfig.targetType === 'discord') {
+        return config.targetChannelId === newConfig.targetChannelId &&
+               config.targetServerId === newConfig.targetServerId;
+      }
+      
+      return false;
+    });
     
     if (duplicate) {
       throw new Error('Forward configuration already exists for this source->target combination');
@@ -226,8 +247,14 @@ function formatConfigObject(config) {
   if (config.sourceServerId) lines.push(`      sourceServerId: "${config.sourceServerId}",`);
   lines.push(`      sourceChannelId: "${config.sourceChannelId}",`);
   lines.push(`      targetType: "${config.targetType}",`);
-  if (config.targetServerId) lines.push(`      targetServerId: "${config.targetServerId}",`);
-  lines.push(`      targetChannelId: "${config.targetChannelId}",`);
+  
+  // Add target-specific fields
+  if (config.targetType === 'telegram') {
+    lines.push(`      targetChatId: "${config.targetChatId}",`);
+  } else if (config.targetType === 'discord') {
+    if (config.targetServerId) lines.push(`      targetServerId: "${config.targetServerId}",`);
+    lines.push(`      targetChannelId: "${config.targetChannelId}",`);
+  }
   lines.push(`      enabled: true,`);
   if (config.allowEveryoneHereMentions !== undefined) {
     lines.push(`      allowEveryoneHereMentions: ${config.allowEveryoneHereMentions},`);
