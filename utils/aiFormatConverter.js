@@ -478,7 +478,7 @@ Converted text (escape ALL special characters even inside formatting):`;
   }
 
   /**
-   * Static helper method to conditionally use AI or regular conversion
+   * Static helper method to conditionally use AI, slice-based, or regular conversion
    * Can be called from anywhere in the codebase
    * @param {string} text - Text to convert
    * @param {Object} message - Discord message object (optional, for mention resolution)
@@ -486,9 +486,34 @@ Converted text (escape ALL special characters even inside formatting):`;
   static async convertDiscordToTelegramMarkdownV2(text, message = null) {
     const envConfig = require('../config/env');
     
-    // Check if AI format converter is enabled
-    if (envConfig.useAIFormatConverter) {
+    // Priority order: Slice-based > AI > Regular
+    if (envConfig.useSliceFormatConverter) {
       try {
+        if (envConfig.debugMode) {
+          logInfo('🔪 Using slice-based format conversion (hybrid approach)');
+        }
+        // Use slice-based format conversion (hybrid approach)
+        const SliceFormatConverter = require('./sliceFormatConverter');
+        return await SliceFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
+      } catch (error) {
+        logError('🔪 Slice-based format conversion failed, falling back to AI conversion:', error);
+        // Fallback to AI conversion if slice-based fails
+        if (envConfig.useAIFormatConverter) {
+          try {
+            return await AIFormatConverter.discordToTelegramMarkdownV2WithAI(text, message);
+          } catch (aiError) {
+            logError('AI format conversion also failed, falling back to regular conversion:', aiError);
+            return FormatConverter.discordToTelegramMarkdownV2(text);
+          }
+        } else {
+          return FormatConverter.discordToTelegramMarkdownV2(text);
+        }
+      }
+    } else if (envConfig.useAIFormatConverter) {
+      try {
+        if (envConfig.debugMode) {
+          logInfo('🤖 Using AI-powered format conversion');
+        }
         // Use AI-powered format conversion with message object for mention resolution
         return await AIFormatConverter.discordToTelegramMarkdownV2WithAI(text, message);
       } catch (error) {
@@ -498,7 +523,7 @@ Converted text (escape ALL special characters even inside formatting):`;
       }
     } else {
       if (envConfig.debugMode) {
-        logInfo('Using regular format conversion (AI disabled)');
+        logInfo('⚙️ Using regular format conversion (AI and slice-based disabled)');
       }
       // Use regular format conversion
       return FormatConverter.discordToTelegramMarkdownV2(text);
