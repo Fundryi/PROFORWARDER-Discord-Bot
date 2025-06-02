@@ -325,15 +325,4 @@ module.exports = {
   addForwardConfig,
   disableForwardConfig,
   getConfigStats
-};  }
-}
-
-module.exports = {
-  loadForwardConfigs,
-  getForwardConfigsForChannel,
-  getAllActiveForwardConfigs,
-  getForwardConfigById,
-  addForwardConfig,
-  disableForwardConfig,
-  getConfigStats
 };
