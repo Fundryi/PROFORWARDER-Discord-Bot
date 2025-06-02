@@ -25,6 +25,10 @@
     - [🚀 **Enterprise Ready with Enhanced Format Conversion**](#-enterprise-ready-with-enhanced-format-conversion)
   - [⚡ Getting Started](#-getting-started)
     - [📋 Prerequisites](#-prerequisites)
+    - [🔒 Required Bot Permissions](#-required-bot-permissions)
+      - [**Bot Permissions (All Features):**](#bot-permissions-all-features)
+      - [**User Permissions (For setup commands):**](#user-permissions-for-setup-commands)
+      - [**Bot Invite Link:**](#bot-invite-link)
     - [🚀 Installation](#-installation)
   - [💡 Usage](#-usage)
     - [🎯 Quick Setup](#-quick-setup)
@@ -106,7 +110,30 @@ The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwa
 - **Node.js** v16.0.0 or higher
 - **npm** or **yarn** package manager
 - **Discord Bot Token** from [Discord Developer Portal](https://discord.com/developers/applications)
-- **Manage Webhooks** permission in target channels (for perfect forwarding)
+
+### 🔒 Required Bot Permissions
+
+ProForwarder requires specific permissions to function with all features. **Administrator permission is NOT required** - only these permissions:
+
+#### **Bot Permissions (All Features):**
+- **View Channels** - To see source and target channels
+- **Send Messages** - To forward messages
+- **Embed Links** - For rich message forwarding and translation embeds
+- **Attach Files** - To forward attachments and media
+- **Read Message History** - To process message edits and deletions
+- **Manage Webhooks** - For perfect 1:1 message forwarding (preserves original usernames/avatars)
+- **Create Public Threads** - For AI translation threads feature
+- **Mention Everyone** - To forward @everyone/@here mentions
+
+#### **User Permissions (For setup commands):**
+- **Manage Channels** - Required for users to use `/proforward` commands
+
+#### **Bot Invite Link:**
+```
+https://discord.com/api/oauth2/authorize?client_id=YOUR_BOT_ID&permissions=34896858112&scope=bot%20applications.commands
+```
+
+Replace `YOUR_BOT_ID` with your bot's client ID from the Discord Developer Portal.
 
 ### 🚀 Installation
 

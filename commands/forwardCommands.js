@@ -87,10 +87,10 @@ async function handleSetup(interaction) {
   const targetChannelInput = interaction.options.getString('target_channel');
   const targetServerId = interaction.options.getString('target_server');
   
-  // Validate source channel
-  if (sourceChannel.type !== 0) { // 0 = GUILD_TEXT
+  // Validate source channel (support text and announcement channels)
+  if (sourceChannel.type !== 0 && sourceChannel.type !== 5) { // 0 = GUILD_TEXT, 5 = GUILD_ANNOUNCEMENT
     await interaction.reply({
-      content: '❌ Source channel must be a text channel.',
+      content: '❌ Source channel must be a text or announcement channel.',
       ephemeral: true
     });
     return;
@@ -136,9 +136,9 @@ async function handleSetup(interaction) {
       return;
     }
 
-    if (targetChannel.type !== 0) {
+    if (targetChannel.type !== 0 && targetChannel.type !== 5) { // 0 = GUILD_TEXT, 5 = GUILD_ANNOUNCEMENT
       await interaction.reply({
-        content: '❌ Target channel must be a text channel.',
+        content: '❌ Target channel must be a text or announcement channel.',
         ephemeral: true
       });
       return;
@@ -201,9 +201,9 @@ async function handleSetup(interaction) {
       }
     }
 
-    if (actualTargetChannel.type !== 0) {
+    if (actualTargetChannel.type !== 0 && actualTargetChannel.type !== 5) { // 0 = GUILD_TEXT, 5 = GUILD_ANNOUNCEMENT
       await interaction.reply({
-        content: `❌ Target channel **${actualTargetChannel.name}** must be a text channel.`,
+        content: `❌ Target channel **${actualTargetChannel.name}** must be a text or announcement channel.`,
         ephemeral: true
       });
       return;

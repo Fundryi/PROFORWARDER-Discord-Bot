@@ -140,7 +140,7 @@ async function handleStats(interaction) {
           name: '🔧 Bot Status',
           value: `**Uptime:** <t:${Math.floor((Date.now() - interaction.client.uptime) / 1000)}:R>
           **Servers:** ${interaction.client.guilds.cache.size}
-          **Channels Monitored:** ${interaction.client.channels.cache.filter(c => c.type === 0).size}`,
+          **Channels Monitored:** ${interaction.client.channels.cache.filter(c => c.type === 0 || c.type === 5).size}`,
           inline: true
         },
         {
