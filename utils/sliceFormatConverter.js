@@ -292,9 +292,13 @@ class SliceFormatConverter {
         if (message && message.mentions && message.mentions.users) {
           const user = message.mentions.users.get(userId);
           const userName = user ? (user.globalName || user.username || user.displayName) : `User${userId}`;
+          const envConfig = require('../config/env');
+          if (envConfig.debugMode) {
+            logInfo(`🔪 🔍 Using resolved user mention: ${slice.content} -> ${userName}`);
+          }
           return this.escapeMarkdownV2ForText(userName);
         }
-        return this.escapeMarkdownV2ForText(`@User${userId}`);
+        return this.escapeMarkdownV2ForText(`User${userId}`);
         
       case 'role_mention':
         // <@&123> -> resolve to role name
@@ -302,9 +306,13 @@ class SliceFormatConverter {
         if (message && message.mentions && message.mentions.roles) {
           const role = message.mentions.roles.get(roleId);
           const roleName = role ? role.name : `Role${roleId}`;
+          const envConfig = require('../config/env');
+          if (envConfig.debugMode) {
+            logInfo(`🔪 🔍 Using resolved role mention: ${slice.content} -> ${roleName}`);
+          }
           return this.escapeMarkdownV2ForText(roleName);
         }
-        return this.escapeMarkdownV2ForText(`@Role${roleId}`);
+        return this.escapeMarkdownV2ForText(`Role${roleId}`);
         
       case 'channel_mention':
         // <#123> -> resolve to channel name
@@ -315,6 +323,10 @@ class SliceFormatConverter {
             channel = message.guild.channels.cache.get(channelId);
           }
           const channelName = channel ? channel.name : `channel${channelId}`;
+          const envConfig = require('../config/env');
+          if (envConfig.debugMode) {
+            logInfo(`🔪 🔍 Using resolved channel mention: ${slice.content} -> #${channelName}`);
+          }
           return this.escapeMarkdownV2ForText(`#${channelName}`);
         }
         return this.escapeMarkdownV2ForText(`#channel${channelId}`);
@@ -344,14 +356,32 @@ class SliceFormatConverter {
   }
   
   /**
-   * Escape special characters inside formatting (but not the formatting markers)
+   * Process emojis and escape special characters inside formatting
    * @param {string} text - Text inside formatting
-   * @returns {string} Escaped text
+   * @returns {string} Processed and escaped text
    */
   static escapeSpecialCharsInFormatting(text) {
     if (!text) return '';
-    // Escape special characters except for the formatting markers themselves
-    return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
+    
+    // First, process any custom emojis within the text
+    let processedText = text.replace(/<a?:(\w+):\d+>/g, (match, emojiName) => {
+      const standardEmoji = this.convertCustomEmojiToStandard(emojiName);
+      const envConfig = require('../config/env');
+      if (standardEmoji) {
+        if (envConfig.debugMode) {
+          logInfo(`🔪 🔍 Converted custom emoji within formatting: ${match} -> ${standardEmoji}`);
+        }
+        return standardEmoji;
+      } else {
+        if (envConfig.debugMode) {
+          logInfo(`🔪 🔍 Removed unsupported custom emoji within formatting: ${match}`);
+        }
+        return ''; // Remove unknown emojis
+      }
+    });
+    
+    // Then escape special characters except for the formatting markers themselves
+    return processedText.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
   }
   
   /**
@@ -373,66 +403,169 @@ class SliceFormatConverter {
    * @returns {string|null} Standard emoji or null if no equivalent
    */
   static convertCustomEmojiToStandard(emojiName) {
+    const name = emojiName.toLowerCase();
+    
+    // Enhanced emoji mapping with 200+ common Discord emojis
     const emojiMap = {
-      // Hearts
-      'heart': '❤️',
-      'love': '❤️',
-      'heartred': '❤️',
-      'heartorange': '🧡',
-      'heartyellow': '💛',
-      'heartgreen': '💚',
-      'heartblue': '💙',
-      'heartpurple': '💜',
+      // Hearts and love
+      'heart': '❤️', 'love': '❤️', 'heartred': '❤️', 'heartorange': '🧡',
+      'heartyellow': '💛', 'heartgreen': '💚', 'heartblue': '💙', 'heartpurple': '💜',
+      'heartblack': '🖤', 'heartwhite': '🤍', 'heartbrown': '🤎', 'heartpink': '💗',
+      'heartbroken': '💔', 'heartbeat': '💓', 'heartpulse': '💗', 'hearteyes': '😍',
+      'kiss': '😘', 'kissing': '😗', 'blowkiss': '😘',
       
       // Fire and energy
-      'fire': '🔥',
-      'flame': '🔥',
-      'burn': '🔥',
+      'fire': '🔥', 'flame': '🔥', 'burn': '🔥', 'hot': '🔥', 'lit': '🔥', 'burning': '🔥',
+      'energy': '⚡', 'lightning': '⚡', 'electric': '⚡', 'bolt': '⚡', 'power': '⚡',
+      'zap': '⚡', 'shock': '⚡',
       
-      // Stars
-      'star': '⭐',
-      'stars': '⭐',
-      'sparkle': '✨',
-      'sparkles': '✨',
+      // Stars and sparkles
+      'star': '⭐', 'stars': '⭐', 'sparkle': '✨', 'sparkles': '✨', 'glitter': '✨',
+      'shine': '✨', 'bright': '✨', 'starry': '🌟', 'shooting_star': '🌠', 'dizzy': '💫',
+      'glowing': '✨', 'shiny': '✨',
       
-      // Check marks
-      'check': '✅',
-      'tick': '✅',
-      'checkmark': '✅',
-      'yes': '✅',
-      'correct': '✅',
+      // Check marks and success
+      'check': '✅', 'tick': '✅', 'checkmark': '✅', 'yes': '✅', 'correct': '✅',
+      'done': '✅', 'success': '✅', 'approve': '✅', 'accept': '✅', 'ok': '✅',
+      'good': '✅', 'valid': '✅', 'confirmed': '✅',
       
-      // Cross marks
-      'cross': '❌',
-      'x': '❌',
-      'no': '❌',
-      'wrong': '❌',
-      'error': '❌',
+      // Cross marks and errors
+      'cross': '❌', 'x': '❌', 'no': '❌', 'wrong': '❌', 'error': '❌', 'fail': '❌',
+      'reject': '❌', 'deny': '❌', 'bad': '❌', 'remove': '❌', 'delete': '❌',
+      'invalid': '❌', 'forbidden': '❌', 'block': '❌',
       
-      // Emotions
-      'laugh': '😂',
-      'lol': '😂',
-      'joy': '😂',
-      'happy': '😊',
-      'smile': '😊',
-      'sad': '😢',
-      'cry': '😢',
-      'angry': '😠',
-      'rage': '😡',
-      'thinking': '🤔',
+      // Emotions and faces
+      'laugh': '😂', 'lol': '😂', 'joy': '😂', 'funny': '😂', 'lmao': '😂', 'rofl': '🤣',
+      'laughing': '😂', 'lmfao': '😂', 'haha': '😂', 'hahaha': '😂',
+      'happy': '😊', 'smile': '😊', 'grin': '😁', 'pleased': '😊', 'content': '😊',
+      'smiling': '😊', 'smiley': '😀', 'grinning': '😄', 'beaming': '😁',
+      'sad': '😢', 'cry': '😢', 'tear': '😢', 'upset': '😢', 'disappointed': '😞',
+      'crying': '😭', 'sobbing': '😭', 'weeping': '😢',
+      'angry': '😠', 'rage': '😡', 'mad': '😡', 'furious': '😡', 'pissed': '😠',
+      'enraged': '😡', 'livid': '😡', 'fuming': '😤',
+      'thinking': '🤔', 'think': '🤔', 'hmm': '🤔', 'confused': '😕', 'worry': '😟',
+      'worried': '😟', 'uncertain': '🤔', 'contemplating': '🤔',
+      'surprised': '😲', 'shock': '😱', 'wow': '😮', 'amazed': '😲', 'astonished': '😲',
+      'cool': '😎', 'sunglasses': '😎', 'awesome': '😎', 'slick': '😎',
+      'wink': '😉', 'winky': '😉', 'tongue': '😛', 'silly': '😜', 'crazy': '🤪',
+      'sleep': '😴', 'tired': '😴', 'sleepy': '😴', 'yawn': '🥱', 'exhausted': '😴',
+      'excited': '🤩', 'starstruck': '🤩', 'thrilled': '🤩',
       
-      // Common gaming/tech
-      'warning': '⚠️',
-      'info': 'ℹ️',
-      'question': '❓',
-      'exclamation': '❗',
-      'point_right': '👉',
-      'point_left': '👈',
-      'thumbsup': '👍',
-      'thumbsdown': '👎'
+      // Common symbols and reactions
+      'warning': '⚠️', 'warn': '⚠️', 'caution': '⚠️', 'alert': '⚠️', 'danger': '⚠️',
+      'info': 'ℹ️', 'information': 'ℹ️', 'notice': 'ℹ️',
+      'question': '❓', 'ask': '❓', 'help': '❓', 'confused_question': '❓',
+      'exclamation': '❗', 'important': '❗', 'attention': '❗', 'urgent': '❗',
+      'point_right': '👉', 'point_left': '👈', 'point_up': '👆', 'point_down': '👇',
+      'pointing_right': '👉', 'pointing_left': '👈', 'pointing_up': '👆', 'pointing_down': '👇',
+      'thumbsup': '👍', 'thumbup': '👍', 'like': '👍', 'approve_thumb': '👍',
+      'thumbsdown': '👎', 'thumbdown': '👎', 'dislike': '👎', 'disapprove': '👎',
+      'clap': '👏', 'applause': '👏', 'praise': '👏', 'clapping': '👏',
+      'pray': '🙏', 'please': '🙏', 'thanks': '🙏', 'thankyou': '🙏', 'grateful': '🙏',
+      'peace': '✌️', 'victory': '✌️', 'fingers_crossed': '🤞', 'crossed_fingers': '🤞',
+      
+      // Gaming and tech
+      'game': '🎮', 'gaming': '🎮', 'controller': '🎮', 'gamer': '🎮', 'console': '🎮',
+      'pc': '💻', 'computer': '💻', 'laptop': '💻', 'desktop': '💻',
+      'mobile': '📱', 'phone': '📱', 'smartphone': '📱', 'iphone': '📱',
+      'rocket': '🚀', 'launch': '🚀', 'fast': '🚀', 'speed': '🚀', 'boost': '🚀',
+      'crown': '👑', 'king': '👑', 'queen': '👑', 'royal': '👑', 'ruler': '👑',
+      'diamond': '💎', 'gem': '💎', 'precious': '💎', 'jewel': '💎',
+      'money': '💰', 'coin': '🪙', 'cash': '💵', 'rich': '💰', 'wealth': '💰',
+      'dollar': '💵', 'euro': '💶', 'pound': '💷', 'yen': '💴',
+      
+      // Nature and weather
+      'sun': '☀️', 'sunny': '☀️', 'sunshine': '☀️', 'bright_sun': '☀️',
+      'moon': '🌙', 'night': '🌙', 'crescent': '🌙', 'lunar': '🌙',
+      'cloud': '☁️', 'cloudy': '☁️', 'overcast': '☁️',
+      'rain': '🌧️', 'rainy': '🌧️', 'raining': '🌧️', 'storm': '⛈️',
+      'snow': '❄️', 'snowflake': '❄️', 'snowy': '❄️', 'winter': '❄️',
+      'tree': '🌳', 'forest': '🌲', 'plant': '🌱', 'flower': '🌸', 'blossom': '🌸',
+      'rose': '🌹', 'tulip': '🌷', 'sunflower': '🌻',
+      
+      // Animals
+      'cat': '🐱', 'kitty': '🐱', 'kitten': '🐱', 'feline': '🐱',
+      'dog': '🐶', 'puppy': '🐶', 'doggo': '🐶', 'pupper': '🐶',
+      'wolf': '🐺', 'lion': '🦁', 'tiger': '🐯', 'bear': '🐻', 'panda': '🐼',
+      'fox': '🦊', 'rabbit': '🐰', 'bunny': '🐰', 'mouse': '🐭',
+      'dragon': '🐉', 'unicorn': '🦄', 'horse': '🐴', 'cow': '🐄', 'pig': '🐷',
+      
+      // Food and drinks
+      'pizza': '🍕', 'burger': '🍔', 'hamburger': '🍔', 'fries': '🍟',
+      'cake': '🎂', 'birthday': '🎂', 'cookie': '🍪', 'donut': '🍩', 'doughnut': '🍩',
+      'ice_cream': '🍦', 'icecream': '🍦', 'candy': '🍬', 'chocolate': '🍫',
+      'coffee': '☕', 'tea': '🍵', 'beer': '🍺', 'wine': '🍷', 'cocktail': '🍸',
+      'water': '💧', 'milk': '🥛', 'juice': '🧃', 'soda': '🥤',
+      'apple': '🍎', 'banana': '🍌', 'orange': '🍊', 'strawberry': '🍓',
+      
+      // Activities and objects
+      'music': '🎵', 'note': '🎶', 'musical_note': '🎵', 'song': '🎵',
+      'guitar': '🎸', 'piano': '🎹', 'microphone': '🎤', 'mic': '🎤',
+      'headphones': '🎧', 'speaker': '🔊', 'sound': '🔊',
+      'book': '📚', 'reading': '📖', 'library': '📚', 'study': '📚',
+      'pen': '✏️', 'pencil': '✏️', 'write': '✏️', 'writing': '✏️',
+      'paint': '🎨', 'art': '🎨', 'artist': '🎨', 'creative': '🎨',
+      'camera': '📷', 'photo': '📷', 'picture': '📷', 'video': '📹',
+      'movie': '🎬', 'film': '🎬', 'cinema': '🎬', 'tv': '📺', 'television': '📺',
+      'radio': '📻', 'news': '📰', 'newspaper': '📰',
+      'key': '🔑', 'lock': '🔒', 'unlock': '🔓', 'security': '🔒',
+      'shield': '🛡️', 'protection': '🛡️', 'safe': '🛡️',
+      'sword': '⚔️', 'weapon': '⚔️', 'gun': '🔫', 'bomb': '💣',
+      'tool': '🔧', 'hammer': '🔨', 'wrench': '🔧', 'screwdriver': '🪛',
+      'gear': '⚙️', 'settings': '⚙️', 'config': '⚙️', 'cog': '⚙️',
+      
+      // Transportation
+      'car': '🚗', 'vehicle': '🚗', 'auto': '🚗', 'bus': '🚌',
+      'train': '🚆', 'airplane': '✈️', 'plane': '✈️', 'ship': '🚢', 'boat': '⛵',
+      'bike': '🚴', 'bicycle': '🚴', 'motorcycle': '🏍️',
+      
+      // Sports and activities
+      'football': '⚽', 'soccer': '⚽', 'basketball': '🏀', 'tennis': '🎾',
+      'baseball': '⚾', 'golf': '⛳', 'swimming': '🏊', 'running': '🏃',
+      'gym': '🏋️', 'workout': '💪', 'muscle': '💪', 'strong': '💪', 'strength': '💪',
+      
+      // Time and calendar
+      'clock': '🕐', 'time': '🕐', 'calendar': '📅', 'date': '📅',
+      'alarm': '⏰', 'timer': '⏲️', 'stopwatch': '⏱️',
+      
+      // Miscellaneous common ones
+      'gift': '🎁', 'present': '🎁', 'party': '🎉', 'celebration': '🎉',
+      'balloon': '🎈', 'confetti': '🎊', 'tada': '🎉',
+      'flag': '🏳️', 'trophy': '🏆', 'medal': '🏅', 'winner': '🏆',
+      'target': '🎯', 'bullseye': '🎯', 'goal': '🥅'
     };
     
-    return emojiMap[emojiName] || null;
+    // Try exact match first
+    if (emojiMap[name]) {
+      const envConfig = require('../config/env');
+      if (envConfig.debugMode) {
+        logInfo(`🔪 🔍 Converted custom emoji: <:${emojiName}:*> -> ${emojiMap[name]}`);
+      }
+      return emojiMap[name];
+    }
+    
+    // Try partial matches for compound names - BUT ONLY FOR OBVIOUS MATCHES
+    // Only match if the emoji name starts with or exactly contains our key
+    for (const [key, emoji] of Object.entries(emojiMap)) {
+      // Only match if:
+      // 1. Emoji name starts with our key (e.g., "fire_emoji" starts with "fire")
+      // 2. Our key is at least 4 characters (avoid false matches like "no" in "unknown")
+      // 3. Exact word boundaries (e.g., "heart_red" contains "heart")
+      if (key.length >= 4 && (name.startsWith(key) || name.includes('_' + key) || name.includes(key + '_'))) {
+        const envConfig = require('../config/env');
+        if (envConfig.debugMode) {
+          logInfo(`🔪 🔍 Converted custom emoji (partial match): <:${emojiName}:*> -> ${emoji} (matched "${key}")`);
+        }
+        return emoji;
+      }
+    }
+    
+    // If no match found, remove the emoji cleanly
+    const envConfig = require('../config/env');
+    if (envConfig.debugMode) {
+      logInfo(`🔪 🔍 Removed unsupported custom emoji: <:${emojiName}:*> (no match found)`);
+    }
+    return null;
   }
   
   /**

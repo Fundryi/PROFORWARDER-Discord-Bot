@@ -486,17 +486,17 @@ Converted text (escape ALL special characters even inside formatting):`;
   static async convertDiscordToTelegramMarkdownV2(text, message = null) {
     const envConfig = require('../config/env');
     
-    // Priority order: Slice-based > AI > Regular
+    // Priority order: Enhanced Slice > AI > Regular
     if (envConfig.useSliceFormatConverter) {
       try {
         if (envConfig.debugMode) {
-          logInfo('🔪 Using slice-based format conversion (hybrid approach)');
+          logInfo('🔪✨ Using enhanced slice-based format conversion (with smart mentions/emojis)');
         }
-        // Use slice-based format conversion (hybrid approach)
+        // Use enhanced slice-based format conversion
         const SliceFormatConverter = require('./sliceFormatConverter');
         return await SliceFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
       } catch (error) {
-        logError('🔪 Slice-based format conversion failed, falling back to AI conversion:', error);
+        logError('🔪✨ Enhanced slice-based format conversion failed, falling back to AI conversion:', error);
         // Fallback to AI conversion if slice-based fails
         if (envConfig.useAIFormatConverter) {
           try {
@@ -523,7 +523,7 @@ Converted text (escape ALL special characters even inside formatting):`;
       }
     } else {
       if (envConfig.debugMode) {
-        logInfo('⚙️ Using regular format conversion (AI and slice-based disabled)');
+        logInfo('⚙️ Using regular format conversion (slice and AI disabled)');
       }
       // Use regular format conversion
       return FormatConverter.discordToTelegramMarkdownV2(text);
