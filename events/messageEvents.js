@@ -462,10 +462,10 @@ async function deleteTranslationThreads(forwardedMessage, client) {
   }
 }
 
-// Update a Telegram forwarded message using editMessageText API
+// Update a Telegram forwarded message with smart media handling
 async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
   try {
-    logInfo(`Editing Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+    logInfo(`Smart editing Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
     
     // Get the config for this forward
     const { getForwardConfigById } = require('../utils/configManager');
@@ -480,65 +480,298 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
     const telegramHandler = new TelegramHandler();
     await telegramHandler.initialize();
 
-    // Use AIFormatConverter which conditionally uses AI or regular conversion
-    const AIFormatConverter = require('../utils/aiFormatConverter');
-    const convertedText = await AIFormatConverter.convertDiscordToTelegramMarkdownV2(newMessage.content || '', newMessage);
-
+    // Get the original message to compare media
+    let originalMessage = null;
     try {
-      // Use editMessageText API to edit the message in place
-      const result = await telegramHandler.callTelegramAPI('editMessageText', {
-        chat_id: logEntry.forwardedChannelId,
-        message_id: logEntry.forwardedMessageId,
-        text: convertedText,
-        parse_mode: 'MarkdownV2',
-        disable_web_page_preview: false
-      });
-
-      if (result && result.ok) {
-        logSuccess(`✅ Edited Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
-        return result.result;
-      } else {
-        throw new Error(`Telegram edit API error: ${result ? result.description : 'Unknown error'}`);
+      const sourceGuild = client.guilds.cache.find(guild =>
+        guild.channels.cache.has(logEntry.originalChannelId)
+      );
+      if (sourceGuild) {
+        const sourceChannel = sourceGuild.channels.cache.get(logEntry.originalChannelId);
+        if (sourceChannel) {
+          originalMessage = await sourceChannel.messages.fetch(logEntry.originalMessageId);
+        }
       }
+    } catch (error) {
+      logInfo(`Could not fetch original message ${logEntry.originalMessageId} for comparison`);
+    }
 
-    } catch (editError) {
-      // If edit fails (e.g., message too old, contains media, etc.), fall back to delete and resend
-      logInfo(`Edit failed (${editError.message}), falling back to delete and resend`);
+    // Analyze media changes
+    const newHasMedia = newMessage.attachments.size > 0 ||
+                       (newMessage.embeds && newMessage.embeds.some(embed => embed.image || embed.thumbnail));
+    const originalHasMedia = originalMessage ?
+                            (originalMessage.attachments.size > 0 ||
+                             (originalMessage.embeds && originalMessage.embeds.some(embed => embed.image || embed.thumbnail))) :
+                            false;
+
+    // Convert message content for comparison and sending
+    const telegramMessage = await telegramHandler.convertDiscordMessage(newMessage, config);
+    
+    const envConfig = require('../config/env');
+    if (envConfig.debugMode) {
+      logInfo(`🔍 SMART EDIT DEBUG: Original had media: ${originalHasMedia}, New has media: ${newHasMedia}`);
+      logInfo(`🔍 SMART EDIT DEBUG: Media items in new message: ${telegramMessage.media ? telegramMessage.media.length : 0}`);
+    }
+
+    // Decision logic for smart editing
+    if (!originalHasMedia && !newHasMedia) {
+      // Case 1: No media in either version - simple text edit
+      if (envConfig.debugMode) {
+        logInfo(`🔍 SMART EDIT: Case 1 - Text-only edit`);
+      }
       
       try {
-        // Delete the old message
-        await telegramHandler.callTelegramAPI('deleteMessage', {
+        const result = await telegramHandler.callTelegramAPI('editMessageText', {
           chat_id: logEntry.forwardedChannelId,
-          message_id: logEntry.forwardedMessageId
+          message_id: logEntry.forwardedMessageId,
+          text: telegramMessage.text,
+          parse_mode: 'MarkdownV2',
+          disable_web_page_preview: false
         });
-        logInfo(`Deleted old Telegram message ${logEntry.forwardedMessageId}`);
-      } catch (deleteError) {
-        logError(`Failed to delete old Telegram message: ${deleteError.message}`);
-      }
 
-      // Fallback: Send new message with MarkdownV2 conversion
-      const fallbackResult = await telegramHandler.callTelegramAPI('sendMessage', {
-        chat_id: logEntry.forwardedChannelId,
-        text: convertedText,
-        parse_mode: 'MarkdownV2',
-        disable_web_page_preview: false
-      });
+        if (result && result.ok) {
+          logSuccess(`✅ Text-only edit successful for Telegram message ${logEntry.forwardedMessageId}`);
+          return result.result;
+        } else {
+          throw new Error(`Text edit failed: ${result ? result.description : 'Unknown error'}`);
+        }
+      } catch (editError) {
+        logInfo(`Text edit failed (${editError.message}), falling back to delete and resend`);
+        return await deleteAndResendTelegram(telegramHandler, logEntry, telegramMessage);
+      }
       
-      if (fallbackResult && fallbackResult.ok) {
-        // Update the database log with new message ID
-        const { updateMessageLog } = require('../utils/database');
-        await updateMessageLog(logEntry.id, fallbackResult.result.message_id.toString());
+    } else if (originalHasMedia && !newHasMedia) {
+      // Case 2: Had media, now text-only - delete and resend as text
+      if (envConfig.debugMode) {
+        logInfo(`🔍 SMART EDIT: Case 2 - Media removed, converting to text-only`);
+      }
+      
+      logInfo(`Media removed from message, converting to text-only`);
+      return await deleteAndResendTelegram(telegramHandler, logEntry, telegramMessage);
+      
+    } else if (!originalHasMedia && newHasMedia) {
+      // Case 3: Was text-only, now has media - delete and resend with media
+      if (envConfig.debugMode) {
+        logInfo(`🔍 SMART EDIT: Case 3 - Media added to text-only message`);
+      }
+      
+      logInfo(`Media added to message, converting to media message`);
+      return await deleteAndResendTelegram(telegramHandler, logEntry, telegramMessage);
+      
+    } else {
+      // Case 4: Both had media - check if media changed
+      if (envConfig.debugMode) {
+        logInfo(`🔍 SMART EDIT: Case 4 - Both have media, checking for changes`);
+      }
+      
+      const mediaChanged = await hasMediaChanged(originalMessage, newMessage);
+      
+      if (!mediaChanged) {
+        // Media unchanged, try to edit caption only
+        if (envConfig.debugMode) {
+          logInfo(`🔍 SMART EDIT: Case 4a - Media unchanged, editing caption only`);
+        }
         
-        logSuccess(`Recreated Telegram message in chat ${logEntry.forwardedChannelId} (fallback)`);
-        return fallbackResult.result;
+        try {
+          const result = await telegramHandler.callTelegramAPI('editMessageCaption', {
+            chat_id: logEntry.forwardedChannelId,
+            message_id: logEntry.forwardedMessageId,
+            caption: telegramMessage.text,
+            parse_mode: 'MarkdownV2'
+          });
+
+          if (result && result.ok) {
+            logSuccess(`✅ Caption-only edit successful for Telegram message ${logEntry.forwardedMessageId}`);
+            return result.result;
+          } else {
+            throw new Error(`Caption edit failed: ${result ? result.description : 'Unknown error'}`);
+          }
+        } catch (editError) {
+          logInfo(`Caption edit failed (${editError.message}), falling back to delete and resend`);
+          return await deleteAndResendTelegram(telegramHandler, logEntry, telegramMessage);
+        }
       } else {
-        throw new Error(`Fallback send failed: ${fallbackResult ? fallbackResult.description : 'Unknown error'}`);
+        // Media changed - use editMessageMedia to replace media
+        if (envConfig.debugMode) {
+          logInfo(`🔍 SMART EDIT: Case 4b - Media changed, using editMessageMedia`);
+        }
+        
+        logInfo(`Media changed in message, updating media with editMessageMedia`);
+        return await editTelegramMessageMedia(telegramHandler, logEntry, telegramMessage);
       }
     }
 
   } catch (error) {
-    logError('Error updating Telegram forwarded message:', error);
+    logError('Error in smart Telegram message update:', error);
     throw error;
+  }
+}
+
+// Helper function to delete and resend Telegram message
+async function deleteAndResendTelegram(telegramHandler, logEntry, telegramMessage) {
+  try {
+    // Delete the old message
+    await telegramHandler.callTelegramAPI('deleteMessage', {
+      chat_id: logEntry.forwardedChannelId,
+      message_id: logEntry.forwardedMessageId
+    });
+    logInfo(`Deleted old Telegram message ${logEntry.forwardedMessageId}`);
+  } catch (deleteError) {
+    logInfo(`Could not delete old Telegram message: ${deleteError.message}`);
+  }
+
+  // Send new message with proper media handling
+  let result;
+  if (telegramMessage.media && telegramMessage.media.length > 0) {
+    // Send with media
+    result = await telegramHandler.sendMediaWithCaption(
+      logEntry.forwardedChannelId,
+      telegramMessage.media,
+      telegramMessage.text
+    );
+  } else {
+    // Send text-only
+    result = await telegramHandler.callTelegramAPI('sendMessage', {
+      chat_id: logEntry.forwardedChannelId,
+      text: telegramMessage.text,
+      parse_mode: 'MarkdownV2',
+      disable_web_page_preview: false
+    });
+    result = result.result;
+  }
+  
+  if (result) {
+    // Update the database log with new message ID
+    const { updateMessageLog } = require('../utils/database');
+    const newMessageId = result.message_id || (result[0] && result[0].message_id);
+    await updateMessageLog(logEntry.id, newMessageId.toString());
+    
+    logSuccess(`Smart repost successful in Telegram chat ${logEntry.forwardedChannelId}`);
+    return result;
+  } else {
+    throw new Error(`Failed to send new message`);
+  }
+}
+
+// Helper function to edit Telegram message media using editMessageMedia API
+async function editTelegramMessageMedia(telegramHandler, logEntry, telegramMessage) {
+  try {
+    // Check if we have media to send
+    if (!telegramMessage.media || telegramMessage.media.length === 0) {
+      throw new Error('No media found in message for editMessageMedia');
+    }
+
+    const envConfig = require('../config/env');
+    if (envConfig.debugMode) {
+      logInfo(`🔍 EDIT MEDIA DEBUG: Editing media for message ${logEntry.forwardedMessageId}`);
+      logInfo(`🔍 EDIT MEDIA DEBUG: New media count: ${telegramMessage.media.length}`);
+    }
+
+    // For editMessageMedia, we need to send the first media item
+    // Note: Telegram's editMessageMedia only supports single media replacement
+    const mediaItem = telegramMessage.media[0];
+    
+    // Prepare media object for editMessageMedia
+    const mediaObject = {
+      type: mediaItem.type,
+      media: mediaItem.media,
+      caption: telegramMessage.text,
+      parse_mode: 'MarkdownV2'
+    };
+
+    if (envConfig.debugMode) {
+      logInfo(`🔍 EDIT MEDIA DEBUG: Media object:`, JSON.stringify(mediaObject, null, 2));
+    }
+
+    // Use editMessageMedia API
+    const result = await telegramHandler.callTelegramAPI('editMessageMedia', {
+      chat_id: logEntry.forwardedChannelId,
+      message_id: logEntry.forwardedMessageId,
+      media: JSON.stringify(mediaObject)
+    });
+
+    if (result && result.ok) {
+      logSuccess(`✅ Media edit successful for Telegram message ${logEntry.forwardedMessageId}`);
+      
+      // If original message had multiple media but we can only edit to single media,
+      // send additional media as separate messages
+      if (telegramMessage.media.length > 1) {
+        logInfo(`Original had ${telegramMessage.media.length} media items, sending remaining ${telegramMessage.media.length - 1} as follow-up`);
+        
+        const remainingMedia = telegramMessage.media.slice(1);
+        for (const additionalMedia of remainingMedia) {
+          try {
+            const method = additionalMedia.type === 'photo' ? 'sendPhoto' :
+                          additionalMedia.type === 'video' ? 'sendVideo' : 'sendDocument';
+            
+            await telegramHandler.callTelegramAPI(method, {
+              chat_id: logEntry.forwardedChannelId,
+              [additionalMedia.type === 'photo' ? 'photo' : additionalMedia.type === 'video' ? 'video' : 'document']: additionalMedia.media
+            });
+          } catch (additionalError) {
+            logError(`Failed to send additional media item:`, additionalError);
+          }
+        }
+      }
+      
+      return result.result;
+    } else {
+      throw new Error(`editMessageMedia failed: ${result ? result.description : 'Unknown error'}`);
+    }
+
+  } catch (error) {
+    logError(`editMessageMedia failed (${error.message}), falling back to delete and resend`);
+    
+    // Fallback to delete and resend if editMessageMedia fails
+    return await deleteAndResendTelegram(telegramHandler, logEntry, telegramMessage);
+  }
+}
+
+// Helper function to check if media has changed between messages
+async function hasMediaChanged(originalMessage, newMessage) {
+  try {
+    // Compare attachment counts and URLs
+    if (originalMessage.attachments.size !== newMessage.attachments.size) {
+      return true;
+    }
+    
+    // Compare attachment URLs
+    const originalUrls = Array.from(originalMessage.attachments.values()).map(a => a.url).sort();
+    const newUrls = Array.from(newMessage.attachments.values()).map(a => a.url).sort();
+    
+    for (let i = 0; i < originalUrls.length; i++) {
+      if (originalUrls[i] !== newUrls[i]) {
+        return true;
+      }
+    }
+    
+    // Compare embed images
+    const originalEmbedImages = originalMessage.embeds
+      .map(e => [e.image?.url, e.thumbnail?.url])
+      .flat()
+      .filter(Boolean)
+      .sort();
+    
+    const newEmbedImages = newMessage.embeds
+      .map(e => [e.image?.url, e.thumbnail?.url])
+      .flat()
+      .filter(Boolean)
+      .sort();
+    
+    if (originalEmbedImages.length !== newEmbedImages.length) {
+      return true;
+    }
+    
+    for (let i = 0; i < originalEmbedImages.length; i++) {
+      if (originalEmbedImages[i] !== newEmbedImages[i]) {
+        return true;
+      }
+    }
+    
+    return false; // No media changes detected
+  } catch (error) {
+    logError('Error comparing media:', error);
+    return true; // Assume changed if we can't compare
   }
 }
 
