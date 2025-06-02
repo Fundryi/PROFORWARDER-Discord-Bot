@@ -71,6 +71,14 @@ client.on("ready", async () => {
     await client.application.commands.set([proforwardCommand, debugCommand]);
     logSuccess('Successfully registered ProForwarder commands:');
     logInfo(`- /proforward ${config.debugMode ? '(DEBUG MODE)' : '(production mode)'}`);
+    logInfo(`  ├─ setup (configure Discord forwarding)`);
+    logInfo(`  ├─ telegram (configure Telegram forwarding)`);
+    logInfo(`  ├─ retry (retry/repost a forwarded message)`);
+    logInfo(`  ├─ list (show active configurations)`);
+    logInfo(`  ├─ remove (remove configuration)`);
+    logInfo(`  ├─ status (show bot status)`);
+    logInfo(`  ├─ test (test Telegram connection)`);
+    logInfo(`  └─ telegram-discover (discover Telegram chats)`);
     logInfo(`- /debug (admin-only debugging tools)`);
   } catch (error) {
     logError('Error registering commands:', error);
