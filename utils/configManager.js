@@ -169,10 +169,22 @@ async function addForwardConfig(newConfig) {
       );
     } else if (envContent.includes('forwardConfigs: [') && !envContent.includes('forwardConfigs: []')) {
       // Array has existing configs, add to the end before closing bracket
-      updatedContent = envContent.replace(
-        /(\s*)\]/,
-        `,\n    \n    ${configString}\n  ]`
-      );
+      // Look specifically for the forwardConfigs array closing bracket
+      const forwardConfigsMatch = envContent.match(/(forwardConfigs: \[[^]*?)(\n\s*\],)/s);
+      if (forwardConfigsMatch) {
+        const beforeClosing = forwardConfigsMatch[1];
+        const closingBracket = forwardConfigsMatch[2];
+        updatedContent = envContent.replace(
+          forwardConfigsMatch[0],
+          `${beforeClosing},\n    ${configString}${closingBracket}`
+        );
+      } else {
+        // Fallback: try to find the closing bracket more carefully
+        updatedContent = envContent.replace(
+          /(forwardConfigs: \[[^]*?)(\n\s*\])/s,
+          `$1,\n    ${configString}$2`
+        );
+      }
     } else {
       // Completely empty array or no array
       updatedContent = envContent.replace(
@@ -303,6 +315,17 @@ async function getConfigStats() {
     logError('Error getting config stats:', error);
     return { total: 0, active: 0, disabled: 0, sameServer: 0, crossServer: 0 };
   }
+}
+
+module.exports = {
+  loadForwardConfigs,
+  getForwardConfigsForChannel,
+  getAllActiveForwardConfigs,
+  getForwardConfigById,
+  addForwardConfig,
+  disableForwardConfig,
+  getConfigStats
+};  }
 }
 
 module.exports = {
