@@ -115,9 +115,10 @@ class AIFormatConverter {
       
       if (!aiManager || !aiManager.initialized) {
         if (envConfig.debugMode) {
-          logInfo('🤖 AI manager not initialized, falling back to regular conversion');
+          logInfo('🤖 AI manager not initialized, cannot perform AI conversion');
         }
-        return FormatConverter.discordToTelegramMarkdownV2(text);
+        // Return basic escaped text as last resort since we removed old regular converter
+        return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
       }
       
       if (envConfig.debugMode) {
@@ -350,22 +351,25 @@ Converted text (escape ALL special characters even inside formatting):`;
           logInfo('🤖 AI result passed validation');
           return fixedResult;
         } else {
-          logError('🤖 AI result failed validation, falling back to regular conversion');
-          return FormatConverter.discordToTelegramMarkdownV2(text);
+          logError('🤖 AI result failed validation, no more fallbacks available');
+          // Return basic escaped text as last resort since we removed old regular converter
+          return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
         }
       } else {
         logError('🤖 AI conversion returned empty or invalid result');
         if (envConfig.debugMode) {
           logError('🤖 AI Debug: Original aiResult was:', JSON.stringify(aiResult));
         }
-        logInfo('🤖 AI conversion failed, falling back to regular conversion');
-        return FormatConverter.discordToTelegramMarkdownV2(text);
+        logInfo('🤖 AI conversion failed, no more fallbacks available');
+        // Return basic escaped text as last resort since we removed old regular converter
+        return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
       }
       
     } catch (error) {
       logError('🤖 AI format conversion error:', error);
-      logInfo('Falling back to regular conversion');
-      return FormatConverter.discordToTelegramMarkdownV2(text);
+      logInfo('No more fallbacks available (old regular converter removed)');
+      // Return basic escaped text as last resort since we removed old regular converter
+      return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
     }
   }
 
@@ -486,47 +490,38 @@ Converted text (escape ALL special characters even inside formatting):`;
   static async convertDiscordToTelegramMarkdownV2(text, message = null) {
     const envConfig = require('../config/env');
     
-    // Priority order: Enhanced Slice > AI > Regular
-    if (envConfig.useSliceFormatConverter) {
-      try {
-        if (envConfig.debugMode) {
-          logInfo('🔪✨ Using enhanced slice-based format conversion (with smart mentions/emojis)');
-        }
-        // Use enhanced slice-based format conversion
-        const SliceFormatConverter = require('./sliceFormatConverter');
-        return await SliceFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
-      } catch (error) {
-        logError('🔪✨ Enhanced slice-based format conversion failed, falling back to AI conversion:', error);
-        // Fallback to AI conversion if slice-based fails
-        if (envConfig.useAIFormatConverter) {
-          try {
-            return await AIFormatConverter.discordToTelegramMarkdownV2WithAI(text, message);
-          } catch (aiError) {
-            logError('AI format conversion also failed, falling back to regular conversion:', aiError);
-            return FormatConverter.discordToTelegramMarkdownV2(text);
-          }
-        } else {
-          return FormatConverter.discordToTelegramMarkdownV2(text);
-        }
-      }
-    } else if (envConfig.useAIFormatConverter) {
-      try {
-        if (envConfig.debugMode) {
-          logInfo('🤖 Using AI-powered format conversion');
-        }
-        // Use AI-powered format conversion with message object for mention resolution
-        return await AIFormatConverter.discordToTelegramMarkdownV2WithAI(text, message);
-      } catch (error) {
-        logError('AI format conversion failed, falling back to regular conversion:', error);
-        // Fallback to regular conversion if AI fails
-        return FormatConverter.discordToTelegramMarkdownV2(text);
-      }
-    } else {
+    // Streamlined Priority: Enhanced Slice (PRIMARY) > AI (FALLBACK ONLY)
+    // Note: Old regular converter removed as requested - enhanced slice handles everything better
+    
+    try {
       if (envConfig.debugMode) {
-        logInfo('⚙️ Using regular format conversion (slice and AI disabled)');
+        logInfo('🔪✨ Using enhanced slice-based format conversion (PRIMARY METHOD)');
       }
-      // Use regular format conversion
-      return FormatConverter.discordToTelegramMarkdownV2(text);
+      // Use enhanced slice-based format conversion (primary method)
+      const SliceFormatConverter = require('./sliceFormatConverter');
+      return await SliceFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
+      
+    } catch (error) {
+      logError('🔪✨ Enhanced slice-based format conversion failed, falling back to AI conversion:', error);
+      
+      // Only fallback: AI conversion (if enabled)
+      if (envConfig.useAIFormatConverter) {
+        try {
+          if (envConfig.debugMode) {
+            logInfo('🤖 Using AI-powered format conversion (FALLBACK)');
+          }
+          return await AIFormatConverter.discordToTelegramMarkdownV2WithAI(text, message);
+        } catch (aiError) {
+          logError('🤖 AI format conversion also failed. No more fallbacks available.', aiError);
+          logError('⚠️  CRITICAL: Both enhanced slice and AI conversion failed. Returning escaped text.');
+          // Last resort: basic escape to prevent Telegram errors
+          return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
+        }
+      } else {
+        logError('⚠️  CRITICAL: Enhanced slice conversion failed and AI is disabled. Returning escaped text.');
+        // Last resort: basic escape to prevent Telegram errors
+        return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
+      }
     }
   }
 }
