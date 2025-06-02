@@ -22,7 +22,7 @@
     - [🎯 **Core Functionality**](#-core-functionality)
     - [🌟 **Advanced Features**](#-advanced-features)
   - [🏗️ Current Status](#️-current-status)
-    - [🚀 **Enterprise Ready with AI**](#-enterprise-ready-with-ai)
+    - [🚀 **Enterprise Ready with Enhanced Format Conversion**](#-enterprise-ready-with-enhanced-format-conversion)
   - [⚡ Getting Started](#-getting-started)
     - [📋 Prerequisites](#-prerequisites)
     - [🚀 Installation](#-installation)
@@ -46,7 +46,8 @@
 - **🎭 Perfect 1:1 Forwarding**: Uses webhooks to make forwarded messages appear exactly as the original user posted them
 - **📤 Same Server Forwarding**: Forward messages between channels on the same Discord server
 - **🌐 Cross-Server Forwarding**: Forward messages between channels on different Discord servers
-- **📱 Telegram Integration**: Forward Discord messages to Telegram chats/channels with optimized formatting
+- **📱 Telegram Integration**: Forward Discord messages to Telegram chats/channels with advanced MarkdownV2 formatting
+- **🔪 Enhanced Format Conversion**: Intelligent slice-based formatting with perfect Discord→Telegram conversion
 - **🤖 Bot Message Support**: Forwards messages from other bots with subtle bot indicator
 - **📁 Complete Content Preservation**: Text, embeds, attachments, stickers, and formatting perfectly preserved
 - **⚡ Real-time Forwarding**: Instant message forwarding with webhook technology
@@ -54,13 +55,16 @@
 
 ### 🌟 **Advanced Features**
 - **🤖 AI Translation Threads**: Automatic multi-language translation with beautiful Discord threads
-- **🌐 Multi-Provider AI**: OpenAI GPT-4, Google Translate, DeepL integration with smart fallback
+- **🌐 Multi-Provider AI**: OpenAI GPT-4, Google Gemini, DeepL integration with smart fallback
+- **🔪 Enhanced Slice Conversion**: Advanced formatting converter with 200+ Discord emoji mappings
+- **👥 Smart Mention Resolution**: Real Discord names for users, roles, and channels in Telegram
 - **😀 Universal Emoji Support**: Application-level emoji management for cross-server emoji compatibility
+- **🎯 Conservative Emoji Matching**: Only converts known emojis, cleanly removes unknown ones
 - **🎨 Rich Translation Embeds**: Beautiful color-coded translation embeds with provider attribution
 - **📢 Smart Mention Control**: Configurable @everyone/@here forwarding with permission-based safety
 - **🧹 Intelligent Database**: Self-maintaining database with startup validation and orphaned message cleanup
 - **🔄 Smart Loop Prevention**: Advanced detection to prevent infinite forwarding loops
-- **⚙️ Flexible Configuration**: File-based configuration system with AI settings per config
+- **⚙️ Streamlined Architecture**: Optimized dual-method system (Enhanced Slice + AI fallback)
 - **🔒 Permission Validation**: Automatic permission checking and helpful error messages
 - **📊 Quality Detection**: Automatically detects and uses optimal forwarding method
 - **🔧 Fallback Support**: Works with basic permissions when webhooks unavailable
@@ -71,12 +75,16 @@
 
 ## 🏗️ Current Status
 
-### 🚀 **Enterprise Ready with AI**
+### 🚀 **Enterprise Ready with Enhanced Format Conversion**
 The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwarding solution offering:
 
 - **Perfect webhook-based forwarding** with 1:1 message preservation and edit synchronization
+- **Enhanced slice-based format conversion** with intelligent Discord→Telegram MarkdownV2 processing
+- **Smart mention resolution** with real Discord names (users, roles, channels) in Telegram
+- **Advanced emoji handling** with 200+ Discord emoji mappings and conservative matching
 - **AI-powered translation threads** with automatic multi-language support
-- **Multi-provider AI integration** (OpenAI GPT-4, Google Translate, DeepL)
+- **Multi-provider AI integration** (OpenAI GPT-4, Google Gemini, DeepL)
+- **Streamlined architecture** with optimized dual-method system (Enhanced Slice + AI fallback)
 - **Beautiful translation embeds** with color-coded language indicators
 - **Universal emoji support** with application-level emoji management and cross-server compatibility
 - **Smart mention control** with configurable @everyone/@here forwarding
@@ -87,7 +95,7 @@ The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwa
 - **File-based configuration** for easy management with AI settings
 - **Comprehensive error handling** and user guidance
 - **Advanced debugging and monitoring** system
-- **Enterprise-tested** and ready for production deployment with AI features
+- **Enterprise-tested** and ready for production deployment with enhanced formatting
 
 ---
 
@@ -192,6 +200,10 @@ module.exports = {
   botToken: process.env.BOT_TOKEN,
   debugMode: true,
   
+  // Enhanced Format Conversion Settings (NEW!)
+  useSliceFormatConverter: true,  // Enhanced slice-based conversion (PRIMARY)
+  useAIFormatConverter: false,    // AI-powered conversion (FALLBACK - for future use)
+  
   // Control bot message forwarding
   forwardBotMessages: true, // Set to false to ignore bot messages
   
@@ -252,6 +264,9 @@ ProForwarder-Discord-Bot/
 │   ├── logger.js                 # Colorized logging system
 │   ├── configManager.js          # File-based config management
 │   ├── webhookManager.js         # Webhook handling for perfect forwarding
+│   ├── sliceFormatConverter.js   # Enhanced slice-based format conversion (PRIMARY)
+│   ├── aiFormatConverter.js      # AI-powered format conversion orchestrator
+│   ├── formatConverter.js        # Legacy format converter (REMOVED in streamlined system)
 │   ├── applicationEmojiManager.js # Cross-server emoji management
 │   ├── aiManager.js              # AI provider abstraction and management
 │   ├── translationManager.js     # Multi-language translation orchestration
@@ -283,14 +298,17 @@ ProForwarder-Discord-Bot/
 
 - **🟢 Node.js** - Runtime environment
 - **🔵 Discord.js v14** - Discord API wrapper with webhook support
-- **📱 Telegram Bot API** - Cross-platform message forwarding
-- **🤖 AI Integration** - Multi-provider AI translation system
+- **📱 Telegram Bot API** - Cross-platform message forwarding with MarkdownV2
+- **🔪 Enhanced Slice Conversion** - Advanced formatting system with 200+ emoji mappings
+- **👥 Smart Mention Resolution** - Real Discord name resolution for cross-platform forwarding
+- **🤖 AI Integration** - Multi-provider AI translation system with fallback support
 - **🌐 Google Gemini** - Primary AI provider for translations
 - **🧠 OpenAI GPT-4** - Advanced AI content processing
 - **🔤 DeepL API** - Professional translation quality
 - **🗃️ SQLite3** - Database for message logs and tracking
 - **🎭 Webhook Technology** - Perfect 1:1 message forwarding
 - **🧵 Discord Threads** - Native threading for translations
+- **⚙️ Streamlined Architecture** - Optimized dual-method format conversion system
 - **🎨 Chalk** - Colorized console logging
 - **⚙️ dotenv** - Environment configuration management
 - **📝 File-based Configs** - Human-readable configuration system
@@ -300,6 +318,8 @@ ProForwarder-Discord-Bot/
 ## 📝 Documentation
 
 - **[📋 Planning Document](PROFORWARDER_PLANNING.md)** - Development history and architecture
+- **[🔪 Enhanced Format Conversion](Documentations/ENHANCED_FORMAT_CONVERSION.md)** - Advanced formatting system guide
+- **[📊 MarkdownV2 Conversion Summary](Documentations/MARKDOWNV2_CONVERSION_SUMMARY.md)** - Telegram formatting details
 - **[🔧 Configuration Guide](config/env.js.example)** - Configuration options and examples
 - **[🗃️ Database Schema](utils/database.js)** - Database structure for message logging
 
@@ -327,6 +347,6 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 **Built with ❤️ for seamless cross-platform communication**
 
-*Perfect 1:1 message forwarding • Telegram integration • AI translation threads • Universal emoji support • Enterprise ready*
+*Perfect 1:1 message forwarding • Enhanced format conversion • Smart mention resolution • AI translation threads • Universal emoji support • Enterprise ready*
 
 </div>
