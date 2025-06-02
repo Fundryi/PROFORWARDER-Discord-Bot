@@ -115,9 +115,9 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
       }
 
       if (forwardedVersions.length === 0) {
-        logInfo(`❌ Message edit detected but no forwarded versions found for message ${newMessage.id}`);
-        
         if (envConfig.debugMode) {
+          logInfo(`❌ Message edit detected but no forwarded versions found for message ${newMessage.id}`);
+          
           // Extra debug: check if any logs match loosely
           const looseMatches = messageLogs.filter(log =>
             log.originalMessageId == newMessage.id || log.forwardedMessageId == newMessage.id
@@ -327,9 +327,9 @@ async function handleMessageDelete(message, client) {
     }
 
     if (forwardedVersions.length === 0) {
-      logInfo(`❌ Message deletion detected but no forwarded versions found for message ${message.id}`);
-      
       if (envConfig.debugMode) {
+        logInfo(`❌ Message deletion detected but no forwarded versions found for message ${message.id}`);
+        
         // Extra debug: check if any logs match loosely
         const looseMatches = messageLogs.filter(log =>
           log.originalMessageId == message.id || log.forwardedMessageId == message.id
