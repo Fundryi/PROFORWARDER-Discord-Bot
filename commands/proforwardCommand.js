@@ -106,6 +106,23 @@ const proforwardCommand = new SlashCommandBuilder()
          .setDescription('ID of the original source message to retry forwarding')
          .setRequired(true)
      )
+ )
+ .addSubcommand(subcommand =>
+   subcommand
+     .setName('auto-publish')
+     .setDescription('Configure auto-publishing for announcement channels')
+     .addChannelOption(option =>
+       option
+         .setName('channel')
+         .setDescription('Announcement channel to enable/disable auto-publishing')
+         .setRequired(true)
+     )
+     .addStringOption(option =>
+       option
+         .setName('server')
+         .setDescription('Target server ID (optional, defaults to current server)')
+         .setRequired(false)
+     )
  );
 
 async function handleProforwardCommand(interaction) {
@@ -136,6 +153,9 @@ async function handleProforwardCommand(interaction) {
         break;
       case 'retry':
         await handleRetry(interaction);
+        break;
+      case 'auto-publish':
+        await handleAutoPublish(interaction);
         break;
       default:
         await interaction.reply({ content: 'Unknown subcommand', ephemeral: true });
@@ -976,6 +996,80 @@ async function handleRetry(interaction) {
     
     await interaction.editReply({
       content: `❌ **Retry failed with error.**\n\n**Error:** ${error.message}\n\nCheck the bot logs for more details.`,
+    });
+  }
+}
+
+async function handleAutoPublish(interaction) {
+  const channel = interaction.options.getChannel('channel');
+  const targetServerId = interaction.options.getString('server');
+  
+  // Validate channel type - must be announcement channel
+  if (channel.type !== 5) { // 5 = GUILD_ANNOUNCEMENT
+    await interaction.reply({
+      content: '❌ Channel must be an **Announcement Channel** to enable auto-publishing.\n\n**How to create an Announcement Channel:**\n1. Go to your server settings\n2. Create a new channel or edit existing one\n3. Set channel type to "Announcement Channel"',
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Check if bot has required permissions
+  const permissions = channel.permissionsFor(interaction.client.user);
+  if (!permissions || !permissions.has(['ViewChannel', 'SendMessages', 'ManageMessages'])) {
+    await interaction.reply({
+      content: '❌ **Missing permissions!**\nBot requires the following permissions in the announcement channel:\n• **View Channel**\n• **Send Messages**\n• **Manage Messages** (required for publishing)',
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Determine target server
+  let actualTargetServerId = targetServerId || interaction.guild.id;
+  let targetGuild = interaction.guild;
+  
+  if (targetServerId && targetServerId !== interaction.guild.id) {
+    targetGuild = interaction.client.guilds.cache.get(targetServerId);
+    if (!targetGuild) {
+      await interaction.reply({
+        content: `❌ **Target server not found!**\nBot is not in server: \`${targetServerId}\``,
+        ephemeral: true
+      });
+      return;
+    }
+  }
+
+  await interaction.deferReply({ ephemeral: true });
+
+  try {
+    // Import auto-publish config functions
+    const { getAutoPublishConfig, toggleAutoPublishChannel } = require('../utils/configManager');
+    
+    // Get current auto-publish configuration
+    const currentConfig = await getAutoPublishConfig();
+    const isCurrentlyEnabled = currentConfig[actualTargetServerId]?.includes(channel.id);
+    
+    // Toggle the configuration
+    const result = await toggleAutoPublishChannel(actualTargetServerId, channel.id);
+    
+    if (result.enabled) {
+      await interaction.editReply({
+        content: `✅ **Auto-publish enabled!**\n**Channel:** ${channel} (${targetGuild.name})\n**Server ID:** \`${actualTargetServerId}\`\n\n🤖 **How it works:**\n• When someone posts in ${channel}, the bot will automatically publish it after **1 minute**\n• Only works for announcement channels\n• Bot needs **Manage Messages** permission\n\n💡 **Tip:** Send a test message in ${channel} to verify it works!`
+      });
+      
+      logSuccess(`Auto-publish enabled for ${channel.name} (${targetGuild.name}) by ${interaction.user.username}`);
+    } else {
+      await interaction.editReply({
+        content: `❌ **Auto-publish disabled.**\n**Channel:** ${channel} (${targetGuild.name})\n**Server ID:** \`${actualTargetServerId}\`\n\nMessages in ${channel} will no longer be automatically published.`
+      });
+      
+      logSuccess(`Auto-publish disabled for ${channel.name} (${targetGuild.name}) by ${interaction.user.username}`);
+    }
+    
+  } catch (error) {
+    logError('Error in auto-publish command:', error);
+    
+    await interaction.editReply({
+      content: `❌ **Failed to configure auto-publish.**\n\n**Error:** ${error.message}\n\nCheck the bot logs for more details.`
     });
   }
 }

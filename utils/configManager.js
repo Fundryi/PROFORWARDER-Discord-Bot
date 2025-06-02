@@ -317,6 +317,123 @@ async function getConfigStats() {
   }
 }
 
+// Auto-publish configuration management
+async function getAutoPublishConfig() {
+  try {
+    // Clear require cache to get fresh config
+    const configPath = require.resolve('../config/env');
+    delete require.cache[configPath];
+    
+    const config = require('../config/env');
+    return config.autoPublishChannels || {};
+  } catch (error) {
+    logError('Error loading auto-publish config:', error);
+    return {};
+  }
+}
+
+async function toggleAutoPublishChannel(serverId, channelId) {
+  try {
+    const envContent = await fs.readFile(CONFIG_PATH, 'utf8');
+    const currentConfig = await getAutoPublishConfig();
+    
+    // Initialize server array if it doesn't exist
+    if (!currentConfig[serverId]) {
+      currentConfig[serverId] = [];
+    }
+    
+    const channelIndex = currentConfig[serverId].indexOf(channelId);
+    let isEnabled;
+    
+    if (channelIndex === -1) {
+      // Add channel to auto-publish list
+      currentConfig[serverId].push(channelId);
+      isEnabled = true;
+    } else {
+      // Remove channel from auto-publish list
+      currentConfig[serverId].splice(channelIndex, 1);
+      
+      // Remove server key if no channels left
+      if (currentConfig[serverId].length === 0) {
+        delete currentConfig[serverId];
+      }
+      isEnabled = false;
+    }
+    
+    // Format the auto-publish config for the file
+    const autoPublishConfigString = formatAutoPublishConfig(currentConfig);
+    
+    let updatedContent;
+    
+    // Check if autoPublishChannels already exists in the file
+    if (envContent.includes('autoPublishChannels:')) {
+      // Replace existing autoPublishChannels
+      updatedContent = envContent.replace(
+        /autoPublishChannels:\s*\{[^}]*\}/s,
+        `autoPublishChannels: ${autoPublishConfigString}`
+      );
+    } else {
+      // Add autoPublishChannels after forwardConfigs
+      const insertPoint = envContent.indexOf('  // Telegram integration');
+      if (insertPoint !== -1) {
+        updatedContent = envContent.slice(0, insertPoint) +
+          `  // Auto-publish channels configuration\n` +
+          `  // Channels configured for automatic publishing of announcements\n` +
+          `  autoPublishChannels: ${autoPublishConfigString},\n\n  ` +
+          envContent.slice(insertPoint + 2);
+      } else {
+        // Fallback: add before the closing brace
+        updatedContent = envContent.replace(
+          /(\n\s*};?\s*)$/,
+          `,\n\n  // Auto-publish channels configuration\n  autoPublishChannels: ${autoPublishConfigString}$1`
+        );
+      }
+    }
+    
+    await fs.writeFile(CONFIG_PATH, updatedContent, 'utf8');
+    
+    logSuccess(`Auto-publish ${isEnabled ? 'enabled' : 'disabled'} for channel ${channelId} in server ${serverId}`);
+    return { enabled: isEnabled, serverId, channelId };
+    
+  } catch (error) {
+    logError('Error toggling auto-publish channel:', error);
+    throw error;
+  }
+}
+
+function formatAutoPublishConfig(config) {
+  if (Object.keys(config).length === 0) {
+    return '{}';
+  }
+  
+  const lines = ['{'];
+  
+  for (const [serverId, channels] of Object.entries(config)) {
+    if (channels.length > 0) {
+      const channelList = channels.map(id => `"${id}"`).join(', ');
+      lines.push(`    "${serverId}": [${channelList}],`);
+    }
+  }
+  
+  // Remove trailing comma from last line
+  if (lines.length > 1) {
+    lines[lines.length - 1] = lines[lines.length - 1].slice(0, -1);
+  }
+  
+  lines.push('  }');
+  return lines.join('\n  ');
+}
+
+async function isChannelAutoPublishEnabled(serverId, channelId) {
+  try {
+    const config = await getAutoPublishConfig();
+    return config[serverId]?.includes(channelId) || false;
+  } catch (error) {
+    logError('Error checking auto-publish status:', error);
+    return false;
+  }
+}
+
 module.exports = {
   loadForwardConfigs,
   getForwardConfigsForChannel,
@@ -324,5 +441,8 @@ module.exports = {
   getForwardConfigById,
   addForwardConfig,
   disableForwardConfig,
-  getConfigStats
+  getConfigStats,
+  getAutoPublishConfig,
+  toggleAutoPublishChannel,
+  isChannelAutoPublishEnabled
 };

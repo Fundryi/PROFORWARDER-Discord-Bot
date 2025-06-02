@@ -33,6 +33,9 @@ async function handleMessageCreate(message, client) {
 
     // Use enhanced forward handler
     await forwardHandler.processMessage(message);
+    
+    // Handle auto-publish for announcement channels
+    await handleAutoPublish(message, client);
   } catch (error) {
     logError('Error in handleMessageCreate:', error);
   }
@@ -807,6 +810,70 @@ async function deleteTelegramForwardedMessage(logEntry, client) {
     } else {
       throw error;
     }
+  }
+}
+
+// Handle auto-publish functionality
+async function handleAutoPublish(message, client) {
+  try {
+    // Skip if message is from a bot to prevent loops
+    if (message.author.bot) return;
+    
+    // Skip if not in an announcement channel
+    if (message.channel.type !== 5) return; // 5 = GUILD_ANNOUNCEMENT
+    
+    // Skip if message is already published (crossposted)
+    if (message.flags && message.flags.has('Crossposted')) return;
+    
+    // Check if auto-publish is enabled for this channel
+    const { isChannelAutoPublishEnabled } = require('../utils/configManager');
+    const isEnabled = await isChannelAutoPublishEnabled(message.guild.id, message.channel.id);
+    
+    if (!isEnabled) return;
+    
+    // Check if bot has permission to manage messages
+    const permissions = message.channel.permissionsFor(client.user);
+    if (!permissions || !permissions.has(['ManageMessages'])) {
+      logError(`Auto-publish: Bot lacks Manage Messages permission in ${message.channel.name} (${message.guild.name})`);
+      return;
+    }
+    
+    logInfo(`Auto-publish: Scheduling message ${message.id} for publishing in 1 minute (${message.channel.name})`);
+    
+    // Schedule auto-publish after 1 minute (60000 ms)
+    setTimeout(async () => {
+      try {
+        // Fetch the message again to ensure it still exists
+        const freshMessage = await message.channel.messages.fetch(message.id);
+        
+        if (!freshMessage) {
+          logInfo(`Auto-publish: Message ${message.id} no longer exists, skipping publish`);
+          return;
+        }
+        
+        // Check if already published
+        if (freshMessage.flags && freshMessage.flags.has('Crossposted')) {
+          logInfo(`Auto-publish: Message ${message.id} already published, skipping`);
+          return;
+        }
+        
+        // Publish the message
+        await freshMessage.crosspost();
+        logSuccess(`✅ Auto-published message ${message.id} in ${message.channel.name} (${message.guild.name})`);
+        
+      } catch (publishError) {
+        if (publishError.code === 10008) { // Unknown Message
+          logInfo(`Auto-publish: Message ${message.id} was deleted before publishing`);
+        } else if (publishError.code === 50083) { // Already crossposted
+          logInfo(`Auto-publish: Message ${message.id} was already crossposted`);
+        } else {
+          logError(`Auto-publish failed for message ${message.id}:`, publishError);
+        }
+      }
+    }, 60000); // 1 minute delay
+    
+  } catch (error) {
+    logError('Error in auto-publish handler:', error);
   }
 }
 

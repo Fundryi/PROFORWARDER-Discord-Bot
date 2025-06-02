@@ -73,6 +73,7 @@ client.on("ready", async () => {
     logInfo(`- /proforward ${config.debugMode ? '(DEBUG MODE)' : '(production mode)'}`);
     logInfo(`  ├─ setup (configure Discord forwarding)`);
     logInfo(`  ├─ telegram (configure Telegram forwarding)`);
+    logInfo(`  ├─ auto-publish (configure auto-publishing for announcement channels)`);
     logInfo(`  ├─ retry (retry/repost a forwarded message)`);
     logInfo(`  ├─ list (show active configurations)`);
     logInfo(`  ├─ remove (remove configuration)`);
