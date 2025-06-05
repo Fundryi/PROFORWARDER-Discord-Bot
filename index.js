@@ -26,6 +26,9 @@ const { proforwardCommand, handleProforwardCommand } = require('./commands/profo
 const { debugCommand, handleDebugCommand } = require('./commands/debugCommands');
 const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
 
+// Reader Bot import
+const ReaderBot = require('./readerBot');
+
 logInfo('Bot is starting up...');
 logInfo('Initializing client with required intents...');
 
@@ -36,6 +39,9 @@ const client = new Client({
     GatewayIntentBits.MessageContent
   ],
 });
+
+// Reader Bot instance
+let readerBot = null;
 
 // Event Handlers
 client.on("messageCreate", async (message) => {
@@ -79,7 +85,8 @@ client.on("ready", async () => {
     logInfo(`  ├─ remove (remove configuration)`);
     logInfo(`  ├─ status (show bot status)`);
     logInfo(`  ├─ test (test Telegram connection)`);
-    logInfo(`  └─ telegram-discover (discover Telegram chats)`);
+    logInfo(`  ├─ telegram-discover (discover Telegram chats)`);
+    logInfo(`  └─ reader-status (check reader bot status)`);
     logInfo(`- /debug (admin-only debugging tools)`);
   } catch (error) {
     logError('Error registering commands:', error);
@@ -114,6 +121,22 @@ client.on("ready", async () => {
     logError('Error initializing Discord invite manager:', error);
   }
   
+  // Initialize Reader Bot if enabled
+  if (config.readerBot && config.readerBot.enabled) {
+    logInfo('Initializing Reader Bot...');
+    try {
+      readerBot = new ReaderBot(client); // Pass main bot client
+      const success = await readerBot.initialize();
+      if (success) {
+        logSuccess('Reader Bot initialized successfully');
+      } else {
+        logInfo('Reader Bot initialization failed or disabled');
+      }
+    } catch (error) {
+      logError('Error initializing Reader Bot:', error);
+    }
+  }
+
   logSuccess(`Successfully logged in as ${client.user.tag}`);
   logInfo('ProForwarder bot is ready to forward messages!');
 });
@@ -124,7 +147,13 @@ process.on('unhandledRejection', error => {
 
 // Cleanup on exit
 process.on('SIGINT', async () => {
-  logInfo('\nClosing database connection...');
+  logInfo('\nShutting down bots...');
+  
+  if (readerBot) {
+    await readerBot.shutdown();
+  }
+  
+  logInfo('Closing database connection...');
   try {
     await db.close();
     logSuccess('Database connection closed');
@@ -139,3 +168,6 @@ logInfo('Attempting to log in...');
 client.login(process.env.BOT_TOKEN).catch(error => {
   logError('Failed to login:', error);
 });
+
+// Export reader bot for use in other modules
+module.exports = { client, readerBot };

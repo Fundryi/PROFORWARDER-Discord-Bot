@@ -14,8 +14,20 @@ const proforwardCommand = new SlashCommandBuilder()
       .addChannelOption(option =>
         option
           .setName('source')
-          .setDescription('Source channel to forward messages from')
-          .setRequired(true)
+          .setDescription('Source channel to forward messages from (for local server)')
+          .setRequired(false)
+      )
+      .addStringOption(option =>
+        option
+          .setName('source_server')
+          .setDescription('Source server ID (when using reader bot in different server)')
+          .setRequired(false)
+      )
+      .addStringOption(option =>
+        option
+          .setName('source_channel_id')
+          .setDescription('Source channel ID (when using reader bot in different server)')
+          .setRequired(false)
       )
       .addStringOption(option =>
         option
@@ -37,8 +49,20 @@ const proforwardCommand = new SlashCommandBuilder()
       .addChannelOption(option =>
         option
           .setName('source')
-          .setDescription('Source Discord channel to forward messages from')
-          .setRequired(true)
+          .setDescription('Source Discord channel to forward messages from (for local server)')
+          .setRequired(false)
+      )
+      .addStringOption(option =>
+        option
+          .setName('source_server')
+          .setDescription('Source server ID (when using reader bot in different server)')
+          .setRequired(false)
+      )
+      .addStringOption(option =>
+        option
+          .setName('source_channel_id')
+          .setDescription('Source channel ID (when using reader bot in different server)')
+          .setRequired(false)
       )
       .addStringOption(option =>
         option
@@ -122,8 +146,13 @@ const proforwardCommand = new SlashCommandBuilder()
          .setName('server')
          .setDescription('Target server ID (optional, defaults to current server)')
          .setRequired(false)
-     )
- );
+       )
+   )
+   .addSubcommand(subcommand =>
+     subcommand
+       .setName('reader-status')
+       .setDescription('Check reader bot status and generate invite link')
+   );
 
 async function handleProforwardCommand(interaction) {
   const subcommand = interaction.options.getSubcommand();
@@ -157,6 +186,9 @@ async function handleProforwardCommand(interaction) {
       case 'auto-publish':
         await handleAutoPublish(interaction);
         break;
+      case 'reader-status':
+        await handleReaderStatus(interaction);
+        break;
       default:
         await interaction.reply({ content: 'Unknown subcommand', ephemeral: true });
     }
@@ -175,10 +207,119 @@ async function handleProforwardCommand(interaction) {
 
 async function handleSetup(interaction) {
   const sourceChannel = interaction.options.getChannel('source');
+  const sourceServerId = interaction.options.getString('source_server');
+  const sourceChannelId = interaction.options.getString('source_channel_id');
   const targetChannelInput = interaction.options.getString('target_channel');
   const targetServerId = interaction.options.getString('target_server');
+
+  // Validate source parameters
+  if (!sourceChannel && (!sourceServerId || !sourceChannelId)) {
+    await interaction.reply({
+      content: '❌ **Invalid source configuration!**\n\n**Options:**\n• **Local server:** Use `source:#channel`\n• **Reader bot server:** Use both `source_server:SERVER_ID` and `source_channel_id:CHANNEL_ID`',
+      ephemeral: true
+    });
+    return;
+  }
+
+  if (sourceChannel && (sourceServerId || sourceChannelId)) {
+    await interaction.reply({
+      content: '❌ **Conflicting source parameters!**\n\nUse either:\n• `source:#channel` for local server\n• `source_server` + `source_channel_id` for reader bot server',
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Handle reader bot configuration
+  if (sourceServerId && sourceChannelId) {
+    // Validate that we have reader bot access to the source server
+    const { readerBot } = require('../index');
+    
+    if (!readerBot || !readerBot.isInGuild(sourceServerId)) {
+      await interaction.reply({
+        content: `❌ **Reader bot not found in source server!**\n\nSource server: \`${sourceServerId}\`\n\n**Steps to fix:**\n1. Invite reader bot to source server\n2. Use \`/proforward reader-status\` to get invite link\n3. Ensure reader bot has read permissions in target channel`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Parse target channel input
+    let targetChannelId;
+    
+    // Check if it's a channel mention (same server)
+    if (targetChannelInput.startsWith('<#') && targetChannelInput.endsWith('>')) {
+      targetChannelId = targetChannelInput.slice(2, -1);
+    }
+    // Check if it's just a channel ID (numeric string)
+    else if (/^\d+$/.test(targetChannelInput)) {
+      targetChannelId = targetChannelInput;
+    }
+    else {
+      await interaction.reply({
+        content: '❌ Invalid target channel format.\n**Same server:** Use #channel-name\n**Cross server:** Use channel ID (like `1375900190460084445`) with target_server parameter',
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Validate target channel
+    const actualTargetServerId = targetServerId || interaction.guild.id;
+    const targetGuild = interaction.client.guilds.cache.get(actualTargetServerId);
+    
+    if (!targetGuild) {
+      await interaction.reply({
+        content: `❌ **Target server not found!**\nBot is not in server: \`${actualTargetServerId}\``,
+        ephemeral: true
+      });
+      return;
+    }
+
+    let actualTargetChannel = targetGuild.channels.cache.get(targetChannelId);
+    
+    if (!actualTargetChannel) {
+      try {
+        actualTargetChannel = await targetGuild.channels.fetch(targetChannelId);
+      } catch (error) {
+        await interaction.reply({
+          content: `❌ **Target channel not found!**\nChannel \`${targetChannelId}\` not found in **${targetGuild.name}**`,
+          ephemeral: true
+        });
+        return;
+      }
+    }
+
+    if (actualTargetChannel.type !== 0 && actualTargetChannel.type !== 5) {
+      await interaction.reply({
+        content: `❌ Target channel **${actualTargetChannel.name}** must be a text or announcement channel.`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Create configuration for reader bot source
+    const newConfig = {
+      name: `Reader Bot Forward: ${sourceChannelId} to ${actualTargetChannel.name}`,
+      sourceType: 'discord',
+      sourceServerId: sourceServerId,
+      sourceChannelId: sourceChannelId,
+      targetType: 'discord',
+      targetServerId: actualTargetServerId,
+      targetChannelId: targetChannelId,
+      createdBy: interaction.user.id,
+      useReaderBot: true // Flag to indicate this uses reader bot
+    };
+
+    const configId = await addForwardConfig(newConfig);
+    
+    await interaction.reply({
+      content: `✅ **Reader bot forward configured!**\n**From:** Channel \`${sourceChannelId}\` in server \`${sourceServerId}\`\n**To:** ${actualTargetChannel.name} in **${targetGuild.name}**\n**ID:** ${configId}\n\n🤖 **Reader bot will monitor the source channel and forward messages to the main bot for processing.**`,
+      ephemeral: false
+    });
+
+    logSuccess(`Reader bot forward: ${sourceChannelId} -> ${actualTargetChannel.name} (${targetGuild.name}) by ${interaction.user.username}`);
+    return;
+  }
   
-  // Validate source channel (support text and announcement channels)
+  // Validate source channel for standard setup (support text and announcement channels)
   if (sourceChannel.type !== 0 && sourceChannel.type !== 5) { // 0 = GUILD_TEXT, 5 = GUILD_ANNOUNCEMENT
     await interaction.reply({
       content: '❌ Source channel must be a text or announcement channel.',
@@ -329,10 +470,96 @@ async function handleSetup(interaction) {
 
 async function handleTelegram(interaction) {
   const sourceChannel = interaction.options.getChannel('source');
+  const sourceServerId = interaction.options.getString('source_server');
+  const sourceChannelId = interaction.options.getString('source_channel_id');
   const chatId = interaction.options.getString('chat_id');
   const customName = interaction.options.getString('name');
-  
-  // Validate source channel (support text and announcement channels)
+
+  // Validate source parameters
+  if (!sourceChannel && (!sourceServerId || !sourceChannelId)) {
+    await interaction.reply({
+      content: '❌ **Invalid source configuration!**\n\n**Options:**\n• **Local server:** Use `source:#channel`\n• **Reader bot server:** Use both `source_server:SERVER_ID` and `source_channel_id:CHANNEL_ID`',
+      ephemeral: true
+    });
+    return;
+  }
+
+  if (sourceChannel && (sourceServerId || sourceChannelId)) {
+    await interaction.reply({
+      content: '❌ **Conflicting source parameters!**\n\nUse either:\n• `source:#channel` for local server\n• `source_server` + `source_channel_id` for reader bot server',
+      ephemeral: true
+    });
+    return;
+  }
+
+  // Handle reader bot configuration
+  if (sourceServerId && sourceChannelId) {
+    // Validate that we have reader bot access to the source server
+    const { readerBot } = require('../index');
+    
+    if (!readerBot || !readerBot.isInGuild(sourceServerId)) {
+      await interaction.reply({
+        content: `❌ **Reader bot not found in source server!**\n\nSource server: \`${sourceServerId}\`\n\n**Steps to fix:**\n1. Invite reader bot to source server\n2. Use \`/proforward reader-status\` to get invite link\n3. Ensure reader bot has read permissions in target channel`,
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Validate chat ID format
+    if (!/^-?\d+$/.test(chatId)) {
+      await interaction.reply({
+        content: '❌ Invalid Telegram chat ID format.\n\n**Examples:**\n• Group/Channel: `-1001234567890` (negative)\n• Private chat: `123456789` (positive)\n\n**Easy way to get chat ID:**\n1. Use `/proforward telegram-discover` to automatically find chat IDs\n2. Or add @userinfobot to your chat and send a message',
+        ephemeral: true
+      });
+      return;
+    }
+
+    // Check if Telegram is enabled
+    const config = require('../config/env');
+    if (!config.telegram?.enabled) {
+      await interaction.reply({
+        content: '❌ **Telegram integration is not enabled.**\n\nTo enable Telegram forwarding:\n1. Set `TELEGRAM_ENABLED=true` in your .env file\n2. Add your `TELEGRAM_BOT_TOKEN`\n3. Restart the bot\n\n**Need help?** Check the README for Telegram setup instructions.',
+        ephemeral: true
+      });
+      return;
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+    
+    try {
+      // Create the forward configuration name
+      const configName = customName || `Reader Bot: ${sourceChannelId} to Telegram (${chatId})`;
+
+      // Create the forward configuration
+      const newConfig = {
+        name: configName,
+        sourceType: 'discord',
+        sourceServerId: sourceServerId,
+        sourceChannelId: sourceChannelId,
+        targetType: 'telegram',
+        targetChatId: chatId,
+        createdBy: interaction.user.id,
+        useReaderBot: true // Flag to indicate this uses reader bot
+      };
+
+      const configId = await addForwardConfig(newConfig);
+
+      await interaction.editReply({
+        content: `✅ **Reader bot Telegram forward configured!**\n**From:** Channel \`${sourceChannelId}\` in server \`${sourceServerId}\`\n**To:** Telegram chat \`${chatId}\`\n**Name:** ${configName}\n**ID:** ${configId}\n\n🤖 **Reader bot will monitor the source channel and forward messages to Telegram via the main bot.**\n\n💡 **Tip:** Send a test message in the source channel to verify the connection.`
+      });
+
+      logSuccess(`Reader bot Telegram forward: ${sourceChannelId} -> ${chatId} by ${interaction.user.username}`);
+    } catch (error) {
+      logError('Error creating reader bot Telegram forward:', error);
+      
+      await interaction.editReply({
+        content: `❌ **Failed to create reader bot Telegram forward configuration.**\n\n**Possible issues:**\n• Invalid Telegram chat ID\n• Bot not added to the Telegram chat\n• Telegram bot token invalid\n\n**Error:** ${error.message}\n\n**Need help?** Check the bot logs or README for troubleshooting.`
+      });
+    }
+    return;
+  }
+
+  // Validate source channel for standard setup (support text and announcement channels)
   if (sourceChannel.type !== 0 && sourceChannel.type !== 5) { // 0 = GUILD_TEXT, 5 = GUILD_ANNOUNCEMENT
     await interaction.reply({
       content: '❌ Source channel must be a text or announcement channel.',
@@ -472,7 +699,24 @@ async function handleStatus(interaction) {
   
   // Telegram status
   const telegramStatus = config.telegram?.enabled ? '✅ Enabled' : '❌ Disabled';
-  response += `**Telegram Integration:** ${telegramStatus}\n\n`;
+  response += `**Telegram Integration:** ${telegramStatus}\n`;
+  
+  // Reader Bot status
+  const readerBotEnabled = config.readerBot?.enabled ? '✅ Enabled' : '❌ Disabled';
+  response += `**Reader Bot:** ${readerBotEnabled}`;
+  
+  if (config.readerBot?.enabled) {
+    try {
+      const { readerBot } = require('../index');
+      const readerStatus = readerBot && readerBot.isReady ? '🟢 Online' : '🔴 Offline';
+      const readerGuildCount = readerBot ? readerBot.getGuildCount() : 0;
+      response += ` (${readerStatus}, ${readerGuildCount} servers)`;
+    } catch (error) {
+      response += ` (Status unknown)`;
+    }
+  }
+  
+  response += `\n\n`;
   
   response += `**📡 Available Servers:**\n`;
   for (const [id, guild] of servers) {
@@ -483,10 +727,19 @@ async function handleStatus(interaction) {
   response += `\n**💡 Quick Tips:**\n`;
   response += `• Same server: \`/proforward setup source:#from target_channel:#to\`\n`;
   response += `• Cross server: \`/proforward setup source:#from target_channel:CHANNEL_ID target_server:SERVER_ID\`\n`;
+  if (config.readerBot?.enabled) {
+    response += `• Reader bot: \`/proforward setup source_server:SERVER_ID source_channel_id:CHANNEL_ID target_channel:CHANNEL_ID target_server:SERVER_ID\`\n`;
+  }
   if (config.telegram?.enabled) {
     response += `• Telegram: \`/proforward telegram source:#from chat_id:CHAT_ID\`\n`;
+    if (config.readerBot?.enabled) {
+      response += `• Reader bot Telegram: \`/proforward telegram source_server:SERVER_ID source_channel_id:CHANNEL_ID chat_id:CHAT_ID\`\n`;
+    }
     response += `• Discover chats: \`/proforward telegram-discover\`\n`;
     response += `• Discover by username: \`/proforward telegram-discover username:@channelname\`\n`;
+  }
+  if (config.readerBot?.enabled) {
+    response += `• Reader bot status: \`/proforward reader-status\`\n`;
   }
   response += `• Right-click → Copy ID to get channel/server IDs (Developer Mode required)`;
 
@@ -1070,6 +1323,71 @@ async function handleAutoPublish(interaction) {
     
     await interaction.editReply({
       content: `❌ **Failed to configure auto-publish.**\n\n**Error:** ${error.message}\n\nCheck the bot logs for more details.`
+    });
+  }
+}
+
+async function handleReaderStatus(interaction) {
+  const config = require('../config/env');
+  
+  if (!config.readerBot || !config.readerBot.enabled) {
+    return await interaction.reply({
+      content: '❌ **Reader Bot is disabled in configuration.**\n\n**To enable Reader Bot:**\n1. Set `READER_BOT_ENABLED=true` in your .env file\n2. Add your `READER_BOT_TOKEN`\n3. Restart the bot',
+      ephemeral: true
+    });
+  }
+  
+  try {
+    // Import readerBot from index.js
+    const { readerBot } = require('../index');
+    
+    const status = readerBot && readerBot.isReady ? '🟢 Online' : '🔴 Offline';
+    const guildCount = readerBot ? readerBot.getGuildCount() : 0;
+    
+    // You should replace this with your actual reader bot client ID
+    const clientId = 'YOUR_READER_BOT_CLIENT_ID'; // TODO: Replace with actual client ID
+    const inviteUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=66560&scope=bot`;
+    
+    let readerBotInfo = '❌ Reader Bot not available';
+    if (readerBot && readerBot.client) {
+      readerBotInfo = `${readerBot.client.user.tag} (${readerBot.client.user.id})`;
+    }
+    
+    await interaction.reply({
+      embeds: [{
+        title: '🤖 Reader Bot Status',
+        color: readerBot && readerBot.isReady ? 0x00ff00 : 0xff0000,
+        fields: [
+          { name: 'Status', value: status, inline: true },
+          { name: 'Servers', value: guildCount.toString(), inline: true },
+          { name: 'Bot Info', value: readerBotInfo, inline: false },
+          {
+            name: 'Invite Link',
+            value: clientId === 'YOUR_READER_BOT_CLIENT_ID'
+              ? '⚠️ Please update the client ID in the code'
+              : `[Click here to invite](${inviteUrl})`,
+            inline: false
+          },
+          {
+            name: 'Permissions',
+            value: '• View Channels\n• Read Message History\n• **No sending permissions**',
+            inline: false
+          }
+        ],
+        footer: { text: 'Reader Bot - Read-only monitoring' },
+        timestamp: new Date()
+      }],
+      ephemeral: true
+    });
+    
+    logInfo(`Reader Bot status checked by ${interaction.user.username}: ${status}, ${guildCount} servers`);
+    
+  } catch (error) {
+    logError('Error in reader-status command:', error);
+    
+    await interaction.reply({
+      content: '❌ **Error checking Reader Bot status.**\n\nPlease check the bot logs for more details.',
+      ephemeral: true
     });
   }
 }
