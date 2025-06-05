@@ -58,22 +58,23 @@
 - **✏️ Edit Synchronization**: Real-time message edit forwarding that updates existing forwarded messages
 
 ### 🌟 **Advanced Features**
-- **🤖 AI Translation Threads**: Automatic multi-language translation with beautiful Discord threads
-- **🌐 Multi-Provider AI**: OpenAI GPT-4, Google Gemini, DeepL integration with smart fallback
 - **🔪 Enhanced Slice Conversion**: Advanced formatting converter with 200+ Discord emoji mappings
 - **👥 Smart Mention Resolution**: Real Discord names for users, roles, and channels in Telegram
 - **😀 Universal Emoji Support**: Application-level emoji management for cross-server emoji compatibility
 - **🎯 Conservative Emoji Matching**: Only converts known emojis, cleanly removes unknown ones
-- **🎨 Rich Translation Embeds**: Beautiful color-coded translation embeds with provider attribution
 - **📢 Smart Mention Control**: Configurable @everyone/@here forwarding with permission-based safety
 - **🧹 Intelligent Database**: Self-maintaining database with startup validation and orphaned message cleanup
 - **🔄 Smart Loop Prevention**: Advanced detection to prevent infinite forwarding loops
-- **⚙️ Streamlined Architecture**: Optimized dual-method system (Enhanced Slice + AI fallback)
 - **🔒 Permission Validation**: Automatic permission checking and helpful error messages
 - **📊 Quality Detection**: Automatically detects and uses optimal forwarding method
 - **🔧 Fallback Support**: Works with basic permissions when webhooks unavailable
 - **📋 Easy Management**: Simple command structure for setup and maintenance
 - **🐛 Advanced Debugging**: Comprehensive logging and monitoring for troubleshooting
+- **🔄 Message Retry System**: Retry failed message forwards with `/proforward retry`
+- **📢 Auto-Publishing**: Automatic publishing for announcement channels
+- **🔍 Telegram Discovery**: Smart discovery of available Telegram chats and channels
+- **🤖 AI Translation Support**: Optional multi-provider AI translation system (Google Gemini, OpenAI GPT-4, DeepL)
+- **🧵 Translation Threads**: Beautiful Discord threads for AI translations with color-coded language indicators
 
 ---
 
@@ -86,20 +87,20 @@ The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwa
 - **Enhanced slice-based format conversion** with intelligent Discord→Telegram MarkdownV2 processing
 - **Smart mention resolution** with real Discord names (users, roles, channels) in Telegram
 - **Advanced emoji handling** with 200+ Discord emoji mappings and conservative matching
-- **AI-powered translation threads** with automatic multi-language support
-- **Multi-provider AI integration** (OpenAI GPT-4, Google Gemini, DeepL)
-- **Streamlined architecture** with optimized dual-method system (Enhanced Slice + AI fallback)
-- **Beautiful translation embeds** with color-coded language indicators
-- **Universal emoji support** with application-level emoji management and cross-server compatibility
-- **Smart mention control** with configurable @everyone/@here forwarding
-- **Intelligent database management** with self-healing and cleanup capabilities
-- **Same-server and cross-server** forwarding fully functional
-- **Bot message forwarding** with smart loop prevention
-- **Complete command system** with `/proforward` interface
-- **File-based configuration** for easy management with AI settings
-- **Comprehensive error handling** and user guidance
-- **Advanced debugging and monitoring** system
-- **Enterprise-tested** and ready for production deployment with enhanced formatting
+- **Comprehensive command system** with 9 `/proforward` subcommands for complete management
+- **Telegram Bot API integration** with full MarkdownV2 formatting and chat discovery
+- **Auto-publishing system** for announcement channels with configurable timing
+- **Message retry functionality** for failed forwards with source message ID lookup
+- **Intelligent database management** with self-healing, validation, and cleanup capabilities
+- **Smart loop prevention** and bot message filtering with configurable controls
+- **Cross-platform emoji conversion** with application-level emoji management
+- **Same-server and cross-server** Discord forwarding fully functional
+- **Optional AI translation system** with multi-provider support (Google Gemini, OpenAI GPT-4, DeepL)
+- **Beautiful translation threads** with color-coded language indicators (when AI enabled)
+- **File-based configuration** with automatic management via Discord commands
+- **Comprehensive error handling** and user guidance with helpful error messages
+- **Advanced debugging and monitoring** system with colorized logging
+- **Production-ready architecture** with robust error handling and cleanup systems
 
 ---
 
@@ -124,6 +125,7 @@ ProForwarder requires specific permissions to function with all features. **Admi
 - **Manage Webhooks** - For perfect 1:1 message forwarding (preserves original usernames/avatars)
 - **Create Public Threads** - For AI translation threads feature
 - **Mention Everyone** - To forward @everyone/@here mentions
+- **Manage Messages** - Required for auto-publishing announcement channels
 
 #### **User Permissions (For setup commands):**
 - **Manage Channels** - Required for users to use `/proforward` commands
@@ -185,11 +187,35 @@ Replace `YOUR_BOT_ID` with your bot's client ID from the Discord Developer Porta
 /proforward telegram-discover
 
 # Discover specific channel by username (for channels where bot is admin)
-/proforward telegram-discover username:@teastast123123
-/proforward telegram-discover username:https://t.me/teastast123123
+/proforward telegram-discover username:@channelname
+/proforward telegram-discover username:https://t.me/channelname
 
 # Set up forwarding using discovered chat ID
 /proforward telegram source:#announcements chat_id:-1001234567890
+```
+
+**Auto-Publishing Setup:**
+```
+# Enable auto-publishing for announcement channel (current server)
+/proforward auto-publish channel:#announcements
+
+# Enable auto-publishing for announcement channel (different server)
+/proforward auto-publish channel:#announcements server:812312654705328154
+```
+
+**Message Management:**
+```
+# Retry a failed forward using original message ID
+/proforward retry source_message_id:1234567890123456789
+
+# Test Telegram connection
+/proforward test chat_id:-1001234567890
+
+# List all active configurations
+/proforward list
+
+# Remove a configuration
+/proforward remove config_id:5
 ```
 
 ### 📋 Available Commands
@@ -201,6 +227,8 @@ Replace `YOUR_BOT_ID` with your bot's client ID from the Discord Developer Porta
 - **`/proforward remove`** - Remove a forward configuration
 - **`/proforward status`** - Show bot status and integration status
 - **`/proforward test`** - Test Telegram connection
+- **`/proforward retry`** - Retry/repost a forwarded message with source message ID
+- **`/proforward auto-publish`** - Configure auto-publishing for announcement channels
 
 ---
 
@@ -210,69 +238,109 @@ Replace `YOUR_BOT_ID` with your bot's client ID from the Discord Developer Porta
 ```env
 BOT_TOKEN=your_discord_bot_token_here
 
-# AI Translation Features (NEW!)
-AI_ENABLED=true
+# Telegram Integration
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+TELEGRAM_API_URL=https://api.telegram.org
+
+# AI Translation Features (Optional)
 GEMINI_API_KEY=your_gemini_api_key_here
 OPENAI_API_KEY=your_openai_api_key_here
 DEEPL_API_KEY=your_deepl_api_key_here
-
-# Telegram Integration
-TELEGRAM_ENABLED=true
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 ```
 
 ### **Forward Configurations** (`config/env.js`)
 ```javascript
 module.exports = {
   botToken: process.env.BOT_TOKEN,
-  debugMode: true,
+  debugMode: false, // Set to true to enable debug logging and test commands
   
-  // Enhanced Format Conversion Settings (NEW!)
-  useSliceFormatConverter: true,  // Enhanced slice-based conversion (PRIMARY)
-  useAIFormatConverter: false,    // AI-powered conversion (FALLBACK - for future use)
+  // Enhanced Format Conversion Settings
+  useSliceFormatConverter: true,  // Enhanced slice-based conversion (PRIMARY METHOD - recommended)
+  useAIFormatConverter: false,    // AI-powered conversion (FALLBACK ONLY - for future use)
   
-  // Control bot message forwarding
-  forwardBotMessages: true, // Set to false to ignore bot messages
+  // Bot message forwarding control
+  forwardBotMessages: true, // Set to false to ignore messages from other bots
   
-  // Forward configurations with AI translation support
-  forwardConfigs: [
-    {
-      id: 1,
-      name: "Announcements with Translation",
-      sourceType: "discord",
-      sourceServerId: "SOURCE_SERVER_ID",
-      sourceChannelId: "SOURCE_CHANNEL_ID",
-      targetType: "discord",
-      targetServerId: "TARGET_SERVER_ID",
-      targetChannelId: "TARGET_CHANNEL_ID",
-      enabled: true,
-      allowEveryoneHereMentions: false, // Allow @everyone/@here forwarding
-      createdBy: "USER_ID",
+  // Forward configurations - Automatically populated by bot via /proforward commands
+  // Do not manually edit this array - use Discord commands instead
+  forwardConfigs: [],
+  
+  // Auto-publish channels configuration
+  // Channels configured for automatic publishing of announcements
+  // Automatically populated by bot via /proforward auto-publish commands
+  autoPublishChannels: {},
+  
+  // Discord integration settings
+  discord: {
+    // Cached invite links for source headers (automatically managed)
+    // Do not manually edit - the bot manages these automatically
+    cachedInvites: {
+      // Example: "123456789": { invite: "https://discord.gg/abc123", isVanity: false, expiresAt: null }
+    }
+  },
+  
+  // Telegram integration (optional)
+  telegram: {
+    enabled: false, // Set to true to enable Telegram integration
+    botToken: process.env.TELEGRAM_BOT_TOKEN,
+    apiUrl: process.env.TELEGRAM_API_URL || 'https://api.telegram.org',
+    hideSourceHeader: false, // Set to true to disable Discord source headers in Telegram messages
+    smartLinkPreviews: true // Smart link preview behavior: allow previews when Discord has images, disable for text-only messages
+  },
+  
+  // AI Integration for translation and content optimization
+  ai: {
+    enabled: false, // Set to true to enable AI features
+    
+    // Provider configurations (API keys from .env file)
+    providers: {
+      // Google Gemini (🟡 FREEMIUM - Free tier available)
+      // Best for: Advanced AI format conversion and translations
+      // Cost: Free tier available, pay per token after limits
+      gemini: {
+        apiKey: process.env.GEMINI_API_KEY,
+        model: 'gemini-2.0-flash-exp',
+        maxTokens: 2048,
+        temperature: 0 // Conservative for formatting precision
+      },
       
-      // AI Translation Settings (NEW!)
-      ai: {
-        enabled: true,
-        translation: {
-          enabled: true,
-          provider: 'gemini', // 'gemini', 'openai', 'deepl'
-          targetLanguages: ['ru', 'zh'], // Russian, Chinese
-          preserveFormatting: true
-        }
+      // OpenAI GPT-4 (💰 PAID SERVICE - Requires payment after free trial)
+      // Best for: High-quality translations, content optimization
+      // Cost: Pay per token (approximately $0.03/1K tokens for GPT-4)
+      openai: {
+        apiKey: process.env.OPENAI_API_KEY,
+        model: 'gpt-4', // or 'gpt-3.5-turbo' for cheaper option
+        maxTokens: 2000,
+        temperature: 0.3 // Lower = more conservative, Higher = more creative
+      },
+      
+      // DeepL (🟡 FREEMIUM - Free tier: 500,000 chars/month)
+      // Best for: Professional-grade translation quality
+      // Cost: Free tier available, then $6.99/month for Pro
+      deepl: {
+        apiKey: process.env.DEEPL_API_KEY,
+        freeApi: true // Set to false if using DeepL Pro API
       }
     },
-    // Telegram forwarding example
-    {
-      id: 2,
-      name: "Discord to Telegram Bridge",
-      sourceType: "discord",
-      sourceServerId: "SOURCE_SERVER_ID",
-      sourceChannelId: "SOURCE_CHANNEL_ID",
-      targetType: "telegram",
-      targetChatId: "-1001234567890", // Telegram chat ID
-      enabled: true,
-      createdBy: "USER_ID"
+    
+    // Translation settings
+    translation: {
+      enabled: true, // Enable translation features
+      defaultProvider: 'gemini', // Recommended: 'gemini' (free tier) or 'deepl'
+      cacheTranslations: true, // Cache translations to reduce API costs
+      maxCacheAge: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
+      fallbackProvider: 'deepl' // Fallback if primary provider fails
+    },
+    
+    // Content optimization settings
+    optimization: {
+      defaultLevel: 'enhanced', // 'basic', 'enhanced', 'custom'
+      preserveEmojis: true,
+      preserveMentions: true,
+      preserveLinks: true,
+      maxOptimizationLength: 2000
     }
-  ]
+  }
 };
 ```
 
@@ -284,8 +352,7 @@ module.exports = {
 ProForwarder-Discord-Bot/
 ├── 📁 config/                    # Configuration files
 │   ├── .env.example              # Environment variables template
-│   ├── env.js.example            # Configuration template
-│   └── env.js                   # Active configuration
+│   └── env.js.example            # Configuration template
 ├── 📁 utils/                     # Core utilities
 │   ├── database.js               # SQLite database operations with smart cleanup
 │   ├── logger.js                 # Colorized logging system
@@ -293,14 +360,16 @@ ProForwarder-Discord-Bot/
 │   ├── webhookManager.js         # Webhook handling for perfect forwarding
 │   ├── sliceFormatConverter.js   # Enhanced slice-based format conversion (PRIMARY)
 │   ├── aiFormatConverter.js      # AI-powered format conversion orchestrator
-│   ├── formatConverter.js        # Legacy format converter (REMOVED in streamlined system)
+│   ├── formatConverter.js        # Legacy format converter
 │   ├── applicationEmojiManager.js # Cross-server emoji management
 │   ├── aiManager.js              # AI provider abstraction and management
 │   ├── translationManager.js     # Multi-language translation orchestration
 │   ├── threadManager.js          # Discord thread creation and management
+│   ├── discordInviteManager.js   # Discord invite management for source headers
 │   └── emojiManager.js           # Legacy emoji utilities
 ├── 📁 utils/ai/                  # AI Provider implementations
 │   ├── geminiProvider.js         # Google Gemini AI provider
+│   ├── googleProvider.js         # Google AI provider (alternative)
 │   ├── openaiProvider.js         # OpenAI GPT provider
 │   └── deeplProvider.js          # DeepL translation provider
 ├── 📁 handlers/                  # Business logic
@@ -311,12 +380,23 @@ ProForwarder-Discord-Bot/
 │   └── messageEvents.js          # Message create/edit/delete handling with debug
 ├── 📁 commands/                  # Slash commands
 │   ├── proforwardCommand.js      # Main command interface
-│   └── debugCommands.js          # Debug and troubleshooting commands
+│   ├── debugCommands.js          # Debug and troubleshooting commands
+│   ├── configCommands.js         # Configuration management commands
+│   ├── forwardCommands.js        # Forward-specific commands
+│   └── helpCommands.js           # Help and documentation commands
 ├── 📁 data/                     # Database storage
 │   └── proforwarder.db          # SQLite database with message logs
+├── 📁 Documentations/            # Project documentation
+│   ├── ENHANCED_FORMAT_CONVERSION.md  # Format conversion system guide
+│   ├── MARKDOWN_DISCORD.md            # Discord markdown reference
+│   ├── MARKDOWN_TELEGRAM.md           # Telegram markdown reference
+│   ├── MARKDOWNV2_CONVERSION_SUMMARY.md # Conversion details
+│   └── PROFORWARDER_PLANNING.md       # Development planning
+├── 📁 testing/                  # Testing utilities
 ├── 📄 index.js                  # Main bot entry point with startup validation
 ├── 📄 errorHandlers.js          # Global error handling
-└── 📄 PROFORWARDER_PLANNING.md  # Complete development documentation
+├── 📄 package.json              # Node.js project configuration
+└── 📄 README.md                 # This documentation file
 ```
 
 ---
