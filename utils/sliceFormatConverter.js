@@ -331,9 +331,9 @@ class SliceFormatConverter {
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved channel mention: ${slice.content} -> #${channelName}`);
           }
-          return `#${this.escapeMarkdownV2ForText(channelName)}`;
+          return `\\#${this.escapeMarkdownV2ForText(channelName)}`;
         }
-        return `#${this.escapeMarkdownV2ForText(`channel${channelId}`)}`;
+        return `\\#${this.escapeMarkdownV2ForText(`channel${channelId}`)}`;
         
       case 'custom_emoji':
         // <:name:123> -> convert to standard emoji or remove
@@ -384,8 +384,8 @@ class SliceFormatConverter {
     // Handle role mentions
     processedText = processedText.replace(/<@&(\d+)>/g, '＠Role$1');
     
-    // Handle channel mentions (keep # prefix for channels)
-    processedText = processedText.replace(/<#(\d+)>/g, '#Channel$1');
+    // Handle channel mentions (keep escaped # prefix for channels)
+    processedText = processedText.replace(/<#(\d+)>/g, '\\#Channel$1');
     
     // Handle @everyone and @here
     processedText = processedText.replace(/@everyone/g, '＠everyone');

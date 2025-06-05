@@ -132,8 +132,8 @@ class FormatConverter {
       // Convert Discord role mentions <@&123> to full-width @ text
       converted = converted.replace(/<@&(\d+)>/g, '＠Role');
       
-      // Convert Discord channel mentions <#123> to # text (keep # prefix for channels)
-      converted = converted.replace(/<#(\d+)>/g, '#Channel');
+      // Convert Discord channel mentions <#123> to escaped # text (keep # prefix for channels)
+      converted = converted.replace(/<#(\d+)>/g, '\\#Channel');
       
       // Convert @everyone and @here to full-width @ to prevent unwanted mentions
       converted = converted.replace(/@everyone/g, '＠everyone');
