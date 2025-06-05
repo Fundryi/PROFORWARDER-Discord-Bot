@@ -78,7 +78,7 @@ class AIFormatConverter {
       const channelName = channel ? channel.name : `channel${channelId}`;
       
       mentions.channels.push({ id: channelId, fullMention, name: channelName });
-      mentions.replacements.push(`Replace "${fullMention}" with "＠${channelName}"`);
+      mentions.replacements.push(`Replace "${fullMention}" with "#${channelName}"`);
       
       const envConfig = require('../config/env');
       if (envConfig.debugMode) {
@@ -204,13 +204,14 @@ NEWLINE HANDLING:
 - Do NOT convert newlines to literal "n" characters
 - Preserve bullet points and spacing
 
-DISCORD MENTIONS - CONVERT TO SAFE TEXT WITH FULL-WIDTH @:
+DISCORD MENTIONS - CONVERT TO SAFE TEXT:
 - User mentions <@123456> or <@!123456> → Replace with ＠username (see specific replacements below)
 - Role mentions <@&123456> → Replace with ＠rolename (see specific replacements below)
-- Channel mentions <#123456> → Replace with ＠channelname (see specific replacements below)
+- Channel mentions <#123456> → Replace with #channelname (keep # prefix for channels)
 - @everyone → Replace with ＠everyone
 - @here → Replace with ＠here
-- ALWAYS use full-width ＠ character (not regular @) to prevent Telegram mentions
+- Use full-width ＠ character for user/role mentions and @everyone/@here to prevent Telegram mentions
+- Keep # prefix for channel references as that's the natural channel format
 
 DISCORD EMOJIS - REMOVE OR REPLACE:
 - Custom emojis <:name:123456> → Remove completely OR replace with standard emoji if applicable
