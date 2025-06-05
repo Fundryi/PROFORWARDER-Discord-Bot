@@ -401,7 +401,6 @@ class TelegramHandler {
     // Determine whether to disable web page previews
     let disableWebPagePreview = false;
     
-    const envConfig = require('../config/env');
     if (envConfig.telegram?.smartLinkPreviews === false) {
       // Always disable previews if smartLinkPreviews is disabled
       disableWebPagePreview = true;
