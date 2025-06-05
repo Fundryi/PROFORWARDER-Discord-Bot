@@ -126,14 +126,18 @@ class FormatConverter {
       
       // Step 2B: Convert Discord mentions to plain text (since Telegram doesn't support them)
       
-      // Convert Discord user mentions <@123> or <@!123> to plain text
-      converted = converted.replace(/<@!?(\d+)>/g, '@User');
+      // Convert ALL Discord mentions to use full-width @ to prevent Telegram mentions
+      converted = converted.replace(/<@!?(\d+)>/g, '＠User');
       
-      // Convert Discord role mentions <@&123> to plain text
-      converted = converted.replace(/<@&(\d+)>/g, '@Role');
+      // Convert Discord role mentions <@&123> to full-width @ text
+      converted = converted.replace(/<@&(\d+)>/g, '＠Role');
       
-      // Convert Discord channel mentions <#123> to plain text
-      converted = converted.replace(/<#(\d+)>/g, '#Channel');
+      // Convert Discord channel mentions <#123> to full-width @ text
+      converted = converted.replace(/<#(\d+)>/g, '＠Channel');
+      
+      // Convert @everyone and @here to full-width @ to prevent unwanted mentions
+      converted = converted.replace(/@everyone/g, '＠everyone');
+      converted = converted.replace(/@here/g, '＠here');
       
       // Convert Discord custom emojis <:name:123> to emoji name
       converted = converted.replace(/<:(\w+):\d+>/g, ':$1:');

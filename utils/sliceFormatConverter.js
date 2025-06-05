@@ -110,7 +110,11 @@ class SliceFormatConverter {
       
       // Block quotes
       { regex: /^> (.+)$/gm, type: 'block_quote' },
-      { regex: /^>>> ([\s\S]*?)$/gm, type: 'multi_quote' }
+      { regex: /^>>> ([\s\S]*?)$/gm, type: 'multi_quote' },
+      
+      // Special mentions
+      { regex: /@everyone/g, type: 'everyone_mention' },
+      { regex: /@here/g, type: 'here_mention' }
     ];
     
     // Find all matches with their positions
@@ -296,9 +300,9 @@ class SliceFormatConverter {
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved user mention: ${slice.content} -> ${userName}`);
           }
-          return this.escapeMarkdownV2ForText(userName);
+          return `＠${this.escapeMarkdownV2ForText(userName)}`;
         }
-        return this.escapeMarkdownV2ForText(`User${userId}`);
+        return `＠${this.escapeMarkdownV2ForText(`User${userId}`)}`;
         
       case 'role_mention':
         // <@&123> -> resolve to role name
@@ -310,9 +314,9 @@ class SliceFormatConverter {
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved role mention: ${slice.content} -> ${roleName}`);
           }
-          return this.escapeMarkdownV2ForText(roleName);
+          return `＠${this.escapeMarkdownV2ForText(roleName)}`;
         }
-        return this.escapeMarkdownV2ForText(`Role${roleId}`);
+        return `＠${this.escapeMarkdownV2ForText(`Role${roleId}`)}`;
         
       case 'channel_mention':
         // <#123> -> resolve to channel name
@@ -327,9 +331,9 @@ class SliceFormatConverter {
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved channel mention: ${slice.content} -> #${channelName}`);
           }
-          return this.escapeMarkdownV2ForText(`#${channelName}`);
+          return `＠${this.escapeMarkdownV2ForText(channelName)}`;
         }
-        return this.escapeMarkdownV2ForText(`#channel${channelId}`);
+        return `＠${this.escapeMarkdownV2ForText(`channel${channelId}`)}`;
         
       case 'custom_emoji':
         // <:name:123> -> convert to standard emoji or remove
@@ -347,6 +351,14 @@ class SliceFormatConverter {
         const multiQuoteContent = slice.groups[0];
         return `**>${this.escapeMarkdownV2ForText(multiQuoteContent)}`;
         
+      case 'everyone_mention':
+        // @everyone -> ＠everyone
+        return '＠everyone';
+
+      case 'here_mention':
+        // @here -> ＠here
+        return '＠here';
+        
       default:
         if (envConfig.debugMode) {
           logInfo(`🔪 Unknown slice type: ${slice.type}, treating as plain text`);
@@ -356,15 +368,31 @@ class SliceFormatConverter {
   }
   
   /**
-   * Process emojis and escape special characters inside formatting
+   * Process emojis, mentions, and escape special characters inside formatting
    * @param {string} text - Text inside formatting
    * @returns {string} Processed and escaped text
    */
   static escapeSpecialCharsInFormatting(text) {
     if (!text) return '';
     
-    // First, process any custom emojis within the text
-    let processedText = text.replace(/<a?:(\w+):\d+>/g, (match, emojiName) => {
+    // First, process any Discord mentions within the text (use full-width @)
+    let processedText = text;
+    
+    // Handle user mentions
+    processedText = processedText.replace(/<@!?(\d+)>/g, '＠User$1');
+    
+    // Handle role mentions
+    processedText = processedText.replace(/<@&(\d+)>/g, '＠Role$1');
+    
+    // Handle channel mentions
+    processedText = processedText.replace(/<#(\d+)>/g, '＠Channel$1');
+    
+    // Handle @everyone and @here
+    processedText = processedText.replace(/@everyone/g, '＠everyone');
+    processedText = processedText.replace(/@here/g, '＠here');
+    
+    // Then, process any custom emojis within the text
+    processedText = processedText.replace(/<a?:(\w+):\d+>/g, (match, emojiName) => {
       const standardEmoji = this.convertCustomEmojiToStandard(emojiName);
       const envConfig = require('../config/env');
       if (standardEmoji) {

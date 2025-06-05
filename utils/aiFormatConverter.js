@@ -37,7 +37,7 @@ class AIFormatConverter {
       const userName = user ? (user.globalName || user.username || user.displayName) : `User${userId}`;
       
       mentions.users.push({ id: userId, fullMention, name: userName });
-      mentions.replacements.push(`Replace "${fullMention}" with "${userName}"`);
+      mentions.replacements.push(`Replace "${fullMention}" with "＠${userName}"`);
       
       const envConfig = require('../config/env');
       if (envConfig.debugMode) {
@@ -56,7 +56,7 @@ class AIFormatConverter {
       const roleName = role ? role.name : `Role${roleId}`;
       
       mentions.roles.push({ id: roleId, fullMention, name: roleName });
-      mentions.replacements.push(`Replace "${fullMention}" with "${roleName}"`);
+      mentions.replacements.push(`Replace "${fullMention}" with "＠${roleName}"`);
       
       const envConfig = require('../config/env');
       if (envConfig.debugMode) {
@@ -78,11 +78,32 @@ class AIFormatConverter {
       const channelName = channel ? channel.name : `channel${channelId}`;
       
       mentions.channels.push({ id: channelId, fullMention, name: channelName });
-      mentions.replacements.push(`Replace "${fullMention}" with "${channelName}"`);
+      mentions.replacements.push(`Replace "${fullMention}" with "＠${channelName}"`);
       
       const envConfig = require('../config/env');
       if (envConfig.debugMode) {
         logInfo(`🔍 Found channel mention: ${fullMention} -> ${channelName}`);
+      }
+    }
+
+    // Handle @everyone and @here mentions
+    const everyoneRegex = /@everyone/g;
+    while ((match = everyoneRegex.exec(text)) !== null) {
+      mentions.replacements.push(`Replace "@everyone" with "＠everyone"`);
+      
+      const envConfig = require('../config/env');
+      if (envConfig.debugMode) {
+        logInfo(`🔍 Found @everyone mention -> ＠everyone`);
+      }
+    }
+
+    const hereRegex = /@here/g;
+    while ((match = hereRegex.exec(text)) !== null) {
+      mentions.replacements.push(`Replace "@here" with "＠here"`);
+      
+      const envConfig = require('../config/env');
+      if (envConfig.debugMode) {
+        logInfo(`🔍 Found @here mention -> ＠here`);
       }
     }
 
@@ -183,10 +204,13 @@ NEWLINE HANDLING:
 - Do NOT convert newlines to literal "n" characters
 - Preserve bullet points and spacing
 
-DISCORD MENTIONS - CONVERT TO CLEAN TEXT:
-- User mentions <@123456> or <@!123456> → Replace with actual username (see specific replacements below)
-- Role mentions <@&123456> → Replace with actual role name (see specific replacements below)
-- Channel mentions <#123456> → Replace with actual channel name (see specific replacements below)
+DISCORD MENTIONS - CONVERT TO SAFE TEXT WITH FULL-WIDTH @:
+- User mentions <@123456> or <@!123456> → Replace with ＠username (see specific replacements below)
+- Role mentions <@&123456> → Replace with ＠rolename (see specific replacements below)
+- Channel mentions <#123456> → Replace with ＠channelname (see specific replacements below)
+- @everyone → Replace with ＠everyone
+- @here → Replace with ＠here
+- ALWAYS use full-width ＠ character (not regular @) to prevent Telegram mentions
 
 DISCORD EMOJIS - REMOVE OR REPLACE:
 - Custom emojis <:name:123456> → Remove completely OR replace with standard emoji if applicable
