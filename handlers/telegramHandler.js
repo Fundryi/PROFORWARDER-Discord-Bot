@@ -88,7 +88,7 @@ class TelegramHandler {
           chat_id: chatId,
           text: telegramMessage.text,
           parse_mode: 'MarkdownV2',
-          disable_web_page_preview: false
+          disable_web_page_preview: telegramMessage.disableWebPagePreview || false
         };
 
         // Only add reply_markup if it's actually provided
@@ -398,9 +398,24 @@ class TelegramHandler {
       text = '💬 *Message*';
     }
 
+    // Determine whether to disable web page previews
+    let disableWebPagePreview = false;
+    
+    const envConfig = require('../config/env');
+    if (envConfig.telegram?.smartLinkPreviews === false) {
+      // Always disable previews if smartLinkPreviews is disabled
+      disableWebPagePreview = true;
+    } else if (envConfig.telegram?.smartLinkPreviews !== false) {
+      // Smart behavior (default):
+      // - If Discord has images/videos: Allow previews (Telegram will show images, not link previews)
+      // - If Discord has only text/links: Disable previews (prevent big link previews)
+      disableWebPagePreview = media.length === 0;
+    }
+
     return {
       text: text,
-      media: media
+      media: media,
+      disableWebPagePreview: disableWebPagePreview
       // Don't include replyMarkup unless we actually have one
     };
   }
