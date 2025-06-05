@@ -104,6 +104,16 @@ client.on("ready", async () => {
   // Clean up orphaned translation threads from previous sessions
   await cleanupOrphanedThreads(client, 50);
   
+  // Initialize Discord invite manager for source headers
+  logInfo('Initializing Discord invite manager...');
+  try {
+    const discordInviteManager = require('./utils/discordInviteManager');
+    discordInviteManager.initialize(client);
+    logSuccess('Discord invite manager initialized');
+  } catch (error) {
+    logError('Error initializing Discord invite manager:', error);
+  }
+  
   logSuccess(`Successfully logged in as ${client.user.tag}`);
   logInfo('ProForwarder bot is ready to forward messages!');
 });
