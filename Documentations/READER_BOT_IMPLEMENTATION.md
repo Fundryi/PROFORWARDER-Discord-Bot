@@ -514,6 +514,68 @@ async function handleSetup(interaction) {
 }
 ```
 
+### Telegram Forwarding Support
+
+The reader bot approach also works seamlessly with Telegram forwarding. You'll need to modify the `/proforward telegram` command similarly:
+
+```javascript
+.addSubcommand(subcommand =>
+  subcommand
+    .setName('telegram')
+    .setDescription('Set up message forwarding from Discord channel to Telegram chat')
+    .addChannelOption(option =>
+      option
+        .setName('source')
+        .setDescription('Source Discord channel to forward messages from (for local server)')
+        .setRequired(false) // Make optional when using source_server
+    )
+    .addStringOption(option =>
+      option
+        .setName('source_server')
+        .setDescription('Source server ID (when using reader bot in different server)')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('source_channel_id')
+        .setDescription('Source channel ID (when using reader bot in different server)')
+        .setRequired(false)
+    )
+    .addStringOption(option =>
+      option
+        .setName('chat_id')
+        .setDescription('Telegram chat ID (negative for groups/channels, positive for private chats)')
+        .setRequired(true)
+    )
+    .addStringOption(option =>
+      option
+        .setName('name')
+        .setDescription('Custom name for this forward configuration')
+        .setRequired(false)
+    )
+)
+```
+
+**Example scenarios:**
+
+**Standard Telegram forwarding (main bot in source server):**
+```
+/proforward telegram source:#announcements chat_id:-1001234567890
+```
+
+**Reader bot Telegram forwarding (reader bot in source server):**
+```
+/proforward telegram source_server:SERVER3_ID source_channel_id:ANNOUNCEMENTS_CHANNEL_ID chat_id:-1001234567890
+```
+
+**Complete workflow:**
+1. **Server3**: Reader bot monitors #announcements (read-only permissions)
+2. **Server1**: Main bot receives command and creates configuration
+3. **Flow**: Server3 Reader Bot → Server1 Main Bot → Telegram
+4. **All existing Telegram features work**: Smart link previews, markdown conversion, file handling, etc.
+
+This means you can have reader bots in multiple high-security servers all forwarding to your central Telegram channels, managed entirely through your main bot's commands.
+
 ## Security Considerations
 
 ### Bot Token Security
