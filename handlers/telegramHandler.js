@@ -68,9 +68,57 @@ class TelegramHandler {
       // If we have media, send it with the text as caption
       if (telegramMessage.media && telegramMessage.media.length > 0) {
         if (isDebugMode) {
-          logInfo(`🔍 SEND DEBUG: Sending ${telegramMessage.media.length} media items with caption`);
+          logInfo(`🔍 SEND DEBUG: Detected ${telegramMessage.media.length} media items`);
           logInfo(`🔍 SEND DEBUG: Caption text: "${telegramMessage.text}"`);
           logInfo(`🔍 SEND DEBUG: Caption length: ${telegramMessage.text.length} characters`);
+        }
+        
+        // Check if media is from embeds (which can cause issues) - if so, treat as text-only
+        const hasEmbedMedia = telegramMessage.media.some(item =>
+          item.media && (
+            item.media.includes('cdn-telegram.org') ||
+            item.media.includes('discordapp.net') ||
+            item.media.includes('images-ext-')
+          )
+        );
+        
+        if (hasEmbedMedia) {
+          if (isDebugMode) {
+            logInfo(`🔍 SEND DEBUG: Embed media detected, treating as text-only message`);
+          }
+          
+          // Treat as text-only message with 4000 char limit
+          const textLengthLimit = 4000; // Safe limit for text messages
+          
+          // Force disable web page preview for embed media (since we're treating as text-only)
+          const disablePreview = true; // Always disable for embed media to prevent big previews
+          
+          if (telegramMessage.text.length > textLengthLimit) {
+            logInfo(`📏 Text too long (${telegramMessage.text.length} chars), using smart text splitting`);
+            return await this.sendLongTextMessage(chatId, telegramMessage.text, disablePreview);
+          }
+          
+          // Send as regular text message with preview disabled
+          const messagePayload = {
+            chat_id: chatId,
+            text: telegramMessage.text,
+            parse_mode: 'MarkdownV2',
+            disable_web_page_preview: disablePreview
+          };
+
+          // Only add reply_markup if it's actually provided (preserve existing logic)
+          if (telegramMessage.replyMarkup) {
+            messagePayload.reply_markup = telegramMessage.replyMarkup;
+          }
+
+          const result = await this.callTelegramAPI('sendMessage', messagePayload);
+
+          if (result && result.ok) {
+            logSuccess(`✅ Message sent to Telegram chat ${chatId} as text-only (embed media filtered, preview disabled)`);
+            return result.result;
+          } else {
+            throw new Error(`Telegram API error: ${result ? result.description : 'Unknown error'}`);
+          }
         }
         
         // Send media with text as caption (may return chain if split)
@@ -225,6 +273,10 @@ class TelegramHandler {
       
       if (isDebugMode) {
         logInfo(`📏 SMART SPLIT: Processing long caption (${fullCaption.length} chars) using strategy: ${splitStrategy}`);
+        logInfo(`📏 SMART SPLIT: Media array contains ${media.length} items`);
+        media.forEach((item, index) => {
+          logInfo(`📏 SMART SPLIT DEBUG: Media ${index + 1}: type=${item.type}, url="${item.media}"`);
+        });
       }
       
       // Remove separator line when using splitting strategies to save space for content
@@ -235,8 +287,50 @@ class TelegramHandler {
       
       // Handle different split strategies
       if (splitStrategy === 'separate') {
-        // Send media separately with only header, then send full text
-        logInfo(`📏 Using 'separate' strategy: sending media with header only, then full text`);
+        // Simple fix: Disable separate strategy for messages with embed media due to WEBPAGE_MEDIA_EMPTY issues
+        // Check if media contains any potential embed-sourced URLs that could cause issues
+        const hasEmbedMedia = media.some(item =>
+          item.media && (
+            item.media.includes('cdn-telegram.org') ||
+            item.media.includes('discordapp.net') ||
+            item.media.includes('images-ext-')
+          )
+        );
+        
+        if (hasEmbedMedia) {
+          logInfo(`📏 Detected embed-sourced media, falling back to text splitting to avoid WEBPAGE_MEDIA_EMPTY error`);
+          // Fall back to smart splitting as text-only
+          const splitPoint = this.findOptimalSplitPoint(fullCaptionWithoutSeparator, captionLengthLimit - splitIndicator.length - 10);
+          const escapedSplitIndicator = FormatConverter.escapeMarkdownV2ForText(splitIndicator);
+          const firstPart = fullCaptionWithoutSeparator.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
+          const remainingPart = fullCaptionWithoutSeparator.substring(splitPoint).trim();
+          
+          // Send as text messages instead
+          const firstResult = await this.callTelegramAPI('sendMessage', {
+            chat_id: chatId,
+            text: firstPart,
+            parse_mode: 'MarkdownV2',
+            disable_web_page_preview: true
+          });
+          
+          const secondResult = await this.callTelegramAPI('sendMessage', {
+            chat_id: chatId,
+            text: remainingPart,
+            parse_mode: 'MarkdownV2',
+            disable_web_page_preview: true
+          });
+          
+          logSuccess(`📄 Sent content as text-only messages (embed media detected): ${firstPart.length} + ${remainingPart.length} chars`);
+          
+          return {
+            result: firstResult.result,
+            messageChain: [firstResult.result.message_id.toString(), secondResult.result.message_id.toString()],
+            isSplit: true
+          };
+        }
+        
+        // Send media separately with only header, then send full text (only for clean media)
+        logInfo(`📏 Using 'separate' strategy: sending ${media.length} clean media items with header, then full text`);
         return await this.sendMediaSeparately(chatId, media, fullCaptionWithoutSeparator);
       }
       
@@ -399,7 +493,54 @@ class TelegramHandler {
       const isDebugMode = envConfig.debugMode;
       
       if (isDebugMode) {
-        logInfo(`📏 SEPARATE STRATEGY: Sending ${media.length} media items with header only`);
+        logInfo(`📏 SEPARATE STRATEGY: Attempting to send ${media.length} media items`);
+        media.forEach((item, index) => {
+          logInfo(`📏 SEPARATE DEBUG: Media ${index + 1}: type=${item.type}, url="${item.media}"`);
+        });
+      }
+      
+      // Check if we actually have valid media
+      if (!media || media.length === 0) {
+        if (isDebugMode) {
+          logInfo(`📏 SEPARATE: No media found, falling back to regular text message`);
+        }
+        // No media - just send as regular text message
+        return await this.sendLongTextMessage(chatId, fullContent);
+      }
+      
+      // Validate media URLs - filter out Discord proxy URLs and invalid URLs
+      const validMedia = media.filter(item => {
+        if (!item || !item.media || !item.media.trim()) {
+          if (isDebugMode) {
+            logInfo(`📏 SEPARATE: Filtering out empty media item`);
+          }
+          return false;
+        }
+        
+        // Filter out Discord proxy URLs which can't be accessed by Telegram
+        if (item.media.includes('images-ext-1.discordapp.net') ||
+            item.media.includes('images-ext-2.discordapp.net') ||
+            item.media.includes('cdn.discordapp.com/embed/') ||
+            item.media.includes('media.discordapp.net/external/')) {
+          if (isDebugMode) {
+            logInfo(`📏 SEPARATE: Filtering out Discord proxy URL: ${item.media}`);
+          }
+          return false;
+        }
+        
+        return true;
+      });
+      
+      if (validMedia.length === 0) {
+        if (isDebugMode) {
+          logInfo(`📏 SEPARATE: No valid media URLs found (all were Discord proxies), falling back to regular text message`);
+        }
+        // No valid media URLs - just send as regular text message
+        return await this.sendLongTextMessage(chatId, fullContent);
+      }
+      
+      if (validMedia.length !== media.length) {
+        logInfo(`📏 SEPARATE: Filtered out ${media.length - validMedia.length} invalid/proxy media items, ${validMedia.length} valid items remaining`);
       }
       
       // Extract header and content from the full content
@@ -448,8 +589,8 @@ class TelegramHandler {
       
       // Send media with header as caption (or no caption if no header)
       let mediaResult;
-      if (media.length === 1) {
-        const mediaItem = media[0];
+      if (validMedia.length === 1) {
+        const mediaItem = validMedia[0];
         let method = 'sendDocument';
         
         if (mediaItem.type === 'photo') {
@@ -463,25 +604,48 @@ class TelegramHandler {
           [mediaItem.type === 'photo' ? 'photo' : mediaItem.type === 'video' ? 'video' : 'document']: mediaItem.media
         };
         
-        // Add caption only if we have a header
+        // Add caption only if we have a header (but check for problematic URLs)
         if (headerForCaption.trim()) {
-          mediaPayload.caption = headerForCaption;
-          mediaPayload.parse_mode = 'MarkdownV2';
+          // Check if header contains URLs that might cause WEBPAGE_CURL_FAILED
+          const hasProblematicUrls = this.hasProblematicUrls(headerForCaption);
+          
+          if (hasProblematicUrls) {
+            if (isDebugMode) {
+              logInfo(`📏 SEPARATE: Header contains problematic URLs, sending without caption to avoid WEBPAGE_CURL_FAILED`);
+            }
+            // Don't add caption with problematic URLs
+          } else {
+            mediaPayload.caption = headerForCaption;
+            mediaPayload.parse_mode = 'MarkdownV2';
+          }
+        }
+        
+        if (isDebugMode) {
+          logInfo(`📏 SEPARATE: Sending ${method} with media`);
         }
         
         mediaResult = await this.callTelegramAPI(method, mediaPayload);
       } else {
-        const mediaItems = media.map((item, index) => {
+        const hasProblematicUrls = headerForCaption.trim() ? this.hasProblematicUrls(headerForCaption) : false;
+        
+        const mediaItems = validMedia.map((item, index) => {
           const mediaItem = { ...item };
           
-          // Add caption to first item only if we have a header
-          if (index === 0 && headerForCaption.trim()) {
+          // Add caption to first item only if we have a header and no problematic URLs
+          if (index === 0 && headerForCaption.trim() && !hasProblematicUrls) {
             mediaItem.caption = headerForCaption;
             mediaItem.parse_mode = 'MarkdownV2';
           }
           
           return mediaItem;
         });
+
+        if (isDebugMode) {
+          if (hasProblematicUrls) {
+            logInfo(`📏 SEPARATE: Media group header contains problematic URLs, sending without caption`);
+          }
+          logInfo(`📏 SEPARATE: Sending media group with ${validMedia.length} items`);
+        }
 
         mediaResult = await this.callTelegramAPI('sendMediaGroup', {
           chat_id: chatId,
@@ -514,11 +678,23 @@ class TelegramHandler {
       const textLengthLimit = 4000;
       let textResult;
       
-      if (contentWithoutHeader.length <= textLengthLimit) {
+      // Check if we need to include the header in the text message
+      let textToSend = contentWithoutHeader;
+      const hasProblematicUrls = headerForCaption.trim() ? this.hasProblematicUrls(headerForCaption) : false;
+      
+      if (hasProblematicUrls && headerForCaption.trim()) {
+        // Header was skipped from media caption due to problematic URLs, include it in text
+        textToSend = headerForCaption + '\n\n' + contentWithoutHeader;
+        if (isDebugMode) {
+          logInfo(`📏 SEPARATE: Including header in text message due to problematic URLs in caption`);
+        }
+      }
+      
+      if (textToSend.length <= textLengthLimit) {
         // Content fits in single message
         textResult = await this.callTelegramAPI('sendMessage', {
           chat_id: chatId,
-          text: contentWithoutHeader,
+          text: textToSend,
           parse_mode: 'MarkdownV2',
           disable_web_page_preview: disableWebPagePreview
         });
@@ -527,7 +703,7 @@ class TelegramHandler {
           throw new Error(`Text send error: ${textResult ? textResult.description : 'Unknown error'}`);
         }
         
-        logSuccess(`📎 Sent media separately + full text to Telegram chat ${chatId} (header: ${headerForCaption.length}, content: ${contentWithoutHeader.length} chars)`);
+        logSuccess(`📎 Sent media separately + full text to Telegram chat ${chatId} (header: ${headerForCaption.length}, content: ${textToSend.length} chars)`);
         
         // Return message chain data
         const primaryMessageId = Array.isArray(mediaResult.result) ? mediaResult.result[0].message_id : mediaResult.result.message_id;
@@ -540,8 +716,8 @@ class TelegramHandler {
         };
       } else {
         // Content is too long, split it using smart splitting
-        logInfo(`📏 SEPARATE: Content too long (${contentWithoutHeader.length} chars), using smart text splitting`);
-        const textSplitResult = await this.sendLongTextMessage(chatId, contentWithoutHeader, disableWebPagePreview);
+        logInfo(`📏 SEPARATE: Content too long (${textToSend.length} chars), using smart text splitting`);
+        const textSplitResult = await this.sendLongTextMessage(chatId, textToSend, disableWebPagePreview);
         
         // Combine media and text message IDs
         const primaryMessageId = Array.isArray(mediaResult.result) ? mediaResult.result[0].message_id : mediaResult.result.message_id;
@@ -562,6 +738,20 @@ class TelegramHandler {
     }
   }
 
+
+  /**
+   * Check if text contains URLs that might cause WEBPAGE_CURL_FAILED in media captions
+   */
+  hasProblematicUrls(text) {
+    // Look for URLs that commonly cause WEBPAGE_CURL_FAILED in media captions
+    const problematicPatterns = [
+      /https?:\/\/t\.me\//i,          // Telegram links
+      /https?:\/\/discord\.gg\//i,    // Discord invite links
+      /https?:\/\/[^\\s)]+/g          // Any HTTP/HTTPS links (be conservative)
+    ];
+    
+    return problematicPatterns.some(pattern => pattern.test(text));
+  }
 
   /**
    * Remove separator line (━━━━━━━━━━━━━━━━━━━━━━━━━) when using splitting strategies
