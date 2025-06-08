@@ -11,6 +11,12 @@ const proforwardCommand = new SlashCommandBuilder()
     subcommand
       .setName('setup')
       .setDescription('Set up message forwarding from one channel to another')
+      .addStringOption(option =>
+        option
+          .setName('target_channel')
+          .setDescription('Target channel ID (use channel ID for cross-server, or #channel for same server)')
+          .setRequired(true)
+      )
       .addChannelOption(option =>
         option
           .setName('source')
@@ -31,12 +37,6 @@ const proforwardCommand = new SlashCommandBuilder()
       )
       .addStringOption(option =>
         option
-          .setName('target_channel')
-          .setDescription('Target channel ID (use channel ID for cross-server, or #channel for same server)')
-          .setRequired(true)
-      )
-      .addStringOption(option =>
-        option
           .setName('target_server')
           .setDescription('Target server ID (required for cross-server forwarding)')
           .setRequired(false)
@@ -46,6 +46,12 @@ const proforwardCommand = new SlashCommandBuilder()
     subcommand
       .setName('telegram')
       .setDescription('Set up message forwarding from Discord channel to Telegram chat')
+      .addStringOption(option =>
+        option
+          .setName('chat_id')
+          .setDescription('Telegram chat ID (negative for groups/channels, positive for private chats)')
+          .setRequired(true)
+      )
       .addChannelOption(option =>
         option
           .setName('source')
@@ -63,12 +69,6 @@ const proforwardCommand = new SlashCommandBuilder()
           .setName('source_channel_id')
           .setDescription('Source channel ID (when using reader bot in different server)')
           .setRequired(false)
-      )
-      .addStringOption(option =>
-        option
-          .setName('chat_id')
-          .setDescription('Telegram chat ID (negative for groups/channels, positive for private chats)')
-          .setRequired(true)
       )
       .addStringOption(option =>
         option
@@ -123,11 +123,11 @@ const proforwardCommand = new SlashCommandBuilder()
  .addSubcommand(subcommand =>
    subcommand
      .setName('retry')
-     .setDescription('Retry/repost a forwarded message with the given source message ID')
+     .setDescription('Retry/force forward a message by source message ID (works even if never forwarded before)')
      .addStringOption(option =>
        option
          .setName('source_message_id')
-         .setDescription('ID of the original source message to retry forwarding')
+         .setDescription('ID of the source message to retry/force forward')
          .setRequired(true)
      )
  )
@@ -1039,17 +1039,14 @@ async function handleRetry(interaction) {
     const { getForwardConfigsForChannel } = require('../utils/configManager');
     const ForwardHandler = require('../handlers/forwardHandler');
 
-    // Get existing message logs for this source message
+    // Get existing message logs for this source message (if any)
     const existingLogs = await getMessageLogsByOriginalMessage(sourceMessageId);
     
-    if (existingLogs.length === 0) {
-      await interaction.editReply({
-        content: `❌ **No forwarded messages found for source message ID:** \`${sourceMessageId}\`\n\n**Possible reasons:**\n• Message was never forwarded by this bot\n• Message ID doesn't exist\n• Message was forwarded before retry feature was implemented\n\n**Tip:** Use \`/proforward list\` to see active forward configurations.`
-      });
-      return;
+    if (existingLogs.length > 0) {
+      logInfo(`Retry request: Found ${existingLogs.length} existing forwards for message ${sourceMessageId}`);
+    } else {
+      logInfo(`Force forward request: No existing forwards found for message ${sourceMessageId}, will attempt fresh forward`);
     }
-
-    logInfo(`Retry request: Found ${existingLogs.length} existing forwards for message ${sourceMessageId}`);
 
     // Try to find the original message
     let originalMessage = null;
@@ -1107,54 +1104,56 @@ async function handleRetry(interaction) {
       try {
         logInfo(`Retrying forward for config ${config.id}: ${config.name}`);
         
-        // Delete existing forwarded messages if they still exist
-        const configLogs = existingLogs.filter(log => log.configId === config.id);
-        for (const log of configLogs) {
-          try {
-            if (config.targetType === 'telegram') {
-              // Handle Telegram message deletion
-              if (forwardHandler.telegramInitialized) {
+        // Delete existing forwarded messages if they exist
+        if (existingLogs.length > 0) {
+          const configLogs = existingLogs.filter(log => log.configId === config.id);
+          for (const log of configLogs) {
+            try {
+              if (config.targetType === 'telegram') {
+                // Handle Telegram message deletion
+                if (forwardHandler.telegramInitialized) {
+                  try {
+                    await forwardHandler.telegramHandler.callTelegramAPI('deleteMessage', {
+                      chat_id: log.forwardedChannelId,
+                      message_id: parseInt(log.forwardedMessageId)
+                    });
+                    logInfo(`Deleted existing Telegram message ${log.forwardedMessageId} in chat ${log.forwardedChannelId}`);
+                  } catch (telegramError) {
+                    logInfo(`Could not delete existing Telegram message ${log.forwardedMessageId}: ${telegramError.message}`);
+                  }
+                }
+              } else {
+                // Handle Discord message deletion
                 try {
-                  await forwardHandler.telegramHandler.callTelegramAPI('deleteMessage', {
-                    chat_id: log.forwardedChannelId,
-                    message_id: parseInt(log.forwardedMessageId)
-                  });
-                  logInfo(`Deleted existing Telegram message ${log.forwardedMessageId} in chat ${log.forwardedChannelId}`);
-                } catch (telegramError) {
-                  logInfo(`Could not delete existing Telegram message ${log.forwardedMessageId}: ${telegramError.message}`);
+                  let targetChannel;
+                  if (log.forwardedServerId) {
+                    const targetGuild = interaction.client.guilds.cache.get(log.forwardedServerId);
+                    if (targetGuild) {
+                      targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+                    }
+                  } else {
+                    const targetGuild = interaction.client.guilds.cache.find(guild =>
+                      guild.channels.cache.has(log.forwardedChannelId)
+                    );
+                    if (targetGuild) {
+                      targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+                    }
+                  }
+                  
+                  if (targetChannel) {
+                    const existingMessage = await targetChannel.messages.fetch(log.forwardedMessageId);
+                    if (existingMessage) {
+                      await existingMessage.delete();
+                      logInfo(`Deleted existing Discord message ${log.forwardedMessageId} in ${targetChannel.name}`);
+                    }
+                  }
+                } catch (deleteError) {
+                  logInfo(`Could not delete existing Discord message ${log.forwardedMessageId}: ${deleteError.message}`);
                 }
               }
-            } else {
-              // Handle Discord message deletion
-              try {
-                let targetChannel;
-                if (log.forwardedServerId) {
-                  const targetGuild = interaction.client.guilds.cache.get(log.forwardedServerId);
-                  if (targetGuild) {
-                    targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
-                  }
-                } else {
-                  const targetGuild = interaction.client.guilds.cache.find(guild =>
-                    guild.channels.cache.has(log.forwardedChannelId)
-                  );
-                  if (targetGuild) {
-                    targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
-                  }
-                }
-                
-                if (targetChannel) {
-                  const existingMessage = await targetChannel.messages.fetch(log.forwardedMessageId);
-                  if (existingMessage) {
-                    await existingMessage.delete();
-                    logInfo(`Deleted existing Discord message ${log.forwardedMessageId} in ${targetChannel.name}`);
-                  }
-                }
-              } catch (deleteError) {
-                logInfo(`Could not delete existing Discord message ${log.forwardedMessageId}: ${deleteError.message}`);
-              }
+            } catch (error) {
+              logError(`Error deleting existing forwarded message ${log.forwardedMessageId}:`, error);
             }
-          } catch (error) {
-            logError(`Error deleting existing forwarded message ${log.forwardedMessageId}:`, error);
           }
         }
 
@@ -1189,8 +1188,16 @@ async function handleRetry(interaction) {
     }
 
     // Build response message
-    let response = `🔄 **Retry Results for Message \`${sourceMessageId}\`**\n\n`;
+    const isRetry = existingLogs.length > 0;
+    const actionType = isRetry ? 'Retry' : 'Force Forward';
+    
+    let response = `🔄 **${actionType} Results for Message \`${sourceMessageId}\`**\n\n`;
     response += `**Original Message:** Found in ${sourceChannel} (${sourceChannel.guild.name})\n`;
+    if (isRetry) {
+      response += `**Previous Forwards:** Found ${existingLogs.length} existing forward(s)\n`;
+    } else {
+      response += `**Action:** Force forwarding message (was not previously forwarded)\n`;
+    }
     response += `**Configurations Processed:** ${configs.length}\n`;
     response += `**Success:** ${successCount} | **Failed:** ${errorCount}\n\n`;
 
@@ -1210,12 +1217,14 @@ async function handleRetry(interaction) {
     }
 
     if (successCount > 0) {
-      response += `\n🎉 **Successfully retried ${successCount} forward(s)!**`;
+      const verb = isRetry ? 'retried' : 'force forwarded';
+      response += `\n🎉 **Successfully ${verb} ${successCount} forward(s)!**`;
       if (errorCount > 0) {
         response += `\n⚠️ **${errorCount} forward(s) failed** - check the details above.`;
       }
     } else {
-      response += `\n❌ **All retry attempts failed.** Please check the forward configurations and try again.`;
+      const verb = isRetry ? 'retry' : 'force forward';
+      response += `\n❌ **All ${verb} attempts failed.** Please check the forward configurations and try again.`;
     }
 
     // Handle Discord's 2000 character limit
@@ -1242,7 +1251,8 @@ async function handleRetry(interaction) {
       await interaction.editReply({ content: response });
     }
 
-    logSuccess(`Retry completed for message ${sourceMessageId}: ${successCount} success, ${errorCount} failed`);
+    const logAction = isRetry ? 'Retry' : 'Force forward';
+    logSuccess(`${logAction} completed for message ${sourceMessageId}: ${successCount} success, ${errorCount} failed`);
 
   } catch (error) {
     logError('Error in retry command:', error);

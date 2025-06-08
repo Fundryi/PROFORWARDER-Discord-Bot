@@ -51,7 +51,7 @@ class TelegramHandler {
   }
 
   /**
-   * Send message to Telegram chat
+   * Send message to Telegram chat with enhanced chain support
    */
   async sendMessage(chatId, message, config = {}) {
     if (!this.initialized) {
@@ -73,14 +73,28 @@ class TelegramHandler {
           logInfo(`🔍 SEND DEBUG: Caption length: ${telegramMessage.text.length} characters`);
         }
         
-        // Send media with text as caption
+        // Send media with text as caption (may return chain if split)
         const result = await this.sendMediaWithCaption(chatId, telegramMessage.media, telegramMessage.text);
-        return result;
+        
+        // Check if result indicates a split message
+        if (result.isSplit && result.messageChain) {
+          return result; // Return chain information
+        } else {
+          return result; // Return normal result
+        }
       } else {
         if (isDebugMode) {
           logInfo(`🔍 SEND DEBUG: Sending text-only message`);
           logInfo(`🔍 SEND DEBUG: Final text: "${telegramMessage.text}"`);
           logInfo(`🔍 SEND DEBUG: Text length: ${telegramMessage.text.length} characters`);
+        }
+        
+        // Check if text is too long for normal message (4096 character limit)
+        const textLengthLimit = 4000; // Safe limit, Telegram allows 4096
+        
+        if (telegramMessage.text.length > textLengthLimit) {
+          logInfo(`📏 Text too long (${telegramMessage.text.length} chars), using smart text splitting`);
+          return await this.sendLongTextMessage(chatId, telegramMessage.text, telegramMessage.disableWebPagePreview);
         }
         
         // Send message with MarkdownV2 parsing using the converted message (includes embeds!)
@@ -112,12 +126,25 @@ class TelegramHandler {
   }
 
   /**
-   * Send media with caption (supports formatted text)
+   * Send media with caption (supports formatted text with smart length handling)
    */
   async sendMediaWithCaption(chatId, media, caption) {
     try {
       const envConfig = require('../config/env');
       const isDebugMode = envConfig.debugMode;
+      
+      // Get caption length limit from config (default to 900 for safety)
+      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
+      
+      if (isDebugMode) {
+        logInfo(`🔍 CAPTION LENGTH: Caption is ${caption.length} characters (limit: ${captionLengthLimit})`);
+      }
+      
+      // Check if caption is too long
+      if (caption.length > captionLengthLimit) {
+        logInfo(`📏 Caption too long (${caption.length} chars), using smart splitting strategy`);
+        return await this.sendMediaWithLongCaption(chatId, media, caption);
+      }
       
       if (media.length === 1) {
         // Single media item - use sendPhoto/sendVideo with caption
@@ -180,6 +207,585 @@ class TelegramHandler {
       }
     } catch (error) {
       logError('Error sending media with caption:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle long captions by intelligently splitting them
+   * Returns message chain for proper tracking
+   */
+  async sendMediaWithLongCaption(chatId, media, fullCaption) {
+    try {
+      const envConfig = require('../config/env');
+      const isDebugMode = envConfig.debugMode;
+      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
+      const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
+      const splitStrategy = envConfig.telegram?.captionSplitStrategy || 'smart';
+      
+      if (isDebugMode) {
+        logInfo(`📏 SMART SPLIT: Processing long caption (${fullCaption.length} chars) using strategy: ${splitStrategy}`);
+      }
+      
+      // Remove separator line when using splitting strategies to save space for content
+      const fullCaptionWithoutSeparator = this.removeSeparatorLine(fullCaption);
+      if (fullCaptionWithoutSeparator.length !== fullCaption.length) {
+        logInfo(`📏 Removed separator line to save space: ${fullCaption.length} → ${fullCaptionWithoutSeparator.length} chars`);
+      }
+      
+      // Handle different split strategies
+      if (splitStrategy === 'separate') {
+        // Send media separately with only header, then send full text
+        logInfo(`📏 Using 'separate' strategy: sending media with header only, then full text`);
+        return await this.sendMediaSeparately(chatId, media, fullCaptionWithoutSeparator);
+      }
+      
+      // Default to smart splitting (using caption without separator)
+      const splitPoint = this.findOptimalSplitPoint(fullCaptionWithoutSeparator, captionLengthLimit - splitIndicator.length - 10);
+      
+      const escapedSplitIndicator = FormatConverter.escapeMarkdownV2ForText(splitIndicator);
+      const firstPart = fullCaptionWithoutSeparator.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
+      const remainingPart = fullCaptionWithoutSeparator.substring(splitPoint).trim();
+      
+      if (isDebugMode) {
+        logInfo(`📏 SMART SPLIT: First part (${firstPart.length} chars): "${firstPart.substring(0, 100)}..."`);
+        logInfo(`📏 SMART SPLIT: Remaining part (${remainingPart.length} chars): "${remainingPart.substring(0, 100)}..."`);
+      }
+      
+      // Send media with shortened caption
+      let mediaResult;
+      if (media.length === 1) {
+        const mediaItem = media[0];
+        let method = 'sendDocument';
+        
+        if (mediaItem.type === 'photo') {
+          method = 'sendPhoto';
+        } else if (mediaItem.type === 'video') {
+          method = 'sendVideo';
+        }
+        
+        mediaResult = await this.callTelegramAPI(method, {
+          chat_id: chatId,
+          [mediaItem.type === 'photo' ? 'photo' : mediaItem.type === 'video' ? 'video' : 'document']: mediaItem.media,
+          caption: firstPart,
+          parse_mode: 'MarkdownV2'
+        });
+      } else {
+        const mediaWithCaption = media.map((item, index) => ({
+          ...item,
+          caption: index === 0 ? firstPart : undefined,
+          parse_mode: index === 0 ? 'MarkdownV2' : undefined
+        }));
+
+        mediaResult = await this.callTelegramAPI('sendMediaGroup', {
+          chat_id: chatId,
+          media: JSON.stringify(mediaWithCaption)
+        });
+      }
+      
+      if (!mediaResult || !mediaResult.ok) {
+        throw new Error(`Media send error: ${mediaResult ? mediaResult.description : 'Unknown error'}`);
+      }
+      
+      // Send remaining text as separate message
+      const textResult = await this.callTelegramAPI('sendMessage', {
+        chat_id: chatId,
+        text: remainingPart,
+        parse_mode: 'MarkdownV2'
+      });
+      
+      if (!textResult || !textResult.ok) {
+        throw new Error(`Follow-up text send error: ${textResult ? textResult.description : 'Unknown error'}`);
+      }
+      
+      logSuccess(`📎 Sent media with smart-split caption to Telegram chat ${chatId} (${firstPart.length} + ${remainingPart.length} chars)`);
+      
+      // Return message chain data for database logging
+      const primaryMessageId = Array.isArray(mediaResult.result) ? mediaResult.result[0].message_id : mediaResult.result.message_id;
+      const secondaryMessageId = textResult.result.message_id;
+      
+      return {
+        result: mediaResult.result,
+        messageChain: [primaryMessageId.toString(), secondaryMessageId.toString()],
+        isSplit: true
+      };
+      
+    } catch (error) {
+      logError('Error sending media with long caption:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle long text messages by intelligently splitting them
+   * Returns message chain for proper tracking
+   */
+  async sendLongTextMessage(chatId, fullText, disableWebPagePreview = false) {
+    try {
+      const envConfig = require('../config/env');
+      const isDebugMode = envConfig.debugMode;
+      const textLengthLimit = 4000; // Safe limit for text messages
+      const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
+      const splitStrategy = envConfig.telegram?.captionSplitStrategy || 'smart';
+      
+      if (isDebugMode) {
+        logInfo(`📏 SMART TEXT SPLIT: Processing long text message (${fullText.length} chars) using strategy: ${splitStrategy}`);
+      }
+      
+      const messages = [];
+      let remainingText = fullText;
+      let partIndex = 1;
+      
+      // No special preprocessing for text messages
+      
+      while (remainingText.length > 0) {
+        let currentPart;
+        
+        if (remainingText.length <= textLengthLimit) {
+          // Last part - send as is
+          currentPart = remainingText;
+          remainingText = '';
+        } else {
+          // Find optimal split point using smart splitting
+          const availableLength = textLengthLimit - splitIndicator.length - 10;
+          const splitPoint = this.findOptimalSplitPoint(remainingText, availableLength);
+          
+          const escapedSplitIndicator = FormatConverter.escapeMarkdownV2ForText(splitIndicator);
+          currentPart = remainingText.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
+          remainingText = remainingText.substring(splitPoint).trim();
+        }
+        
+        if (isDebugMode) {
+          logInfo(`📏 SMART TEXT SPLIT: Part ${partIndex} (${currentPart.length} chars): "${currentPart.substring(0, 100)}..."`);
+        }
+        
+        // Send this part
+        const result = await this.callTelegramAPI('sendMessage', {
+          chat_id: chatId,
+          text: currentPart,
+          parse_mode: 'MarkdownV2',
+          disable_web_page_preview: disableWebPagePreview
+        });
+        
+        if (!result || !result.ok) {
+          throw new Error(`Text part ${partIndex} send error: ${result ? result.description : 'Unknown error'}`);
+        }
+        
+        messages.push(result.result.message_id.toString());
+        partIndex++;
+      }
+      
+      logSuccess(`📄 Sent long text message to Telegram chat ${chatId} (${messages.length} parts, ${fullText.length} total chars)`);
+      
+      // Return message chain data for database logging
+      return {
+        result: { message_id: messages[0] }, // Return first message as primary
+        messageChain: messages,
+        isSplit: messages.length > 1
+      };
+      
+    } catch (error) {
+      logError('Error sending long text message:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send media separately with header, then send full content as text
+   */
+  async sendMediaSeparately(chatId, media, fullContent) {
+    try {
+      const envConfig = require('../config/env');
+      const isDebugMode = envConfig.debugMode;
+      
+      if (isDebugMode) {
+        logInfo(`📏 SEPARATE STRATEGY: Sending ${media.length} media items with header only`);
+      }
+      
+      // Extract header and content from the full content
+      const lines = fullContent.split('\n');
+      let headerEndIndex = -1;
+      
+      // Find the end of the header (look for the separator line with ━)
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].includes('━')) {
+          headerEndIndex = i;
+          break;
+        }
+      }
+      
+      let headerForCaption = '';
+      let contentWithoutHeader = fullContent;
+      
+      if (headerEndIndex >= 0) {
+        // Found header separator, split content
+        // Header for caption includes everything UP TO (but not including) the separator line
+        headerForCaption = lines.slice(0, headerEndIndex).join('\n');
+        // Content starts AFTER the separator line
+        contentWithoutHeader = lines.slice(headerEndIndex + 1).join('\n').trim();
+        
+        if (isDebugMode) {
+          logInfo(`📏 SEPARATE: Header for caption (${headerForCaption.length} chars): "${headerForCaption}"`);
+          logInfo(`📏 SEPARATE: Content without header (${contentWithoutHeader.length} chars)`);
+        }
+      } else {
+        // No header found - extract server info from the beginning
+        // Look for the first double newline to separate header from content
+        const doubleNewlineIndex = fullContent.indexOf('\n\n');
+        if (doubleNewlineIndex > 0) {
+          headerForCaption = fullContent.substring(0, doubleNewlineIndex).trim();
+          contentWithoutHeader = fullContent.substring(doubleNewlineIndex + 2).trim();
+        } else {
+          headerForCaption = '';
+          contentWithoutHeader = fullContent;
+        }
+        
+        if (isDebugMode) {
+          logInfo(`📏 SEPARATE: No separator found, extracted header (${headerForCaption.length} chars): "${headerForCaption}"`);
+          logInfo(`📏 SEPARATE: Remaining content (${contentWithoutHeader.length} chars)`);
+        }
+      }
+      
+      // Send media with header as caption (or no caption if no header)
+      let mediaResult;
+      if (media.length === 1) {
+        const mediaItem = media[0];
+        let method = 'sendDocument';
+        
+        if (mediaItem.type === 'photo') {
+          method = 'sendPhoto';
+        } else if (mediaItem.type === 'video') {
+          method = 'sendVideo';
+        }
+        
+        const mediaPayload = {
+          chat_id: chatId,
+          [mediaItem.type === 'photo' ? 'photo' : mediaItem.type === 'video' ? 'video' : 'document']: mediaItem.media
+        };
+        
+        // Add caption only if we have a header
+        if (headerForCaption.trim()) {
+          mediaPayload.caption = headerForCaption;
+          mediaPayload.parse_mode = 'MarkdownV2';
+        }
+        
+        mediaResult = await this.callTelegramAPI(method, mediaPayload);
+      } else {
+        const mediaItems = media.map((item, index) => {
+          const mediaItem = { ...item };
+          
+          // Add caption to first item only if we have a header
+          if (index === 0 && headerForCaption.trim()) {
+            mediaItem.caption = headerForCaption;
+            mediaItem.parse_mode = 'MarkdownV2';
+          }
+          
+          return mediaItem;
+        });
+
+        mediaResult = await this.callTelegramAPI('sendMediaGroup', {
+          chat_id: chatId,
+          media: JSON.stringify(mediaItems)
+        });
+      }
+      
+      if (!mediaResult || !mediaResult.ok) {
+        throw new Error(`Media send error: ${mediaResult ? mediaResult.description : 'Unknown error'}`);
+      }
+      
+      // Determine web page preview settings (same logic as in convertDiscordMessage)
+      let disableWebPagePreview = false;
+      
+      if (envConfig.telegram?.smartLinkPreviews === false) {
+        // Always disable previews if smartLinkPreviews is disabled
+        disableWebPagePreview = true;
+      } else if (envConfig.telegram?.smartLinkPreviews !== false) {
+        // Smart behavior (default):
+        // Since we're sending media separately, we have media, so allow previews
+        // But since this is a separate text message, disable previews to avoid conflicts
+        disableWebPagePreview = true; // Disable for separate text messages to avoid duplicate previews
+      }
+      
+      if (isDebugMode) {
+        logInfo(`📏 SEPARATE: Web page preview disabled: ${disableWebPagePreview}`);
+      }
+      
+      // Send full content as separate text message (up to 4000 chars)
+      const textLengthLimit = 4000;
+      let textResult;
+      
+      if (contentWithoutHeader.length <= textLengthLimit) {
+        // Content fits in single message
+        textResult = await this.callTelegramAPI('sendMessage', {
+          chat_id: chatId,
+          text: contentWithoutHeader,
+          parse_mode: 'MarkdownV2',
+          disable_web_page_preview: disableWebPagePreview
+        });
+        
+        if (!textResult || !textResult.ok) {
+          throw new Error(`Text send error: ${textResult ? textResult.description : 'Unknown error'}`);
+        }
+        
+        logSuccess(`📎 Sent media separately + full text to Telegram chat ${chatId} (header: ${headerForCaption.length}, content: ${contentWithoutHeader.length} chars)`);
+        
+        // Return message chain data
+        const primaryMessageId = Array.isArray(mediaResult.result) ? mediaResult.result[0].message_id : mediaResult.result.message_id;
+        const secondaryMessageId = textResult.result.message_id;
+        
+        return {
+          result: mediaResult.result,
+          messageChain: [primaryMessageId.toString(), secondaryMessageId.toString()],
+          isSplit: true
+        };
+      } else {
+        // Content is too long, split it using smart splitting
+        logInfo(`📏 SEPARATE: Content too long (${contentWithoutHeader.length} chars), using smart text splitting`);
+        const textSplitResult = await this.sendLongTextMessage(chatId, contentWithoutHeader, disableWebPagePreview);
+        
+        // Combine media and text message IDs
+        const primaryMessageId = Array.isArray(mediaResult.result) ? mediaResult.result[0].message_id : mediaResult.result.message_id;
+        const allMessageIds = [primaryMessageId.toString(), ...textSplitResult.messageChain];
+        
+        logSuccess(`📎 Sent media separately + split text to Telegram chat ${chatId} (${allMessageIds.length} total messages)`);
+        
+        return {
+          result: mediaResult.result,
+          messageChain: allMessageIds,
+          isSplit: true
+        };
+      }
+      
+    } catch (error) {
+      logError('Error sending media separately:', error);
+      throw error;
+    }
+  }
+
+
+  /**
+   * Remove separator line (━━━━━━━━━━━━━━━━━━━━━━━━━) when using splitting strategies
+   */
+  removeSeparatorLine(text) {
+    // Look for the separator line pattern (multiple ━ characters)
+    const separatorPattern = /\n━{10,}\n?/g;
+    return text.replace(separatorPattern, '\n');
+  }
+
+  /**
+   * Find optimal point to split long text while preserving formatting
+   */
+  findOptimalSplitPoint(text, maxLength) {
+    if (text.length <= maxLength) {
+      return text.length;
+    }
+    
+    // Try to find good break points in order of preference
+    const breakPoints = [
+      // Double line breaks (paragraph separators)
+      /\n\n/g,
+      // Single line breaks
+      /\n/g,
+      // Sentence endings
+      /[.!?]\s+/g,
+      // Commas with spaces
+      /,\s+/g,
+      // Word boundaries
+      /\s+/g
+    ];
+    
+    for (const breakPattern of breakPoints) {
+      const matches = [...text.matchAll(breakPattern)];
+      
+      // Find the best match within our limit
+      let bestMatch = null;
+      for (const match of matches) {
+        if (match.index <= maxLength) {
+          bestMatch = match;
+        } else {
+          break;
+        }
+      }
+      
+      if (bestMatch) {
+        return bestMatch.index + bestMatch[0].length;
+      }
+    }
+    
+    // If no good break point found, cut at word boundary before limit
+    let cutPoint = maxLength;
+    while (cutPoint > 0 && text[cutPoint] !== ' ') {
+      cutPoint--;
+    }
+    
+    return Math.max(cutPoint, Math.floor(maxLength * 0.8)); // Ensure we don't cut too short
+  }
+
+  /**
+   * Edit message caption for media messages
+   */
+  async editMessageCaption(chatId, messageId, newCaption) {
+    try {
+      const result = await this.callTelegramAPI('editMessageCaption', {
+        chat_id: chatId,
+        message_id: parseInt(messageId),
+        caption: newCaption,
+        parse_mode: 'MarkdownV2'
+      });
+
+      if (result && result.ok) {
+        logSuccess(`✏️ Edited message caption ${messageId} in chat ${chatId}`);
+        return result.result;
+      } else {
+        throw new Error(`Caption edit error: ${result ? result.description : 'Unknown error'}`);
+      }
+    } catch (error) {
+      logError('Error editing message caption:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Edit message text for text-only messages
+   */
+  async editMessageText(chatId, messageId, newText) {
+    try {
+      const result = await this.callTelegramAPI('editMessageText', {
+        chat_id: chatId,
+        message_id: parseInt(messageId),
+        text: newText,
+        parse_mode: 'MarkdownV2'
+      });
+
+      if (result && result.ok) {
+        logSuccess(`✏️ Edited message text ${messageId} in chat ${chatId}`);
+        return result.result;
+      } else {
+        throw new Error(`Text edit error: ${result ? result.description : 'Unknown error'}`);
+      }
+    } catch (error) {
+      logError('Error editing message text:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a Telegram message
+   */
+  async deleteMessage(chatId, messageId) {
+    try {
+      const result = await this.callTelegramAPI('deleteMessage', {
+        chat_id: chatId,
+        message_id: parseInt(messageId)
+      });
+
+      if (result && result.ok) {
+        logSuccess(`🗑️ Deleted message ${messageId} in chat ${chatId}`);
+        return true;
+      } else {
+        throw new Error(`Delete error: ${result ? result.description : 'Unknown error'}`);
+      }
+    } catch (error) {
+      logError('Error deleting message:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Handle editing of split messages (message chains)
+   */
+  async editMessageChain(chatId, messageChain, newFullText) {
+    try {
+      const envConfig = require('../config/env');
+      const isDebugMode = envConfig.debugMode;
+      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
+      
+      if (isDebugMode) {
+        logInfo(`✏️ CHAIN EDIT: Editing message chain with ${messageChain.length} messages`);
+      }
+      
+      // Check if new text still needs splitting
+      if (newFullText.length <= captionLengthLimit) {
+        // Text now fits in single caption - need to restructure
+        if (isDebugMode) {
+          logInfo(`✏️ CHAIN EDIT: Text now fits in single caption, restructuring...`);
+        }
+        
+        // Edit the first message (media caption)
+        await this.editMessageCaption(chatId, messageChain[0], newFullText);
+        
+        // Delete the secondary text message since it's no longer needed
+        for (let i = 1; i < messageChain.length; i++) {
+          await this.deleteMessage(chatId, messageChain[i]);
+        }
+        
+        return [messageChain[0]]; // Return new chain with just primary message
+        
+      } else {
+        // Text still needs splitting
+        const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
+        const splitStrategy = envConfig.telegram?.captionSplitStrategy || 'smart';
+        
+        let splitPoint;
+        if (splitStrategy === 'aismart') {
+          splitPoint = await this.findAILanguageBoundary(newFullText, captionLengthLimit - splitIndicator.length - 10);
+        } else {
+          splitPoint = this.findOptimalSplitPoint(newFullText, captionLengthLimit - splitIndicator.length - 10);
+        }
+        
+        const escapedSplitIndicator = FormatConverter.escapeMarkdownV2ForText(splitIndicator);
+        const firstPart = newFullText.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
+        const remainingPart = newFullText.substring(splitPoint).trim();
+        
+        if (isDebugMode) {
+          logInfo(`✏️ CHAIN EDIT: Still needs splitting: ${firstPart.length} + ${remainingPart.length} chars`);
+        }
+        
+        // Edit the first message (media caption)
+        await this.editMessageCaption(chatId, messageChain[0], firstPart);
+        
+        // Edit or create secondary message
+        if (messageChain.length > 1) {
+          // Edit existing secondary message
+          await this.editMessageText(chatId, messageChain[1], remainingPart);
+        } else {
+          // Create new secondary message
+          const textResult = await this.callTelegramAPI('sendMessage', {
+            chat_id: chatId,
+            text: remainingPart,
+            parse_mode: 'MarkdownV2'
+          });
+          
+          if (textResult && textResult.ok) {
+            messageChain.push(textResult.result.message_id.toString());
+          }
+        }
+        
+        return messageChain; // Return updated chain
+      }
+      
+    } catch (error) {
+      logError('Error editing message chain:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Delete an entire message chain
+   */
+  async deleteMessageChain(chatId, messageChain) {
+    try {
+      const deletePromises = messageChain.map(messageId =>
+        this.deleteMessage(chatId, messageId).catch(error => {
+          logError(`Failed to delete message ${messageId}:`, error);
+        })
+      );
+      
+      await Promise.allSettled(deletePromises);
+      logSuccess(`🗑️ Deleted message chain with ${messageChain.length} messages in chat ${chatId}`);
+      
+    } catch (error) {
+      logError('Error deleting message chain:', error);
       throw error;
     }
   }

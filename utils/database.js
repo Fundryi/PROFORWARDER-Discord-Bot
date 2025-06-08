@@ -61,7 +61,7 @@ async function initializeDatabase() {
       )
     `);
 
-    // Create message logs for tracking forwarded messages
+    // Create message logs for tracking forwarded messages (enhanced for message chains)
     await run(`
       CREATE TABLE IF NOT EXISTS message_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,7 +74,10 @@ async function initializeDatabase() {
         configId INTEGER NOT NULL, -- References config ID from env.js
         forwardedAt INTEGER NOT NULL,
         status TEXT DEFAULT 'success', -- 'success', 'failed', 'retry'
-        errorMessage TEXT
+        errorMessage TEXT,
+        messageChain TEXT, -- JSON array of message IDs for split messages
+        chainPosition INTEGER DEFAULT 0, -- 0=primary, 1=secondary, etc.
+        chainParentId INTEGER -- Reference to primary message log ID
       )
     `);
 
@@ -96,6 +99,28 @@ async function initializeDatabase() {
     await run('CREATE INDEX IF NOT EXISTS idx_message_logs_config ON message_logs(configId, forwardedAt)');
     await run('CREATE INDEX IF NOT EXISTS idx_translation_threads_message ON translation_threads(forwardedMessageId)');
     await run('CREATE INDEX IF NOT EXISTS idx_translation_threads_thread ON translation_threads(threadId)');
+
+    // Add messageChain columns if they don't exist (migration for existing databases)
+    try {
+      await run('ALTER TABLE message_logs ADD COLUMN messageChain TEXT');
+      logInfo('Added messageChain column to message_logs table');
+    } catch (error) {
+      // Column already exists, ignore
+    }
+    
+    try {
+      await run('ALTER TABLE message_logs ADD COLUMN chainPosition INTEGER DEFAULT 0');
+      logInfo('Added chainPosition column to message_logs table');
+    } catch (error) {
+      // Column already exists, ignore
+    }
+    
+    try {
+      await run('ALTER TABLE message_logs ADD COLUMN chainParentId INTEGER');
+      logInfo('Added chainParentId column to message_logs table');
+    } catch (error) {
+      // Column already exists, ignore
+    }
 
     logSuccess('Database tables ready (forward configs now in env.js)');
   } catch (error) {
@@ -147,6 +172,91 @@ async function logForwardedMessage(originalMessageId, originalChannelId, origina
     );
   } catch (error) {
     logError('Error logging forwarded message:', error);
+    throw error;
+  }
+}
+
+// Enhanced message chain logging for split messages (Telegram caption splitting)
+async function logMessageChain(originalMessageId, originalChannelId, originalServerId, messageChain, forwardedChannelId, forwardedServerId, configId, status = 'success', errorMessage = null) {
+  try {
+    const timestamp = Date.now();
+    const messageChainJson = JSON.stringify(messageChain);
+    
+    // Log primary message (first in chain)
+    const primaryResult = await run(
+      `INSERT INTO message_logs (originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, forwardedAt, status, errorMessage, messageChain, chainPosition, chainParentId)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [originalMessageId, originalChannelId, originalServerId, messageChain[0], forwardedChannelId, forwardedServerId, configId, timestamp, status, errorMessage, messageChainJson, 0, null]
+    );
+    
+    const primaryLogId = primaryResult.lastID;
+    
+    // Log secondary messages (rest of chain)
+    for (let i = 1; i < messageChain.length; i++) {
+      await run(
+        `INSERT INTO message_logs (originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, forwardedAt, status, errorMessage, messageChain, chainPosition, chainParentId)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [originalMessageId, originalChannelId, originalServerId, messageChain[i], forwardedChannelId, forwardedServerId, configId, timestamp, status, errorMessage, messageChainJson, i, primaryLogId]
+      );
+    }
+    
+    logInfo(`📎 Logged message chain: ${messageChain.length} messages for original ${originalMessageId}`);
+    return primaryLogId;
+  } catch (error) {
+    logError('Error logging message chain:', error);
+    throw error;
+  }
+}
+
+// Get complete message chain for an original message
+async function getMessageChain(originalMessageId) {
+  try {
+    const messageIdStr = String(originalMessageId);
+    
+    const results = await all(`
+      SELECT * FROM message_logs
+      WHERE originalMessageId = ? AND status = 'success'
+      ORDER BY chainPosition ASC
+    `, [messageIdStr]);
+    
+    return results;
+  } catch (error) {
+    logError('Error getting message chain:', error);
+    throw error;
+  }
+}
+
+// Check if a message was forwarded as a chain (split message)
+async function isMessageChain(originalMessageId) {
+  try {
+    const messageIdStr = String(originalMessageId);
+    
+    const result = await get(`
+      SELECT COUNT(*) as count FROM message_logs
+      WHERE originalMessageId = ? AND status = 'success' AND messageChain IS NOT NULL
+    `, [messageIdStr]);
+    
+    return result.count > 1;
+  } catch (error) {
+    logError('Error checking if message is chain:', error);
+    return false;
+  }
+}
+
+// Delete entire message chain from database
+async function deleteMessageChain(originalMessageId) {
+  try {
+    const messageIdStr = String(originalMessageId);
+    
+    const result = await run(`
+      DELETE FROM message_logs
+      WHERE originalMessageId = ? AND status = 'success'
+    `, [messageIdStr]);
+    
+    logInfo(`🗑️ Deleted message chain: ${result.changes || 0} entries for original ${originalMessageId}`);
+    return result.changes || 0;
+  } catch (error) {
+    logError('Error deleting message chain:', error);
     throw error;
   }
 }
@@ -602,10 +712,14 @@ module.exports = {
   getAllBotSettings,
   // Message logging operations
   logForwardedMessage,
+  logMessageChain,
   getMessageLogs,
   getFailedMessages,
   updateMessageLog,
   getMessageLogsByOriginalMessage,
+  getMessageChain,
+  isMessageChain,
+  deleteMessageChain,
   validateRecentMessageLogs,
   cleanupDeletedMessage,
   cleanupOrphanedLogs,

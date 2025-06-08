@@ -1,6 +1,7 @@
 const { logInfo, logSuccess, logError } = require('../utils/logger');
 const ForwardHandler = require('../handlers/forwardHandler');
 const { getForwardConfigsForChannel } = require('../utils/configManager');
+const { getMessageChain, isMessageChain } = require('../utils/database');
 
 // Global forward handler instance
 let forwardHandler = null;
@@ -465,10 +466,22 @@ async function deleteTranslationThreads(forwardedMessage, client) {
   }
 }
 
-// Update a Telegram forwarded message with smart media handling
+// Update a Telegram forwarded message with smart media and chain handling
 async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
   try {
     logInfo(`Smart editing Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+    
+    // Check if this is part of a message chain (split message)
+    const messageChain = await getMessageChain(logEntry.originalMessageId);
+    const isChain = messageChain.length > 1;
+    
+    const envConfig = require('../config/env');
+    if (isChain && envConfig.debugMode) {
+      logInfo(`🔗 CHAIN EDIT: Detected message chain with ${messageChain.length} parts`);
+      messageChain.forEach((chainEntry, index) => {
+        logInfo(`  Part ${index}: ${chainEntry.forwardedMessageId} (position: ${chainEntry.chainPosition})`);
+      });
+    }
     
     // Get the config for this forward
     const { getForwardConfigById } = require('../utils/configManager');
@@ -483,6 +496,64 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
     const telegramHandler = new TelegramHandler();
     await telegramHandler.initialize();
 
+    // Convert new message content
+    const telegramMessage = await telegramHandler.convertDiscordMessage(newMessage, config);
+    
+    if (isChain) {
+      // Handle chain editing with smart caption length management
+      if (envConfig.debugMode) {
+        logInfo(`🔗 CHAIN EDIT: Editing message chain with new content (${telegramMessage.text.length} chars)`);
+      }
+      
+      // Extract message IDs from the chain
+      const chainMessageIds = messageChain.map(entry => entry.forwardedMessageId);
+      
+      // Use enhanced chain editing method
+      const updatedChain = await telegramHandler.editMessageChain(
+        logEntry.forwardedChannelId,
+        chainMessageIds,
+        telegramMessage.text
+      );
+      
+      // Update database with new chain structure if it changed
+      if (updatedChain.length !== chainMessageIds.length) {
+        const { updateMessageLog, deleteMessageChain, logMessageChain } = require('../utils/database');
+        
+        // Clean up old chain entries
+        await deleteMessageChain(logEntry.originalMessageId);
+        
+        // Log new chain
+        await logMessageChain(
+          logEntry.originalMessageId,
+          logEntry.originalChannelId,
+          logEntry.originalServerId,
+          updatedChain,
+          logEntry.forwardedChannelId,
+          logEntry.forwardedServerId,
+          logEntry.configId,
+          'success'
+        );
+        
+        logInfo(`🔗 CHAIN EDIT: Updated chain structure (${chainMessageIds.length} → ${updatedChain.length} messages)`);
+      }
+      
+      logSuccess(`✅ Chain edit successful for message ${logEntry.originalMessageId} (${updatedChain.length} parts)`);
+      return { chainUpdated: true, newChain: updatedChain };
+      
+    } else {
+      // Handle single message editing (existing logic)
+      return await updateSingleTelegramMessage(newMessage, logEntry, client, telegramHandler, telegramMessage);
+    }
+
+  } catch (error) {
+    logError('Error in smart Telegram message update:', error);
+    throw error;
+  }
+}
+
+// Update a single Telegram message (non-chain)
+async function updateSingleTelegramMessage(newMessage, logEntry, client, telegramHandler, telegramMessage) {
+  try {
     // Get the original message to compare media
     let originalMessage = null;
     try {
@@ -507,9 +578,6 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
                              (originalMessage.embeds && originalMessage.embeds.some(embed => embed.image || embed.thumbnail))) :
                             false;
 
-    // Convert message content for comparison and sending
-    const telegramMessage = await telegramHandler.convertDiscordMessage(newMessage, config);
-    
     const envConfig = require('../config/env');
     if (envConfig.debugMode) {
       logInfo(`🔍 SMART EDIT DEBUG: Original had media: ${originalHasMedia}, New has media: ${newHasMedia}`);
@@ -562,9 +630,22 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
       return await deleteAndResendTelegram(telegramHandler, logEntry, telegramMessage);
       
     } else {
-      // Case 4: Both had media - check if media changed
+      // Case 4: Both had media - check if media changed or if caption is too long
       if (envConfig.debugMode) {
-        logInfo(`🔍 SMART EDIT: Case 4 - Both have media, checking for changes`);
+        logInfo(`🔍 SMART EDIT: Case 4 - Both have media, checking for changes and length`);
+      }
+      
+      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
+      const captionTooLong = telegramMessage.text.length > captionLengthLimit;
+      
+      if (captionTooLong) {
+        // Caption is now too long - need to convert to chain
+        if (envConfig.debugMode) {
+          logInfo(`🔍 SMART EDIT: Case 4-special - Caption now too long (${telegramMessage.text.length} > ${captionLengthLimit}), converting to chain`);
+        }
+        
+        logInfo(`Caption is now too long, converting single message to chain`);
+        return await convertToChainAndUpdate(telegramHandler, logEntry, telegramMessage, newMessage);
       }
       
       const mediaChanged = await hasMediaChanged(originalMessage, newMessage);
@@ -605,7 +686,53 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
     }
 
   } catch (error) {
-    logError('Error in smart Telegram message update:', error);
+    logError('Error in single Telegram message update:', error);
+    throw error;
+  }
+}
+
+// Convert single message to chain when caption becomes too long
+async function convertToChainAndUpdate(telegramHandler, logEntry, telegramMessage, newMessage) {
+  try {
+    logInfo(`Converting single message to chain due to long caption`);
+    
+    // Delete the original single message
+    await telegramHandler.deleteMessage(logEntry.forwardedChannelId, logEntry.forwardedMessageId);
+    
+    // Send as new split message
+    const result = await telegramHandler.sendMediaWithLongCaption(
+      logEntry.forwardedChannelId,
+      telegramMessage.media,
+      telegramMessage.text
+    );
+    
+    if (result.isSplit && result.messageChain) {
+      // Update database with new chain structure
+      const { deleteMessageChain, logMessageChain } = require('../utils/database');
+      
+      // Clean up old single message entry
+      await deleteMessageChain(logEntry.originalMessageId);
+      
+      // Log new chain
+      await logMessageChain(
+        logEntry.originalMessageId,
+        logEntry.originalChannelId,
+        logEntry.originalServerId,
+        result.messageChain,
+        logEntry.forwardedChannelId,
+        logEntry.forwardedServerId,
+        logEntry.configId,
+        'success'
+      );
+      
+      logSuccess(`✅ Converted single message to chain (${result.messageChain.length} parts)`);
+      return { convertedToChain: true, newChain: result.messageChain };
+    }
+    
+    return result;
+    
+  } catch (error) {
+    logError('Error converting single message to chain:', error);
     throw error;
   }
 }
@@ -778,10 +905,17 @@ async function hasMediaChanged(originalMessage, newMessage) {
   }
 }
 
-// Delete a Telegram forwarded message
+// Delete a Telegram forwarded message (handles both single messages and chains)
 async function deleteTelegramForwardedMessage(logEntry, client) {
   try {
-    logInfo(`Deleting Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+    // Check if this is part of a message chain
+    const messageChain = await getMessageChain(logEntry.originalMessageId);
+    const isChain = messageChain.length > 1;
+    
+    const envConfig = require('../config/env');
+    if (isChain && envConfig.debugMode) {
+      logInfo(`🔗 CHAIN DELETE: Detected message chain with ${messageChain.length} parts for deletion`);
+    }
     
     const TelegramHandler = require('../handlers/telegramHandler');
     const telegramHandler = new TelegramHandler();
@@ -792,12 +926,23 @@ async function deleteTelegramForwardedMessage(logEntry, client) {
       throw new Error('Telegram handler failed to initialize');
     }
 
-    await telegramHandler.callTelegramAPI('deleteMessage', {
-      chat_id: logEntry.forwardedChannelId,
-      message_id: parseInt(logEntry.forwardedMessageId) // Ensure it's a number
-    });
-    
-    logSuccess(`Deleted Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+    if (isChain) {
+      // Delete entire message chain
+      const chainMessageIds = messageChain.map(entry => entry.forwardedMessageId);
+      
+      logInfo(`Deleting Telegram message chain with ${chainMessageIds.length} parts in chat ${logEntry.forwardedChannelId}`);
+      
+      await telegramHandler.deleteMessageChain(logEntry.forwardedChannelId, chainMessageIds);
+      
+      logSuccess(`Deleted Telegram message chain (${chainMessageIds.length} parts) in chat ${logEntry.forwardedChannelId}`);
+    } else {
+      // Delete single message
+      logInfo(`Deleting Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+      
+      await telegramHandler.deleteMessage(logEntry.forwardedChannelId, logEntry.forwardedMessageId);
+      
+      logSuccess(`Deleted Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
+    }
 
   } catch (error) {
     // If message is already deleted, that's ok
@@ -806,7 +951,7 @@ async function deleteTelegramForwardedMessage(logEntry, client) {
         error.message.includes('Message to delete not found') ||
         error.message.includes('Bad Request: message can\'t be deleted')
       )) {
-      logInfo(`Telegram message ${logEntry.forwardedMessageId} already deleted or cannot be deleted`);
+      logInfo(`Telegram message(s) already deleted or cannot be deleted`);
     } else {
       throw error;
     }

@@ -1,5 +1,5 @@
 const { logInfo, logSuccess, logError } = require('../utils/logger');
-const { logForwardedMessage } = require('../utils/database');
+const { logForwardedMessage, logMessageChain } = require('../utils/database');
 const { getForwardConfigsForChannel } = require('../utils/configManager');
 const { sendWebhookMessage, hasWebhookPermissions } = require('../utils/webhookManager');
 const AIHandler = require('./aiHandler');
@@ -225,7 +225,7 @@ class ForwardHandler {
   }
 
   /**
-   * Forward message to Telegram target
+   * Forward message to Telegram target with smart caption handling
    */
   async forwardToTelegram(message, config) {
     try {
@@ -238,23 +238,42 @@ class ForwardHandler {
       }
 
       // Send message to Telegram
-      const telegramMessage = await this.telegramHandler.sendMessage(config.targetChatId, message, config);
+      const telegramResult = await this.telegramHandler.sendMessage(config.targetChatId, message, config);
       
-      // Log successful forward
-      await logForwardedMessage(
-        message.id,
-        message.channel.id,
-        message.guild?.id || null,
-        telegramMessage.message_id.toString(),
-        config.targetChatId,
-        null, // No server ID for Telegram
-        config.id,
-        'success'
-      );
+      // Check if message was split into a chain
+      if (telegramResult.isSplit && telegramResult.messageChain) {
+        // Log as message chain
+        await logMessageChain(
+          message.id,
+          message.channel.id,
+          message.guild?.id || null,
+          telegramResult.messageChain,
+          config.targetChatId,
+          null, // No server ID for Telegram
+          config.id,
+          'success'
+        );
 
-      logSuccess(`✅ Forwarded message from ${message.channel.name} to Telegram chat ${config.targetChatId}`);
+        logSuccess(`✅ Forwarded split message from ${message.channel.name} to Telegram chat ${config.targetChatId} (${telegramResult.messageChain.length} parts)`);
+      } else {
+        // Log as single message
+        const messageId = telegramResult.message_id || (Array.isArray(telegramResult) ? telegramResult[0].message_id : telegramResult.result?.message_id);
+        
+        await logForwardedMessage(
+          message.id,
+          message.channel.id,
+          message.guild?.id || null,
+          messageId.toString(),
+          config.targetChatId,
+          null, // No server ID for Telegram
+          config.id,
+          'success'
+        );
+
+        logSuccess(`✅ Forwarded message from ${message.channel.name} to Telegram chat ${config.targetChatId}`);
+      }
       
-      return telegramMessage;
+      return telegramResult;
     } catch (error) {
       throw error; // Re-throw to be handled by forwardToTarget
     }

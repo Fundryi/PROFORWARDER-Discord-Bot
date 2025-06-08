@@ -136,13 +136,18 @@ async function addForwardConfig(newConfig) {
     newConfig.id = maxId + 1;
     newConfig.enabled = true;
     
-    // Check for duplicate source->target combinations
-    const duplicate = currentConfigs.find(config => {
+    // Check for exact duplicate configurations only (same source AND same target)
+    const exactDuplicate = currentConfigs.find(config => {
+      // Must match source
       if (config.sourceChannelId !== newConfig.sourceChannelId) return false;
+      if (config.sourceServerId !== newConfig.sourceServerId) return false;
       
-      if (config.targetType === 'telegram' && newConfig.targetType === 'telegram') {
+      // Must match target exactly
+      if (config.targetType !== newConfig.targetType) return false;
+      
+      if (config.targetType === 'telegram') {
         return config.targetChatId === newConfig.targetChatId;
-      } else if (config.targetType === 'discord' && newConfig.targetType === 'discord') {
+      } else if (config.targetType === 'discord') {
         return config.targetChannelId === newConfig.targetChannelId &&
                config.targetServerId === newConfig.targetServerId;
       }
@@ -150,8 +155,8 @@ async function addForwardConfig(newConfig) {
       return false;
     });
     
-    if (duplicate) {
-      throw new Error('Forward configuration already exists for this source->target combination');
+    if (exactDuplicate) {
+      throw new Error('Exact duplicate configuration already exists (same source and same target)');
     }
 
     // Format the new config as a JavaScript object string
