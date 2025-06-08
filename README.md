@@ -39,7 +39,6 @@
   - [📁 Project Structure](#-project-structure)
   - [🔧 Technology Stack](#-technology-stack)
   - [📝 Documentation](#-documentation)
-  - [🤝 Contributing](#-contributing)
   - [📄 License](#-license)
 
 ---
@@ -75,6 +74,7 @@
 - **🔍 Telegram Discovery**: Smart discovery of available Telegram chats and channels
 - **🤖 AI Translation Support**: Optional multi-provider AI translation system (Google Gemini, OpenAI GPT-4, DeepL)
 - **🧵 Translation Threads**: Beautiful Discord threads for AI translations with color-coded language indicators
+- **📖 Reader Bot Support**: Optional secondary bot instance for read-only message monitoring and processing
 
 ---
 
@@ -89,8 +89,11 @@ The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwa
 - **Advanced emoji handling** with 200+ Discord emoji mappings and conservative matching
 - **Comprehensive command system** with 9 `/proforward` subcommands for complete management
 - **Telegram Bot API integration** with full MarkdownV2 formatting and chat discovery
+- **Modular Telegram architecture** with specialized handlers for API, media, text splitting, and utilities
+- **Smart caption length management** with intelligent text splitting and anti-spam solutions
 - **Auto-publishing system** for announcement channels with configurable timing
 - **Message retry functionality** for failed forwards with source message ID lookup
+- **Optional Reader Bot support** for read-only message monitoring and processing
 - **Intelligent database management** with self-healing, validation, and cleanup capabilities
 - **Smart loop prevention** and bot message filtering with configurable controls
 - **Cross-platform emoji conversion** with application-level emoji management
@@ -108,7 +111,7 @@ The ProForwarder Discord Bot is a fully-featured, enterprise-grade message forwa
 
 ### 📋 Prerequisites
 
-- **Node.js** v16.0.0 or higher
+- **Node.js** v16.11.0 or higher (required for Discord.js v14)
 - **npm** or **yarn** package manager
 - **Discord Bot Token** from [Discord Developer Portal](https://discord.com/developers/applications)
 
@@ -156,7 +159,7 @@ Replace `YOUR_BOT_ID` with your bot's client ID from the Discord Developer Porta
    cp config/.env.example config/.env
    cp config/env.js.example config/env.js
    
-   # Edit .env with your Discord bot token
+   # Edit .env with your Discord bot token and optional services
    ```
 
 4. **Run the bot**
@@ -236,16 +239,30 @@ Replace `YOUR_BOT_ID` with your bot's client ID from the Discord Developer Porta
 
 ### **Environment Variables** (`.env`)
 ```env
+# Bot Token
 BOT_TOKEN=your_discord_bot_token_here
 
-# Telegram Integration
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_API_URL=https://api.telegram.org
+# AI Provider API Keys (Only secrets here - configuration is in env.js)
 
-# AI Translation Features (Optional)
+# Google Gemini 2.0 Flash Preview (🟢 FREE) - MAIN PROVIDER
+# Best for: High-quality AI translations with context understanding
+# FREE during preview period - see: https://ai.google.dev/gemini-api/docs/pricing
+# Get your FREE API key from: https://aistudio.google.com/app/apikey
 GEMINI_API_KEY=your_gemini_api_key_here
-OPENAI_API_KEY=your_openai_api_key_here
-DEEPL_API_KEY=your_deepl_api_key_here
+
+# Google Translate Configuration (🟡 FREEMIUM - Free tier: 500,000 chars/month) - FALLBACK
+# Best for: Fast, reliable fallback translations
+# Get your API key from: https://cloud.google.com/translate/pricing
+GOOGLE_TRANSLATE_API_KEY=your_google_translate_api_key_here
+GOOGLE_PROJECT_ID=your_google_cloud_project_id
+
+# Reader Bot Configuration (Optional)
+READER_BOT_ENABLED=false
+READER_BOT_TOKEN=your_reader_bot_token_here
+
+# Telegram Integration (Optional)
+TELEGRAM_ENABLED=false
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 ```
 
 ### **Forward Configurations** (`config/env.js`)
@@ -254,7 +271,7 @@ module.exports = {
   botToken: process.env.BOT_TOKEN,
   debugMode: false, // Set to true to enable debug logging and test commands
   
-  // Enhanced Format Conversion Settings
+  // Enhanced Format Conversion Settings (streamlined system)
   useSliceFormatConverter: true,  // Enhanced slice-based conversion (PRIMARY METHOD - recommended)
   useAIFormatConverter: false,    // AI-powered conversion (FALLBACK ONLY - for future use)
   
@@ -279,13 +296,25 @@ module.exports = {
     }
   },
   
+  // Reader Bot Configuration (optional)
+  readerBot: {
+    enabled: process.env.READER_BOT_ENABLED === 'true',
+    token: process.env.READER_BOT_TOKEN
+  },
+  
   // Telegram integration (optional)
   telegram: {
     enabled: false, // Set to true to enable Telegram integration
     botToken: process.env.TELEGRAM_BOT_TOKEN,
     apiUrl: process.env.TELEGRAM_API_URL || 'https://api.telegram.org',
     hideSourceHeader: false, // Set to true to disable Discord source headers in Telegram messages
-    smartLinkPreviews: true // Smart link preview behavior: allow previews when Discord has images, disable for text-only messages
+    smartLinkPreviews: true, // Smart link preview behavior: allow previews when Discord has images, disable for text-only messages
+    
+    // Smart Caption Length Management (Anti-Spam Solution)
+    captionLengthLimit: 900, // Safe caption length limit (Telegram limit is 1024, we use 900 for safety)
+    textLengthLimit: 4000, // Safe text message length limit (Telegram limit is 4096, we use 4000 for safety)
+    splitIndicator: '...(continued)', // Text to indicate message continues in next message
+    captionSplitStrategy: 'smart' // 'smart' = intelligent splitting, 'separate' = send media separately (header + full text)
   },
   
   // AI Integration for translation and content optimization
@@ -375,7 +404,14 @@ ProForwarder-Discord-Bot/
 ├── 📁 handlers/                  # Business logic
 │   ├── forwardHandler.js         # Main forwarding logic with webhooks
 │   ├── aiHandler.js              # AI processing orchestrator
-│   └── telegramHandler.js        # Telegram Bot API integration
+│   ├── telegramHandler.js        # Telegram Bot API integration
+│   └── 📁 telegram/              # Telegram handler modules
+│       ├── telegramAPI.js        # Core Telegram API wrapper
+│       ├── telegramConverter.js  # Format conversion for Telegram
+│       ├── telegramMediaHandler.js # Media handling and processing
+│       ├── telegramMessageSender.js # Message sending logic
+│       ├── telegramTextSplitter.js # Smart text splitting for length limits
+│       └── telegramUtils.js      # Telegram utility functions
 ├── 📁 events/                    # Discord event handlers
 │   └── messageEvents.js          # Message create/edit/delete handling with debug
 ├── 📁 commands/                  # Slash commands
@@ -387,13 +423,17 @@ ProForwarder-Discord-Bot/
 ├── 📁 data/                     # Database storage
 │   └── proforwarder.db          # SQLite database with message logs
 ├── 📁 Documentations/            # Project documentation
-│   ├── ENHANCED_FORMAT_CONVERSION.md  # Format conversion system guide
-│   ├── MARKDOWN_DISCORD.md            # Discord markdown reference
-│   ├── MARKDOWN_TELEGRAM.md           # Telegram markdown reference
-│   ├── MARKDOWNV2_CONVERSION_SUMMARY.md # Conversion details
-│   └── PROFORWARDER_PLANNING.md       # Development planning
+│   ├── ENHANCED_FORMAT_CONVERSION.md     # Format conversion system guide
+│   ├── MARKDOWN_DISCORD.md               # Discord markdown reference
+│   ├── MARKDOWN_TELEGRAM.md              # Telegram markdown reference
+│   ├── MARKDOWNV2_CONVERSION_SUMMARY.md  # Conversion details
+│   ├── PROFORWARDER_PLANNING.md          # Development planning
+│   ├── READER_BOT_IMPLEMENTATION.md      # Reader Bot documentation
+│   ├── TELEGRAM_CAPTION_LENGTH_SOLUTION.md # Telegram caption handling
+│   └── TELEGRAM_HANDLER_REFACTORING_PLAN.md # Telegram refactoring guide
 ├── 📁 testing/                  # Testing utilities
 ├── 📄 index.js                  # Main bot entry point with startup validation
+├── 📄 readerBot.js              # Optional reader bot for read-only monitoring
 ├── 📄 errorHandlers.js          # Global error handling
 ├── 📄 package.json              # Node.js project configuration
 └── 📄 README.md                 # This documentation file
@@ -409,12 +449,15 @@ ProForwarder-Discord-Bot/
 - **🔪 Enhanced Slice Conversion** - Advanced formatting system with 200+ emoji mappings
 - **👥 Smart Mention Resolution** - Real Discord name resolution for cross-platform forwarding
 - **🤖 AI Integration** - Multi-provider AI translation system with fallback support
-- **🌐 Google Gemini** - Primary AI provider for translations
+- **🌐 Google Gemini 2.0 Flash** - Primary AI provider for translations (FREE tier)
 - **🧠 OpenAI GPT-4** - Advanced AI content processing
 - **🔤 DeepL API** - Professional translation quality
+- **📖 Reader Bot Architecture** - Optional secondary bot instance for read-only monitoring
 - **🗃️ SQLite3** - Database for message logs and tracking
 - **🎭 Webhook Technology** - Perfect 1:1 message forwarding
 - **🧵 Discord Threads** - Native threading for translations
+- **📊 Modular Telegram System** - Refactored handler architecture with specialized modules
+- **📏 Smart Text Splitting** - Intelligent message length management for Telegram
 - **⚙️ Streamlined Architecture** - Optimized dual-method format conversion system
 - **🎨 Chalk** - Colorized console logging
 - **⚙️ dotenv** - Environment configuration management
@@ -424,25 +467,19 @@ ProForwarder-Discord-Bot/
 
 ## 📝 Documentation
 
-- **[📋 Planning Document](PROFORWARDER_PLANNING.md)** - Development history and architecture
+- **[📋 Planning Document](Documentations/PROFORWARDER_PLANNING.md)** - Development history and architecture
 - **[🔪 Enhanced Format Conversion](Documentations/ENHANCED_FORMAT_CONVERSION.md)** - Advanced formatting system guide
 - **[📊 MarkdownV2 Conversion Summary](Documentations/MARKDOWNV2_CONVERSION_SUMMARY.md)** - Telegram formatting details
-- **[🔧 Configuration Guide](config/env.js.example)** - Configuration options and examples
+- **[📖 Reader Bot Implementation](Documentations/READER_BOT_IMPLEMENTATION.md)** - Reader Bot setup and usage guide
+- **[📱 Telegram Caption Length Solution](Documentations/TELEGRAM_CAPTION_LENGTH_SOLUTION.md)** - Telegram message length handling
+- **[🔧 Telegram Handler Refactoring](Documentations/TELEGRAM_HANDLER_REFACTORING_PLAN.md)** - Telegram system architecture
+- **[💬 Discord Markdown Reference](Documentations/MARKDOWN_DISCORD.md)** - Discord formatting reference
+- **[📨 Telegram Markdown Reference](Documentations/MARKDOWN_TELEGRAM.md)** - Telegram formatting reference
+- **[⚙️ Configuration Guide](config/env.js.example)** - Configuration options and examples
 - **[🗃️ Database Schema](utils/database.js)** - Database structure for message logging
 
 ---
 
-## 🤝 Contributing
-
-This project uses established coding patterns and modular architecture:
-
-- Use the logging system (`utils/logger.js`) for consistent output
-- Follow the modular file structure for maintainability
-- Maintain the webhook-first forwarding approach
-- Add appropriate error handling and user feedback
-- Test both same-server and cross-server scenarios
-
----
 
 ## 📄 License
 

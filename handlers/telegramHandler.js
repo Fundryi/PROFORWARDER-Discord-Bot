@@ -1,14 +1,29 @@
 const { logInfo, logSuccess, logError } = require('../utils/logger');
-const https = require('https');
-const FormatConverter = require('../utils/formatConverter');
-const AIFormatConverter = require('../utils/aiFormatConverter');
+const TelegramAPI = require('./telegram/telegramAPI');
+const TelegramConverter = require('./telegram/telegramConverter');
+const TelegramMessageSender = require('./telegram/telegramMessageSender');
+const TelegramUtils = require('./telegram/telegramUtils');
+const TelegramMediaHandler = require('./telegram/telegramMediaHandler');
+const TelegramTextSplitter = require('./telegram/telegramTextSplitter');
 
 /**
  * Telegram Bot API Handler for ProForwarder
  * Handles message forwarding from Discord to Telegram
+ * 
+ * REFACTORED: Now uses modular architecture with focused components
+ * while maintaining 100% backward compatibility
  */
 class TelegramHandler {
   constructor() {
+    // Initialize all module components
+    this.api = new TelegramAPI();
+    this.converter = new TelegramConverter();
+    this.messageSender = new TelegramMessageSender(this.api);
+    this.utils = new TelegramUtils(this.api);
+    this.mediaHandler = new TelegramMediaHandler();
+    this.textSplitter = new TelegramTextSplitter();
+
+    // Legacy properties for backward compatibility
     this.botToken = null;
     this.apiUrl = 'https://api.telegram.org';
     this.initialized = false;
@@ -18,36 +33,16 @@ class TelegramHandler {
    * Initialize Telegram handler with bot token
    */
   async initialize() {
-    try {
-      const config = require('../config/env');
-      
-      if (!config.telegram?.enabled) {
-        logInfo('Telegram integration disabled in config');
-        return false;
-      }
-
-      if (!config.telegram.botToken) {
-        logError('Telegram bot token not provided');
-        return false;
-      }
-
-      this.botToken = config.telegram.botToken;
-      this.apiUrl = config.telegram.apiUrl || 'https://api.telegram.org';
-
-      // Test the bot token by calling getMe
-      const botInfo = await this.callTelegramAPI('getMe');
-      if (botInfo && botInfo.ok) {
-        logSuccess(`Telegram bot initialized: @${botInfo.result.username} (${botInfo.result.first_name})`);
-        this.initialized = true;
-        return true;
-      } else {
-        logError('Failed to initialize Telegram bot - invalid token or API error');
-        return false;
-      }
-    } catch (error) {
-      logError('Error initializing Telegram handler:', error);
-      return false;
+    const result = await this.api.initialize();
+    
+    // Update legacy properties for backward compatibility
+    if (result) {
+      this.botToken = this.api.getBotToken();
+      this.apiUrl = this.api.getApiUrl();
+      this.initialized = this.api.isInitialized();
     }
+    
+    return result;
   }
 
   /**
@@ -60,7 +55,7 @@ class TelegramHandler {
 
     try {
       // Convert Discord message to Telegram format
-      const telegramMessage = await this.convertDiscordMessage(message, config);
+      const telegramMessage = await this.converter.convertDiscordMessage(message, config);
       
       const envConfig = require('../config/env');
       const isDebugMode = envConfig.debugMode;
@@ -74,13 +69,7 @@ class TelegramHandler {
         }
         
         // Check if media is from embeds (which can cause issues) - if so, treat as text-only
-        const hasEmbedMedia = telegramMessage.media.some(item =>
-          item.media && (
-            item.media.includes('cdn-telegram.org') ||
-            item.media.includes('discordapp.net') ||
-            item.media.includes('images-ext-')
-          )
-        );
+        const hasEmbedMedia = this.mediaHandler.hasEmbedMedia(telegramMessage.media);
         
         if (hasEmbedMedia) {
           if (isDebugMode) {
@@ -95,7 +84,7 @@ class TelegramHandler {
           
           if (telegramMessage.text.length > textLengthLimit) {
             logInfo(`📏 Text too long (${telegramMessage.text.length} chars), using smart text splitting`);
-            return await this.sendLongTextMessage(chatId, telegramMessage.text, disablePreview);
+            return await this.messageSender.sendLongTextMessage(chatId, telegramMessage.text, disablePreview);
           }
           
           // Send as regular text message with preview disabled
@@ -111,7 +100,7 @@ class TelegramHandler {
             messagePayload.reply_markup = telegramMessage.replyMarkup;
           }
 
-          const result = await this.callTelegramAPI('sendMessage', messagePayload);
+          const result = await this.api.callTelegramAPI('sendMessage', messagePayload);
 
           if (result && result.ok) {
             logSuccess(`✅ Message sent to Telegram chat ${chatId} as text-only (embed media filtered, preview disabled)`);
@@ -122,7 +111,7 @@ class TelegramHandler {
         }
         
         // Send media with text as caption (may return chain if split)
-        const result = await this.sendMediaWithCaption(chatId, telegramMessage.media, telegramMessage.text);
+        const result = await this.messageSender.sendMediaWithCaption(chatId, telegramMessage.media, telegramMessage.text);
         
         // Check if result indicates a split message
         if (result.isSplit && result.messageChain) {
@@ -142,7 +131,7 @@ class TelegramHandler {
         
         if (telegramMessage.text.length > textLengthLimit) {
           logInfo(`📏 Text too long (${telegramMessage.text.length} chars), using smart text splitting`);
-          return await this.sendLongTextMessage(chatId, telegramMessage.text, telegramMessage.disableWebPagePreview);
+          return await this.messageSender.sendLongTextMessage(chatId, telegramMessage.text, telegramMessage.disableWebPagePreview);
         }
         
         // Send message with MarkdownV2 parsing using the converted message (includes embeds!)
@@ -158,7 +147,7 @@ class TelegramHandler {
           messagePayload.reply_markup = telegramMessage.replyMarkup;
         }
 
-        const result = await this.callTelegramAPI('sendMessage', messagePayload);
+        const result = await this.api.callTelegramAPI('sendMessage', messagePayload);
 
         if (result && result.ok) {
           logSuccess(`✅ Message sent to Telegram chat ${chatId} (using MarkdownV2)`);
@@ -177,86 +166,7 @@ class TelegramHandler {
    * Send media with caption (supports formatted text with smart length handling)
    */
   async sendMediaWithCaption(chatId, media, caption) {
-    try {
-      const envConfig = require('../config/env');
-      const isDebugMode = envConfig.debugMode;
-      
-      // Get caption length limit from config (default to 900 for safety)
-      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
-      
-      if (isDebugMode) {
-        logInfo(`🔍 CAPTION LENGTH: Caption is ${caption.length} characters (limit: ${captionLengthLimit})`);
-      }
-      
-      // Check if caption is too long
-      if (caption.length > captionLengthLimit) {
-        logInfo(`📏 Caption too long (${caption.length} chars), using smart splitting strategy`);
-        return await this.sendMediaWithLongCaption(chatId, media, caption);
-      }
-      
-      if (media.length === 1) {
-        // Single media item - use sendPhoto/sendVideo with caption
-        const mediaItem = media[0];
-        let method = 'sendDocument'; // Default fallback
-        
-        if (mediaItem.type === 'photo') {
-          method = 'sendPhoto';
-        } else if (mediaItem.type === 'video') {
-          method = 'sendVideo';
-        }
-        
-        if (isDebugMode) {
-          logInfo(`🔍 MEDIA DEBUG: Sending ${method} with caption`);
-          logInfo(`🔍 MEDIA DEBUG: Raw caption: "${caption}"`);
-          logInfo(`🔍 MEDIA DEBUG: Media URL: "${mediaItem.media}"`);
-        }
-        
-        const result = await this.callTelegramAPI(method, {
-          chat_id: chatId,
-          [mediaItem.type === 'photo' ? 'photo' : mediaItem.type === 'video' ? 'video' : 'document']: mediaItem.media,
-          caption: caption,
-          parse_mode: 'MarkdownV2'
-        });
-
-        if (result && result.ok) {
-          logSuccess(`📎 Sent ${mediaItem.type} with caption to Telegram chat ${chatId}`);
-          return result.result;
-        } else {
-          throw new Error(`Media with caption send error: ${result ? result.description : 'Unknown error'}`);
-        }
-      } else {
-        // Multiple media items - use sendMediaGroup with caption on first item
-        if (isDebugMode) {
-          logInfo(`🔍 MEDIA DEBUG: Sending media group with ${media.length} items`);
-          logInfo(`🔍 MEDIA DEBUG: Caption on first item: "${caption}"`);
-        }
-        
-        const mediaWithCaption = media.map((item, index) => ({
-          ...item,
-          caption: index === 0 ? caption : undefined,
-          parse_mode: index === 0 ? 'MarkdownV2' : undefined
-        }));
-
-        if (isDebugMode) {
-          logInfo(`🔍 MEDIA DEBUG: Media group payload: ${JSON.stringify(mediaWithCaption, null, 2)}`);
-        }
-
-        const result = await this.callTelegramAPI('sendMediaGroup', {
-          chat_id: chatId,
-          media: JSON.stringify(mediaWithCaption)
-        });
-
-        if (result && result.ok) {
-          logSuccess(`📎 Sent ${media.length} media items with caption to Telegram chat ${chatId}`);
-          return result.result;
-        } else {
-          throw new Error(`Media group with caption send error: ${result ? result.description : 'Unknown error'}`);
-        }
-      }
-    } catch (error) {
-      logError('Error sending media with caption:', error);
-      throw error;
-    }
+    return await this.messageSender.sendMediaWithCaption(chatId, media, caption);
   }
 
   /**
@@ -264,150 +174,7 @@ class TelegramHandler {
    * Returns message chain for proper tracking
    */
   async sendMediaWithLongCaption(chatId, media, fullCaption) {
-    try {
-      const envConfig = require('../config/env');
-      const isDebugMode = envConfig.debugMode;
-      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
-      const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
-      const splitStrategy = envConfig.telegram?.captionSplitStrategy || 'smart';
-      
-      if (isDebugMode) {
-        logInfo(`📏 SMART SPLIT: Processing long caption (${fullCaption.length} chars) using strategy: ${splitStrategy}`);
-        logInfo(`📏 SMART SPLIT: Media array contains ${media.length} items`);
-        media.forEach((item, index) => {
-          logInfo(`📏 SMART SPLIT DEBUG: Media ${index + 1}: type=${item.type}, url="${item.media}"`);
-        });
-      }
-      
-      // Remove separator line when using splitting strategies to save space for content
-      const fullCaptionWithoutSeparator = this.removeSeparatorLine(fullCaption);
-      if (fullCaptionWithoutSeparator.length !== fullCaption.length) {
-        logInfo(`📏 Removed separator line to save space: ${fullCaption.length} → ${fullCaptionWithoutSeparator.length} chars`);
-      }
-      
-      // Handle different split strategies
-      if (splitStrategy === 'separate') {
-        // Simple fix: Disable separate strategy for messages with embed media due to WEBPAGE_MEDIA_EMPTY issues
-        // Check if media contains any potential embed-sourced URLs that could cause issues
-        const hasEmbedMedia = media.some(item =>
-          item.media && (
-            item.media.includes('cdn-telegram.org') ||
-            item.media.includes('discordapp.net') ||
-            item.media.includes('images-ext-')
-          )
-        );
-        
-        if (hasEmbedMedia) {
-          logInfo(`📏 Detected embed-sourced media, falling back to text splitting to avoid WEBPAGE_MEDIA_EMPTY error`);
-          // Fall back to smart splitting as text-only
-          const splitPoint = this.findOptimalSplitPoint(fullCaptionWithoutSeparator, captionLengthLimit - splitIndicator.length - 10);
-          const escapedSplitIndicator = FormatConverter.escapeMarkdownV2ForText(splitIndicator);
-          const firstPart = fullCaptionWithoutSeparator.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
-          const remainingPart = fullCaptionWithoutSeparator.substring(splitPoint).trim();
-          
-          // Send as text messages instead
-          const firstResult = await this.callTelegramAPI('sendMessage', {
-            chat_id: chatId,
-            text: firstPart,
-            parse_mode: 'MarkdownV2',
-            disable_web_page_preview: true
-          });
-          
-          const secondResult = await this.callTelegramAPI('sendMessage', {
-            chat_id: chatId,
-            text: remainingPart,
-            parse_mode: 'MarkdownV2',
-            disable_web_page_preview: true
-          });
-          
-          logSuccess(`📄 Sent content as text-only messages (embed media detected): ${firstPart.length} + ${remainingPart.length} chars`);
-          
-          return {
-            result: firstResult.result,
-            messageChain: [firstResult.result.message_id.toString(), secondResult.result.message_id.toString()],
-            isSplit: true
-          };
-        }
-        
-        // Send media separately with only header, then send full text (only for clean media)
-        logInfo(`📏 Using 'separate' strategy: sending ${media.length} clean media items with header, then full text`);
-        return await this.sendMediaSeparately(chatId, media, fullCaptionWithoutSeparator);
-      }
-      
-      // Default to smart splitting (using caption without separator)
-      const splitPoint = this.findOptimalSplitPoint(fullCaptionWithoutSeparator, captionLengthLimit - splitIndicator.length - 10);
-      
-      const escapedSplitIndicator = FormatConverter.escapeMarkdownV2ForText(splitIndicator);
-      const firstPart = fullCaptionWithoutSeparator.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
-      const remainingPart = fullCaptionWithoutSeparator.substring(splitPoint).trim();
-      
-      if (isDebugMode) {
-        logInfo(`📏 SMART SPLIT: First part (${firstPart.length} chars): "${firstPart.substring(0, 100)}..."`);
-        logInfo(`📏 SMART SPLIT: Remaining part (${remainingPart.length} chars): "${remainingPart.substring(0, 100)}..."`);
-      }
-      
-      // Send media with shortened caption
-      let mediaResult;
-      if (media.length === 1) {
-        const mediaItem = media[0];
-        let method = 'sendDocument';
-        
-        if (mediaItem.type === 'photo') {
-          method = 'sendPhoto';
-        } else if (mediaItem.type === 'video') {
-          method = 'sendVideo';
-        }
-        
-        mediaResult = await this.callTelegramAPI(method, {
-          chat_id: chatId,
-          [mediaItem.type === 'photo' ? 'photo' : mediaItem.type === 'video' ? 'video' : 'document']: mediaItem.media,
-          caption: firstPart,
-          parse_mode: 'MarkdownV2'
-        });
-      } else {
-        const mediaWithCaption = media.map((item, index) => ({
-          ...item,
-          caption: index === 0 ? firstPart : undefined,
-          parse_mode: index === 0 ? 'MarkdownV2' : undefined
-        }));
-
-        mediaResult = await this.callTelegramAPI('sendMediaGroup', {
-          chat_id: chatId,
-          media: JSON.stringify(mediaWithCaption)
-        });
-      }
-      
-      if (!mediaResult || !mediaResult.ok) {
-        throw new Error(`Media send error: ${mediaResult ? mediaResult.description : 'Unknown error'}`);
-      }
-      
-      // Send remaining text as separate message
-      const textResult = await this.callTelegramAPI('sendMessage', {
-        chat_id: chatId,
-        text: remainingPart,
-        parse_mode: 'MarkdownV2'
-      });
-      
-      if (!textResult || !textResult.ok) {
-        throw new Error(`Follow-up text send error: ${textResult ? textResult.description : 'Unknown error'}`);
-      }
-      
-      logSuccess(`📎 Sent media with smart-split caption to Telegram chat ${chatId} (${firstPart.length} + ${remainingPart.length} chars)`);
-      
-      // Return message chain data for database logging
-      const primaryMessageId = Array.isArray(mediaResult.result) ? mediaResult.result[0].message_id : mediaResult.result.message_id;
-      const secondaryMessageId = textResult.result.message_id;
-      
-      return {
-        result: mediaResult.result,
-        messageChain: [primaryMessageId.toString(), secondaryMessageId.toString()],
-        isSplit: true
-      };
-      
-    } catch (error) {
-      logError('Error sending media with long caption:', error);
-      throw error;
-    }
+    return await this.messageSender.sendMediaWithLongCaption(chatId, media, fullCaption);
   }
 
   /**
@@ -415,974 +182,84 @@ class TelegramHandler {
    * Returns message chain for proper tracking
    */
   async sendLongTextMessage(chatId, fullText, disableWebPagePreview = false) {
-    try {
-      const envConfig = require('../config/env');
-      const isDebugMode = envConfig.debugMode;
-      const textLengthLimit = 4000; // Safe limit for text messages
-      const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
-      const splitStrategy = envConfig.telegram?.captionSplitStrategy || 'smart';
-      
-      if (isDebugMode) {
-        logInfo(`📏 SMART TEXT SPLIT: Processing long text message (${fullText.length} chars) using strategy: ${splitStrategy}`);
-      }
-      
-      const messages = [];
-      let remainingText = fullText;
-      let partIndex = 1;
-      
-      // No special preprocessing for text messages
-      
-      while (remainingText.length > 0) {
-        let currentPart;
-        
-        if (remainingText.length <= textLengthLimit) {
-          // Last part - send as is
-          currentPart = remainingText;
-          remainingText = '';
-        } else {
-          // Find optimal split point using smart splitting
-          const availableLength = textLengthLimit - splitIndicator.length - 10;
-          const splitPoint = this.findOptimalSplitPoint(remainingText, availableLength);
-          
-          const escapedSplitIndicator = FormatConverter.escapeMarkdownV2ForText(splitIndicator);
-          currentPart = remainingText.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
-          remainingText = remainingText.substring(splitPoint).trim();
-        }
-        
-        if (isDebugMode) {
-          logInfo(`📏 SMART TEXT SPLIT: Part ${partIndex} (${currentPart.length} chars): "${currentPart.substring(0, 100)}..."`);
-        }
-        
-        // Send this part
-        const result = await this.callTelegramAPI('sendMessage', {
-          chat_id: chatId,
-          text: currentPart,
-          parse_mode: 'MarkdownV2',
-          disable_web_page_preview: disableWebPagePreview
-        });
-        
-        if (!result || !result.ok) {
-          throw new Error(`Text part ${partIndex} send error: ${result ? result.description : 'Unknown error'}`);
-        }
-        
-        messages.push(result.result.message_id.toString());
-        partIndex++;
-      }
-      
-      logSuccess(`📄 Sent long text message to Telegram chat ${chatId} (${messages.length} parts, ${fullText.length} total chars)`);
-      
-      // Return message chain data for database logging
-      return {
-        result: { message_id: messages[0] }, // Return first message as primary
-        messageChain: messages,
-        isSplit: messages.length > 1
-      };
-      
-    } catch (error) {
-      logError('Error sending long text message:', error);
-      throw error;
-    }
+    return await this.messageSender.sendLongTextMessage(chatId, fullText, disableWebPagePreview);
   }
 
   /**
    * Send media separately with header, then send full content as text
    */
   async sendMediaSeparately(chatId, media, fullContent) {
-    try {
-      const envConfig = require('../config/env');
-      const isDebugMode = envConfig.debugMode;
-      
-      if (isDebugMode) {
-        logInfo(`📏 SEPARATE STRATEGY: Attempting to send ${media.length} media items`);
-        media.forEach((item, index) => {
-          logInfo(`📏 SEPARATE DEBUG: Media ${index + 1}: type=${item.type}, url="${item.media}"`);
-        });
-      }
-      
-      // Check if we actually have valid media
-      if (!media || media.length === 0) {
-        if (isDebugMode) {
-          logInfo(`📏 SEPARATE: No media found, falling back to regular text message`);
-        }
-        // No media - just send as regular text message
-        return await this.sendLongTextMessage(chatId, fullContent);
-      }
-      
-      // Validate media URLs - filter out Discord proxy URLs and invalid URLs
-      const validMedia = media.filter(item => {
-        if (!item || !item.media || !item.media.trim()) {
-          if (isDebugMode) {
-            logInfo(`📏 SEPARATE: Filtering out empty media item`);
-          }
-          return false;
-        }
-        
-        // Filter out Discord proxy URLs which can't be accessed by Telegram
-        if (item.media.includes('images-ext-1.discordapp.net') ||
-            item.media.includes('images-ext-2.discordapp.net') ||
-            item.media.includes('cdn.discordapp.com/embed/') ||
-            item.media.includes('media.discordapp.net/external/')) {
-          if (isDebugMode) {
-            logInfo(`📏 SEPARATE: Filtering out Discord proxy URL: ${item.media}`);
-          }
-          return false;
-        }
-        
-        return true;
-      });
-      
-      if (validMedia.length === 0) {
-        if (isDebugMode) {
-          logInfo(`📏 SEPARATE: No valid media URLs found (all were Discord proxies), falling back to regular text message`);
-        }
-        // No valid media URLs - just send as regular text message
-        return await this.sendLongTextMessage(chatId, fullContent);
-      }
-      
-      if (validMedia.length !== media.length) {
-        logInfo(`📏 SEPARATE: Filtered out ${media.length - validMedia.length} invalid/proxy media items, ${validMedia.length} valid items remaining`);
-      }
-      
-      // Extract header and content from the full content
-      const lines = fullContent.split('\n');
-      let headerEndIndex = -1;
-      
-      // Find the end of the header (look for the separator line with ━)
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes('━')) {
-          headerEndIndex = i;
-          break;
-        }
-      }
-      
-      let headerForCaption = '';
-      let contentWithoutHeader = fullContent;
-      
-      if (headerEndIndex >= 0) {
-        // Found header separator, split content
-        // Header for caption includes everything UP TO (but not including) the separator line
-        headerForCaption = lines.slice(0, headerEndIndex).join('\n');
-        // Content starts AFTER the separator line
-        contentWithoutHeader = lines.slice(headerEndIndex + 1).join('\n').trim();
-        
-        if (isDebugMode) {
-          logInfo(`📏 SEPARATE: Header for caption (${headerForCaption.length} chars): "${headerForCaption}"`);
-          logInfo(`📏 SEPARATE: Content without header (${contentWithoutHeader.length} chars)`);
-        }
-      } else {
-        // No header found - extract server info from the beginning
-        // Look for the first double newline to separate header from content
-        const doubleNewlineIndex = fullContent.indexOf('\n\n');
-        if (doubleNewlineIndex > 0) {
-          headerForCaption = fullContent.substring(0, doubleNewlineIndex).trim();
-          contentWithoutHeader = fullContent.substring(doubleNewlineIndex + 2).trim();
-        } else {
-          headerForCaption = '';
-          contentWithoutHeader = fullContent;
-        }
-        
-        if (isDebugMode) {
-          logInfo(`📏 SEPARATE: No separator found, extracted header (${headerForCaption.length} chars): "${headerForCaption}"`);
-          logInfo(`📏 SEPARATE: Remaining content (${contentWithoutHeader.length} chars)`);
-        }
-      }
-      
-      // Send media with header as caption (or no caption if no header)
-      let mediaResult;
-      if (validMedia.length === 1) {
-        const mediaItem = validMedia[0];
-        let method = 'sendDocument';
-        
-        if (mediaItem.type === 'photo') {
-          method = 'sendPhoto';
-        } else if (mediaItem.type === 'video') {
-          method = 'sendVideo';
-        }
-        
-        const mediaPayload = {
-          chat_id: chatId,
-          [mediaItem.type === 'photo' ? 'photo' : mediaItem.type === 'video' ? 'video' : 'document']: mediaItem.media
-        };
-        
-        // Add caption only if we have a header (but check for problematic URLs)
-        if (headerForCaption.trim()) {
-          // Check if header contains URLs that might cause WEBPAGE_CURL_FAILED
-          const hasProblematicUrls = this.hasProblematicUrls(headerForCaption);
-          
-          if (hasProblematicUrls) {
-            if (isDebugMode) {
-              logInfo(`📏 SEPARATE: Header contains problematic URLs, sending without caption to avoid WEBPAGE_CURL_FAILED`);
-            }
-            // Don't add caption with problematic URLs
-          } else {
-            mediaPayload.caption = headerForCaption;
-            mediaPayload.parse_mode = 'MarkdownV2';
-          }
-        }
-        
-        if (isDebugMode) {
-          logInfo(`📏 SEPARATE: Sending ${method} with media`);
-        }
-        
-        mediaResult = await this.callTelegramAPI(method, mediaPayload);
-      } else {
-        const hasProblematicUrls = headerForCaption.trim() ? this.hasProblematicUrls(headerForCaption) : false;
-        
-        const mediaItems = validMedia.map((item, index) => {
-          const mediaItem = { ...item };
-          
-          // Add caption to first item only if we have a header and no problematic URLs
-          if (index === 0 && headerForCaption.trim() && !hasProblematicUrls) {
-            mediaItem.caption = headerForCaption;
-            mediaItem.parse_mode = 'MarkdownV2';
-          }
-          
-          return mediaItem;
-        });
-
-        if (isDebugMode) {
-          if (hasProblematicUrls) {
-            logInfo(`📏 SEPARATE: Media group header contains problematic URLs, sending without caption`);
-          }
-          logInfo(`📏 SEPARATE: Sending media group with ${validMedia.length} items`);
-        }
-
-        mediaResult = await this.callTelegramAPI('sendMediaGroup', {
-          chat_id: chatId,
-          media: JSON.stringify(mediaItems)
-        });
-      }
-      
-      if (!mediaResult || !mediaResult.ok) {
-        throw new Error(`Media send error: ${mediaResult ? mediaResult.description : 'Unknown error'}`);
-      }
-      
-      // Determine web page preview settings (same logic as in convertDiscordMessage)
-      let disableWebPagePreview = false;
-      
-      if (envConfig.telegram?.smartLinkPreviews === false) {
-        // Always disable previews if smartLinkPreviews is disabled
-        disableWebPagePreview = true;
-      } else if (envConfig.telegram?.smartLinkPreviews !== false) {
-        // Smart behavior (default):
-        // Since we're sending media separately, we have media, so allow previews
-        // But since this is a separate text message, disable previews to avoid conflicts
-        disableWebPagePreview = true; // Disable for separate text messages to avoid duplicate previews
-      }
-      
-      if (isDebugMode) {
-        logInfo(`📏 SEPARATE: Web page preview disabled: ${disableWebPagePreview}`);
-      }
-      
-      // Send full content as separate text message (up to 4000 chars)
-      const textLengthLimit = 4000;
-      let textResult;
-      
-      // Check if we need to include the header in the text message
-      let textToSend = contentWithoutHeader;
-      const hasProblematicUrls = headerForCaption.trim() ? this.hasProblematicUrls(headerForCaption) : false;
-      
-      if (hasProblematicUrls && headerForCaption.trim()) {
-        // Header was skipped from media caption due to problematic URLs, include it in text
-        textToSend = headerForCaption + '\n\n' + contentWithoutHeader;
-        if (isDebugMode) {
-          logInfo(`📏 SEPARATE: Including header in text message due to problematic URLs in caption`);
-        }
-      }
-      
-      if (textToSend.length <= textLengthLimit) {
-        // Content fits in single message
-        textResult = await this.callTelegramAPI('sendMessage', {
-          chat_id: chatId,
-          text: textToSend,
-          parse_mode: 'MarkdownV2',
-          disable_web_page_preview: disableWebPagePreview
-        });
-        
-        if (!textResult || !textResult.ok) {
-          throw new Error(`Text send error: ${textResult ? textResult.description : 'Unknown error'}`);
-        }
-        
-        logSuccess(`📎 Sent media separately + full text to Telegram chat ${chatId} (header: ${headerForCaption.length}, content: ${textToSend.length} chars)`);
-        
-        // Return message chain data
-        const primaryMessageId = Array.isArray(mediaResult.result) ? mediaResult.result[0].message_id : mediaResult.result.message_id;
-        const secondaryMessageId = textResult.result.message_id;
-        
-        return {
-          result: mediaResult.result,
-          messageChain: [primaryMessageId.toString(), secondaryMessageId.toString()],
-          isSplit: true
-        };
-      } else {
-        // Content is too long, split it using smart splitting
-        logInfo(`📏 SEPARATE: Content too long (${textToSend.length} chars), using smart text splitting`);
-        const textSplitResult = await this.sendLongTextMessage(chatId, textToSend, disableWebPagePreview);
-        
-        // Combine media and text message IDs
-        const primaryMessageId = Array.isArray(mediaResult.result) ? mediaResult.result[0].message_id : mediaResult.result.message_id;
-        const allMessageIds = [primaryMessageId.toString(), ...textSplitResult.messageChain];
-        
-        logSuccess(`📎 Sent media separately + split text to Telegram chat ${chatId} (${allMessageIds.length} total messages)`);
-        
-        return {
-          result: mediaResult.result,
-          messageChain: allMessageIds,
-          isSplit: true
-        };
-      }
-      
-    } catch (error) {
-      logError('Error sending media separately:', error);
-      throw error;
-    }
-  }
-
-
-  /**
-   * Check if text contains URLs that might cause WEBPAGE_CURL_FAILED in media captions
-   */
-  hasProblematicUrls(text) {
-    // Look for URLs that commonly cause WEBPAGE_CURL_FAILED in media captions
-    const problematicPatterns = [
-      /https?:\/\/t\.me\//i,          // Telegram links
-      /https?:\/\/discord\.gg\//i,    // Discord invite links
-      /https?:\/\/[^\\s)]+/g          // Any HTTP/HTTPS links (be conservative)
-    ];
-    
-    return problematicPatterns.some(pattern => pattern.test(text));
-  }
-
-  /**
-   * Remove separator line (━━━━━━━━━━━━━━━━━━━━━━━━━) when using splitting strategies
-   */
-  removeSeparatorLine(text) {
-    // Look for the separator line pattern (multiple ━ characters)
-    const separatorPattern = /\n━{10,}\n?/g;
-    return text.replace(separatorPattern, '\n');
-  }
-
-  /**
-   * Find optimal point to split long text while preserving formatting
-   */
-  findOptimalSplitPoint(text, maxLength) {
-    if (text.length <= maxLength) {
-      return text.length;
-    }
-    
-    // Try to find good break points in order of preference
-    const breakPoints = [
-      // Double line breaks (paragraph separators)
-      /\n\n/g,
-      // Single line breaks
-      /\n/g,
-      // Sentence endings
-      /[.!?]\s+/g,
-      // Commas with spaces
-      /,\s+/g,
-      // Word boundaries
-      /\s+/g
-    ];
-    
-    for (const breakPattern of breakPoints) {
-      const matches = [...text.matchAll(breakPattern)];
-      
-      // Find the best match within our limit
-      let bestMatch = null;
-      for (const match of matches) {
-        if (match.index <= maxLength) {
-          bestMatch = match;
-        } else {
-          break;
-        }
-      }
-      
-      if (bestMatch) {
-        return bestMatch.index + bestMatch[0].length;
-      }
-    }
-    
-    // If no good break point found, cut at word boundary before limit
-    let cutPoint = maxLength;
-    while (cutPoint > 0 && text[cutPoint] !== ' ') {
-      cutPoint--;
-    }
-    
-    return Math.max(cutPoint, Math.floor(maxLength * 0.8)); // Ensure we don't cut too short
+    return await this.messageSender.sendMediaSeparately(chatId, media, fullContent);
   }
 
   /**
    * Edit message caption for media messages
    */
   async editMessageCaption(chatId, messageId, newCaption) {
-    try {
-      const result = await this.callTelegramAPI('editMessageCaption', {
-        chat_id: chatId,
-        message_id: parseInt(messageId),
-        caption: newCaption,
-        parse_mode: 'MarkdownV2'
-      });
-
-      if (result && result.ok) {
-        logSuccess(`✏️ Edited message caption ${messageId} in chat ${chatId}`);
-        return result.result;
-      } else {
-        throw new Error(`Caption edit error: ${result ? result.description : 'Unknown error'}`);
-      }
-    } catch (error) {
-      logError('Error editing message caption:', error);
-      throw error;
-    }
+    return await this.utils.editMessageCaption(chatId, messageId, newCaption);
   }
 
   /**
    * Edit message text for text-only messages
    */
   async editMessageText(chatId, messageId, newText) {
-    try {
-      const result = await this.callTelegramAPI('editMessageText', {
-        chat_id: chatId,
-        message_id: parseInt(messageId),
-        text: newText,
-        parse_mode: 'MarkdownV2'
-      });
-
-      if (result && result.ok) {
-        logSuccess(`✏️ Edited message text ${messageId} in chat ${chatId}`);
-        return result.result;
-      } else {
-        throw new Error(`Text edit error: ${result ? result.description : 'Unknown error'}`);
-      }
-    } catch (error) {
-      logError('Error editing message text:', error);
-      throw error;
-    }
+    return await this.utils.editMessageText(chatId, messageId, newText);
   }
 
   /**
    * Delete a Telegram message
    */
   async deleteMessage(chatId, messageId) {
-    try {
-      const result = await this.callTelegramAPI('deleteMessage', {
-        chat_id: chatId,
-        message_id: parseInt(messageId)
-      });
-
-      if (result && result.ok) {
-        logSuccess(`🗑️ Deleted message ${messageId} in chat ${chatId}`);
-        return true;
-      } else {
-        throw new Error(`Delete error: ${result ? result.description : 'Unknown error'}`);
-      }
-    } catch (error) {
-      logError('Error deleting message:', error);
-      throw error;
-    }
+    return await this.utils.deleteMessage(chatId, messageId);
   }
 
   /**
    * Handle editing of split messages (message chains)
    */
   async editMessageChain(chatId, messageChain, newFullText) {
-    try {
-      const envConfig = require('../config/env');
-      const isDebugMode = envConfig.debugMode;
-      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
-      
-      if (isDebugMode) {
-        logInfo(`✏️ CHAIN EDIT: Editing message chain with ${messageChain.length} messages`);
-      }
-      
-      // Check if new text still needs splitting
-      if (newFullText.length <= captionLengthLimit) {
-        // Text now fits in single caption - need to restructure
-        if (isDebugMode) {
-          logInfo(`✏️ CHAIN EDIT: Text now fits in single caption, restructuring...`);
-        }
-        
-        // Edit the first message (media caption)
-        await this.editMessageCaption(chatId, messageChain[0], newFullText);
-        
-        // Delete the secondary text message since it's no longer needed
-        for (let i = 1; i < messageChain.length; i++) {
-          await this.deleteMessage(chatId, messageChain[i]);
-        }
-        
-        return [messageChain[0]]; // Return new chain with just primary message
-        
-      } else {
-        // Text still needs splitting
-        const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
-        const splitStrategy = envConfig.telegram?.captionSplitStrategy || 'smart';
-        
-        let splitPoint;
-        if (splitStrategy === 'aismart') {
-          splitPoint = await this.findAILanguageBoundary(newFullText, captionLengthLimit - splitIndicator.length - 10);
-        } else {
-          splitPoint = this.findOptimalSplitPoint(newFullText, captionLengthLimit - splitIndicator.length - 10);
-        }
-        
-        const escapedSplitIndicator = FormatConverter.escapeMarkdownV2ForText(splitIndicator);
-        const firstPart = newFullText.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
-        const remainingPart = newFullText.substring(splitPoint).trim();
-        
-        if (isDebugMode) {
-          logInfo(`✏️ CHAIN EDIT: Still needs splitting: ${firstPart.length} + ${remainingPart.length} chars`);
-        }
-        
-        // Edit the first message (media caption)
-        await this.editMessageCaption(chatId, messageChain[0], firstPart);
-        
-        // Edit or create secondary message
-        if (messageChain.length > 1) {
-          // Edit existing secondary message
-          await this.editMessageText(chatId, messageChain[1], remainingPart);
-        } else {
-          // Create new secondary message
-          const textResult = await this.callTelegramAPI('sendMessage', {
-            chat_id: chatId,
-            text: remainingPart,
-            parse_mode: 'MarkdownV2'
-          });
-          
-          if (textResult && textResult.ok) {
-            messageChain.push(textResult.result.message_id.toString());
-          }
-        }
-        
-        return messageChain; // Return updated chain
-      }
-      
-    } catch (error) {
-      logError('Error editing message chain:', error);
-      throw error;
-    }
+    return await this.utils.editMessageChain(chatId, messageChain, newFullText);
   }
 
   /**
    * Delete an entire message chain
    */
   async deleteMessageChain(chatId, messageChain) {
-    try {
-      const deletePromises = messageChain.map(messageId =>
-        this.deleteMessage(chatId, messageId).catch(error => {
-          logError(`Failed to delete message ${messageId}:`, error);
-        })
-      );
-      
-      await Promise.allSettled(deletePromises);
-      logSuccess(`🗑️ Deleted message chain with ${messageChain.length} messages in chat ${chatId}`);
-      
-    } catch (error) {
-      logError('Error deleting message chain:', error);
-      throw error;
-    }
+    return await this.utils.deleteMessageChain(chatId, messageChain);
   }
 
   /**
    * Send media group to Telegram
    */
   async sendMediaGroup(chatId, media) {
-    try {
-      const result = await this.callTelegramAPI('sendMediaGroup', {
-        chat_id: chatId,
-        media: JSON.stringify(media)
-      });
-
-      if (result && result.ok) {
-        logSuccess(`📎 Sent ${media.length} media items to Telegram chat ${chatId}`);
-        return result.result;
-      } else {
-        throw new Error(`Media send error: ${result ? result.description : 'Unknown error'}`);
-      }
-    } catch (error) {
-      logError('Error sending media group:', error);
-      throw error;
-    }
+    return await this.messageSender.sendMediaGroup(chatId, media);
   }
 
   /**
    * Convert Discord message to Telegram format
    */
   async convertDiscordMessage(discordMessage, config = {}) {
-    const envConfig = require('../config/env');
-    const isDebugMode = envConfig.debugMode;
-    
-    let text = '';
-    const media = [];
-
-    if (isDebugMode) {
-      logInfo('🔍 EMBED DEBUG: Starting Discord message conversion');
-      logInfo(`🔍 EMBED DEBUG: Message content: "${discordMessage.content || 'NO CONTENT'}"`);
-    }
-
-    // Add source header for Discord server and channel
-    const sourceHeader = await this.buildSourceHeader(discordMessage, config);
-    if (sourceHeader) {
-      text += sourceHeader + '\n\n';
-    }
-
-    // Convert message content directly without author prefix
-    if (discordMessage.content) {
-      if (isDebugMode) {
-        logInfo(`🔍 EMBED DEBUG: Converting main content: "${discordMessage.content}"`);
-      }
-      const convertedContent = await this.convertDiscordToTelegramMarkdown(discordMessage.content, discordMessage);
-      if (isDebugMode) {
-        logInfo(`🔍 EMBED DEBUG: Converted main content: "${convertedContent}"`);
-      }
-      text += convertedContent;
-    }
-
-    // Handle embeds with better formatting
-    if (discordMessage.embeds && discordMessage.embeds.length > 0) {
-      if (isDebugMode) {
-        logInfo(`🔍 EMBED DEBUG: Processing ${discordMessage.embeds.length} embeds`);
-      }
-      
-      for (let i = 0; i < discordMessage.embeds.length; i++) {
-        const embed = discordMessage.embeds[i];
-        if (isDebugMode) {
-          logInfo(`🔍 EMBED DEBUG: --- Processing Embed ${i + 1} ---`);
-        }
-        
-        // Add spacing if there's already content
-        if (text.trim()) {
-          text += '\n\n';
-        }
-        
-        if (embed.title) {
-          if (isDebugMode) {
-            logInfo(`🔍 EMBED DEBUG: Embed title: "${embed.title}"`);
-          }
-          const escapedTitle = FormatConverter.escapeMarkdownV2ForText(embed.title);
-          if (isDebugMode) {
-            logInfo(`🔍 EMBED DEBUG: Escaped title: "${escapedTitle}"`);
-          }
-          text += `*${escapedTitle}*\n`;
-        }
-        
-        if (embed.description || embed.rawDescription) {
-          const description = embed.rawDescription || embed.description;
-          if (isDebugMode) {
-            logInfo(`🔍 EMBED DEBUG: Raw embed description: "${description}"`);
-            logInfo(`🔍 EMBED DEBUG: Description source: ${embed.rawDescription ? 'rawDescription' : 'description'}`);
-          }
-          
-          const convertedDescription = await this.convertDiscordToTelegramMarkdown(description, discordMessage);
-          if (isDebugMode) {
-            logInfo(`🔍 EMBED DEBUG: Converted description: "${convertedDescription}"`);
-          }
-          
-          text += `${convertedDescription}\n`;
-        }
-        
-        if (embed.url) {
-          if (isDebugMode) {
-            logInfo(`🔍 EMBED DEBUG: Embed URL: "${embed.url}"`);
-          }
-          text += `🔗 [Link](${embed.url})\n`;
-        }
-        
-        // Handle embed images
-        if (embed.image && embed.image.url) {
-          if (isDebugMode) {
-            logInfo(`🔍 EMBED DEBUG: Adding embed image: "${embed.image.url}"`);
-          }
-          media.push({
-            type: 'photo',
-            media: embed.image.url
-          });
-        }
-        
-        // Handle embed thumbnails
-        if (embed.thumbnail && embed.thumbnail.url) {
-          if (isDebugMode) {
-            logInfo(`🔍 EMBED DEBUG: Adding embed thumbnail: "${embed.thumbnail.url}"`);
-          }
-          media.push({
-            type: 'photo',
-            media: embed.thumbnail.url
-          });
-        }
-        
-        // Add fields with better formatting
-        if (embed.fields && embed.fields.length > 0) {
-          if (isDebugMode) {
-            logInfo(`🔍 EMBED DEBUG: Processing ${embed.fields.length} fields`);
-          }
-          
-          for (let j = 0; j < embed.fields.length; j++) {
-            const field = embed.fields[j];
-            const fieldName = field.rawName || field.name;
-            const fieldValue = field.rawValue || field.value;
-            
-            if (isDebugMode) {
-              logInfo(`🔍 EMBED DEBUG: Field ${j + 1} name: "${fieldName}"`);
-              logInfo(`🔍 EMBED DEBUG: Field ${j + 1} value: "${fieldValue}"`);
-            }
-            
-            const escapedFieldName = FormatConverter.escapeMarkdownV2ForText(fieldName);
-            const convertedFieldValue = await this.convertDiscordToTelegramMarkdown(fieldValue, discordMessage);
-            
-            if (isDebugMode) {
-              logInfo(`🔍 EMBED DEBUG: Field ${j + 1} escaped name: "${escapedFieldName}"`);
-              logInfo(`🔍 EMBED DEBUG: Field ${j + 1} converted value: "${convertedFieldValue}"`);
-            }
-            
-            text += `\n*${escapedFieldName}:*\n${convertedFieldValue}\n`;
-          }
-        }
-        
-        if (isDebugMode) {
-          logInfo(`🔍 EMBED DEBUG: Text after embed ${i + 1}: "${text}"`);
-        }
-      }
-      
-      if (isDebugMode) {
-        logInfo(`🔍 EMBED DEBUG: Final combined text with all embeds: "${text}"`);
-        logInfo(`🔍 EMBED DEBUG: Media items found: ${media.length}`);
-        media.forEach((item, index) => {
-          logInfo(`🔍 EMBED DEBUG: Media ${index + 1}: ${item.type} - ${item.media}`);
-        });
-      }
-    }
-
-    // Handle attachments with better integration
-    if (discordMessage.attachments && discordMessage.attachments.size > 0) {
-      for (const attachment of discordMessage.attachments.values()) {
-        if (this.isImageFile(attachment.name)) {
-          // Add to media group
-          media.push({
-            type: 'photo',
-            media: attachment.url
-          });
-        } else if (this.isVideoFile(attachment.name)) {
-          // Add to media group
-          media.push({
-            type: 'video',
-            media: attachment.url
-          });
-        } else {
-          // Add as file link in text only if we don't have media
-          // (if we have media, the text will be sent as caption)
-          if (text.trim()) {
-            text += `\n📎 [${FormatConverter.escapeMarkdownV2ForText(attachment.name)}](${attachment.url})`;
-          } else {
-            text += `📎 [${FormatConverter.escapeMarkdownV2ForText(attachment.name)}](${attachment.url})`;
-          }
-        }
-      }
-    }
-
-    // Handle stickers with better formatting
-    if (discordMessage.stickers && discordMessage.stickers.size > 0) {
-      const stickerNames = Array.from(discordMessage.stickers.values())
-        .map(sticker => sticker.name)
-        .join(', ');
-      
-      if (text.trim()) {
-        text += `\n🎭 ${FormatConverter.escapeMarkdownV2ForText(stickerNames)}`;
-      } else {
-        text += `🎭 ${FormatConverter.escapeMarkdownV2ForText(stickerNames)}`;
-      }
-    }
-
-    // Ensure we have some content with a cleaner fallback
-    if (!text.trim() && media.length === 0) {
-      text = '💬 *Message*';
-    }
-
-    // Determine whether to disable web page previews
-    let disableWebPagePreview = false;
-    
-    if (envConfig.telegram?.smartLinkPreviews === false) {
-      // Always disable previews if smartLinkPreviews is disabled
-      disableWebPagePreview = true;
-    } else if (envConfig.telegram?.smartLinkPreviews !== false) {
-      // Smart behavior (default):
-      // - If Discord has images/videos: Allow previews (Telegram will show images, not link previews)
-      // - If Discord has only text/links: Disable previews (prevent big link previews)
-      disableWebPagePreview = media.length === 0;
-    }
-
-    return {
-      text: text,
-      media: media,
-      disableWebPagePreview: disableWebPagePreview
-      // Don't include replyMarkup unless we actually have one
-    };
+    return await this.converter.convertDiscordMessage(discordMessage, config);
   }
 
   /**
    * Build source header showing Discord server and channel
    */
   async buildSourceHeader(discordMessage, config = {}) {
-    try {
-      const envConfig = require('../config/env');
-      const isDebugMode = envConfig.debugMode;
-      
-      // Skip header if disabled in config
-      if (config.hideSourceHeader || envConfig.telegram?.hideSourceHeader) {
-        return null;
-      }
-
-      if (!discordMessage.guild || !discordMessage.channel) {
-        if (isDebugMode) {
-          logInfo('🔍 SOURCE DEBUG: No guild or channel info available');
-        }
-        return null;
-      }
-
-      // Get Discord invite manager
-      const discordInviteManager = require('../utils/discordInviteManager');
-      
-      // Get server name and invite link
-      const serverName = discordMessage.guild.name;
-      const inviteLink = await discordInviteManager.getGuildInvite(discordMessage.guild);
-      
-      // Get channel name
-      const channelName = discordMessage.channel.name;
-      
-      if (isDebugMode) {
-        logInfo(`🔍 SOURCE DEBUG: Server: ${serverName}, Channel: ${channelName}, Invite: ${inviteLink}`);
-      }
-
-      // Build header with proper escaping for MarkdownV2
-      let header = '';
-      
-      if (inviteLink) {
-        // Server name as clickable link
-        const escapedServerName = this.escapeMarkdownV2ForText(serverName);
-        const escapedInviteLink = inviteLink.replace(/([)\\])/g, '\\$1');
-        header += `[${escapedServerName}](${escapedInviteLink})`;
-      } else {
-        // Server name as plain text if no invite available
-        header += this.escapeMarkdownV2ForText(serverName);
-      }
-      
-      // Add arrow and channel name
-      header += ` → `;
-      header += `\\#${this.escapeMarkdownV2ForText(channelName)}`;
-      
-      // Add elegant separator using Unicode box drawing characters
-      // These work well in Telegram and look clean on all screen sizes
-      const separator = '━'.repeat(25); // Unicode heavy horizontal line
-      header += `\n${separator}`;
-
-      if (isDebugMode) {
-        logInfo(`🔍 SOURCE DEBUG: Built header: "${header}"`);
-      }
-
-      return header;
-    } catch (error) {
-      logError('Error building source header:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Escape text for use in Telegram MarkdownV2 (for plain text content)
-   */
-  escapeMarkdownV2ForText(text) {
-    if (!text) return '';
-    
-    // Characters that need escaping in MarkdownV2 plain text:
-    // _ * [ ] ( ) ~ ` > # + - = | { } . ! \
-    return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
-  }
-
-  /**
-   * Legacy compatibility methods - redirect to FormatConverter
-   */
-  async convertToHTML(text, message = null) {
-    return await AIFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
-  }
-
-  async simpleMarkdownV2Convert(text, message = null) {
-    return await AIFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
-  }
-
-  async convertDiscordToTelegramMarkdown(text, message = null) {
-    return await AIFormatConverter.convertDiscordToTelegramMarkdownV2(text, message);
-  }
-
-  /**
-   * Check if file is an image
-   */
-  isImageFile(filename) {
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-    return imageExtensions.some(ext => filename.toLowerCase().endsWith(ext));
-  }
-
-  /**
-   * Check if file is a video
-   */
-  isVideoFile(filename) {
-    const videoExtensions = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv'];
-    return videoExtensions.some(ext => filename.toLowerCase().endsWith(ext));
+    return await this.converter.buildSourceHeader(discordMessage, config);
   }
 
   /**
    * Make API call to Telegram Bot API
    */
   async callTelegramAPI(method, params = {}) {
-    return new Promise((resolve, reject) => {
-      const postData = JSON.stringify(params);
-      
-      const options = {
-        hostname: this.apiUrl.replace('https://', '').replace('http://', ''),
-        port: 443,
-        path: `/bot${this.botToken}/${method}`,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(postData)
-        }
-      };
-
-      const req = https.request(options, (res) => {
-        let data = '';
-
-        res.on('data', (chunk) => {
-          data += chunk;
-        });
-
-        res.on('end', () => {
-          try {
-            const response = JSON.parse(data);
-            resolve(response);
-          } catch (error) {
-            reject(new Error('Invalid JSON response from Telegram API'));
-          }
-        });
-      });
-
-      req.on('error', (error) => {
-        reject(error);
-      });
-
-      req.write(postData);
-      req.end();
-    });
+    return await this.api.callTelegramAPI(method, params);
   }
 
   /**
    * Get Telegram bot information
    */
   async getBotInfo() {
-    if (!this.initialized) {
-      return { error: 'Telegram handler not initialized' };
-    }
-
-    try {
-      const result = await this.callTelegramAPI('getMe');
-      return result;
-    } catch (error) {
-      logError('Error getting bot info:', error);
-      return { error: error.message };
-    }
+    return await this.api.getBotInfo();
   }
 
   /**
@@ -1404,11 +281,63 @@ class TelegramHandler {
       };
 
       const result = await this.sendMessage(chatId, testMessage);
-      return { success: true, messageId: result.message_id };
+      return { success: true, messageId: result.message_id || result.result?.message_id };
     } catch (error) {
       logError('Telegram test failed:', error);
       return { error: error.message };
     }
+  }
+
+  // ==========================================
+  // LEGACY COMPATIBILITY METHODS
+  // ==========================================
+
+  /**
+   * Legacy compatibility methods - redirect to new converter
+   */
+  async convertToHTML(text, message = null) {
+    return await this.converter.convertDiscordToTelegramMarkdown(text, message);
+  }
+
+  async simpleMarkdownV2Convert(text, message = null) {
+    return await this.converter.convertDiscordToTelegramMarkdown(text, message);
+  }
+
+  async convertDiscordToTelegramMarkdown(text, message = null) {
+    return await this.converter.convertDiscordToTelegramMarkdown(text, message);
+  }
+
+  /**
+   * Legacy text processing methods - redirect to new modules
+   */
+  findOptimalSplitPoint(text, maxLength) {
+    return this.textSplitter.findOptimalSplitPoint(text, maxLength);
+  }
+
+  removeSeparatorLine(text) {
+    return this.textSplitter.removeSeparatorLine(text);
+  }
+
+  hasProblematicUrls(text) {
+    return this.textSplitter.hasProblematicUrls(text);
+  }
+
+  /**
+   * Legacy media methods - redirect to new media handler
+   */
+  isImageFile(filename) {
+    return this.mediaHandler.isImageFile(filename);
+  }
+
+  isVideoFile(filename) {
+    return this.mediaHandler.isVideoFile(filename);
+  }
+
+  /**
+   * Legacy text escaping - redirect to utils
+   */
+  escapeMarkdownV2ForText(text) {
+    return this.utils.escapeMarkdownV2ForText(text);
   }
 }
 
