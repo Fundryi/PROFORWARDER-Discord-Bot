@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  proforwarder-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: proforwarder-discord-bot
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - ./config/.env
+    volumes:
+      # Mount data directory for SQLite databases
+      - ./data:/app/data
+      # Mount config directory for configuration files
+      - ./config:/app/config
+    networks:
+      - bot-network
+    # Optional: Add logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  bot-network:
+    driver: bridge
