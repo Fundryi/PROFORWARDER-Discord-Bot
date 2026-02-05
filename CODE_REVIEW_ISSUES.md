@@ -149,9 +149,9 @@ No open issues remaining.
 
 ---
 
-## Infrastructure Improvements Made
+## Infrastructure Improvements
 
-### Docker Setup
+### [DONE] Docker Setup
 - Multi-stage Dockerfile with Node.js 24
 - `compose.yaml` with init container for config setup and permissions
 - `compose.override.yaml` for local development (gitignored)
@@ -159,7 +159,7 @@ No open issues remaining.
 - Healthcheck using dedicated `healthcheck.js`
 - Removed `image:` tag to fix Komodo build issues
 
-### Code Quality
+### [DONE] Code Quality
 - Promisified `exec()` and `close()` in database.js
 - `errorHandlers.js` uses logger instead of console.error
 - Removed redundant DOCKER_SETUP.md
@@ -169,10 +169,9 @@ No open issues remaining.
 
 ---
 
-## Test Gaps
+## Test Gaps (Not Planned)
 
 - No automated tests detected in `package.json`
-- Suggested: Add unit tests for config manager, DB operations, and Telegram chain handling
 
 ---
 
