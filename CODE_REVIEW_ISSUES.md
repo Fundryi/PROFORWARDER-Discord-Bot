@@ -1,7 +1,7 @@
 # ProForwarder Discord Bot - Code Review Issues
 
 Date: 2026-02-05
-Last Updated: 2026-02-05
+Last Updated: 2026-02-05 (Medium issues fixed)
 
 This document tracks issues found during code review and their resolution status.
 
@@ -105,23 +105,23 @@ This document tracks issues found during code review and their resolution status
 - **Fix:** Cache is now invalidated after `addForwardConfig`, `disableForwardConfig`, and `toggleAutoPublishChannel`
 - **Review status:** OK
 
+### [FIXED] Fallback (non-webhook) forwarding can ping everyone/roles (Medium #8)
+- **Severity:** Medium
+- **File:** `handlers/forwardHandler.js`
+- **Issue:** Fallback messages didn't set `allowedMentions`, causing unintended pings
+- **Fix:** Added `allowedMentions: { parse: [] }` by default in `buildEnhancedMessage()`, with conditional `everyone` parsing when `config.allowEveryone` is set and message contains @everyone
+- **Review status:** OK
+
+### [FIXED] AI provider config mismatch (Medium #9)
+- **Severity:** Medium
+- **File:** `config/env.js.example`
+- **Issue:** Documentation listed OpenAI/DeepL but AIManager only implements Gemini/Google
+- **Fix:** Updated `env.js.example` to document actual implemented providers (gemini as primary, google as fallback)
+- **Review status:** OK
+
 ---
 
 ## Open Issues
-
-### Medium
-
-#### 1. Fallback (non-webhook) forwarding can ping everyone/roles
-- **File:** `handlers/forwardHandler.js:413-420`
-- **Issue:** Fallback messages don't set `allowedMentions`
-- **Impact:** Unintended mentions in forwarded messages
-- **Suggested Fix:** Set `allowedMentions` on fallback sends
-
-#### 2. AI provider config mismatch
-- **File:** `utils/aiManager.js:43-67,191-193`, `config/env.js.example`
-- **Issue:** Docs list OpenAI/DeepL but AIManager only initializes Gemini/Google
-- **Impact:** OpenAI/DeepL paths won't work as documented
-- **Suggested Fix:** Align providers with documentation
 
 ### Low
 

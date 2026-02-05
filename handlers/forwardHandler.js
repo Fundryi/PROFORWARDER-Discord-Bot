@@ -346,18 +346,35 @@ class ForwardHandler {
 
   // Build enhanced message with better formatting and metadata
   async buildEnhancedMessage(message, config) {
-    const messageOptions = {};
+    const messageOptions = {
+      // Default: disable all mentions to prevent unintended pings
+      allowedMentions: {
+        parse: []
+      }
+    };
 
     // Handle text content with enhanced formatting
     if (message.content) {
       let content = message.content;
-      
+
       // Add author information for cross-server forwards
       if (config.sourceServerId !== config.targetServerId) {
         content = `**${message.author.displayName}** from **${message.guild?.name || 'Unknown Server'}**:\n${content}`;
       }
-      
+
       messageOptions.content = content;
+
+      // Handle @everyone/@here mentions if enabled in config
+      if (config.allowEveryone) {
+        const hasEveryone = content.includes('@everyone');
+        if (hasEveryone) {
+          messageOptions.allowedMentions = {
+            parse: ['everyone'],
+            users: [],
+            roles: []
+          };
+        }
+      }
     }
 
     // Handle embeds
