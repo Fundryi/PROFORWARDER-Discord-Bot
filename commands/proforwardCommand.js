@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { addForwardConfig, getForwardConfigsForChannel, disableForwardConfig, getAllActiveForwardConfigs } = require('../utils/configManager');
+const { addForwardConfig, getForwardConfigsForChannel, removeForwardConfig, getAllActiveForwardConfigs } = require('../utils/configManager');
 const { hasWebhookPermissions } = require('../utils/webhookManager');
 const { logInfo, logSuccess, logError } = require('../utils/logger');
 
@@ -673,7 +673,7 @@ async function handleRemove(interaction) {
   const configId = interaction.options.getInteger('config_id');
 
   try {
-    await disableForwardConfig(configId);
+    await removeForwardConfig(configId);
     
     await interaction.reply({ 
       content: `✅ Forward configuration **${configId}** has been removed.`,

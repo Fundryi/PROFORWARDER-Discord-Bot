@@ -277,6 +277,44 @@ async function disableForwardConfig(configId) {
   }
 }
 
+// Remove a forward configuration from env.js entirely
+async function removeForwardConfig(configId) {
+  await acquireWriteLock();
+  try {
+    const envContent = await fs.readFile(CONFIG_PATH, 'utf8');
+
+    const arrayRange = findForwardConfigsArrayRange(envContent);
+    if (!arrayRange) {
+      throw new Error('forwardConfigs array not found in env.js');
+    }
+
+    const arrayText = envContent.slice(arrayRange.start, arrayRange.end + 1);
+    const objectRange = findConfigObjectRange(arrayText, configId);
+    if (!objectRange) {
+      throw new Error(`Configuration ${configId} not found`);
+    }
+
+    const updatedArrayText = removeObjectFromArrayText(arrayText, objectRange.start, objectRange.end);
+    const updatedContent =
+      envContent.slice(0, arrayRange.start) +
+      updatedArrayText +
+      envContent.slice(arrayRange.end + 1);
+
+    await fs.writeFile(CONFIG_PATH, updatedContent, 'utf8');
+
+    // Invalidate cache so change is immediately visible
+    invalidateCache();
+
+    logSuccess(`Removed forward config ${configId} from env.js`);
+    return true;
+  } catch (error) {
+    logError('Error removing forward config:', error);
+    throw error;
+  } finally {
+    releaseWriteLock();
+  }
+}
+
 // Get default AI configuration for new forward configs
 function getDefaultAIConfig() {
   return {
@@ -488,6 +526,130 @@ async function isChannelAutoPublishEnabled(serverId, channelId) {
   }
 }
 
+function findForwardConfigsArrayRange(content) {
+  const keyIndex = content.indexOf('forwardConfigs');
+  if (keyIndex === -1) return null;
+
+  const arrayStart = content.indexOf('[', keyIndex);
+  if (arrayStart === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let stringChar = '';
+  let escape = false;
+
+  for (let i = arrayStart; i < content.length; i++) {
+    const ch = content[i];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === '\\') {
+        escape = true;
+      } else if (ch === stringChar) {
+        inString = false;
+        stringChar = '';
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+
+    if (ch === '[') {
+      depth++;
+    } else if (ch === ']') {
+      depth--;
+      if (depth === 0) {
+        return { start: arrayStart, end: i };
+      }
+    }
+  }
+
+  return null;
+}
+
+function findConfigObjectRange(arrayText, configId) {
+  let inString = false;
+  let stringChar = '';
+  let escape = false;
+  let braceDepth = 0;
+  let objectStart = null;
+
+  for (let i = 0; i < arrayText.length; i++) {
+    const ch = arrayText[i];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === '\\') {
+        escape = true;
+      } else if (ch === stringChar) {
+        inString = false;
+        stringChar = '';
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+
+    if (ch === '{') {
+      if (braceDepth === 0) {
+        objectStart = i;
+      }
+      braceDepth++;
+      continue;
+    }
+
+    if (ch === '}') {
+      braceDepth--;
+      if (braceDepth === 0 && objectStart !== null) {
+        const objectText = arrayText.slice(objectStart, i + 1);
+        const idPattern = new RegExp(`\\bid\\s*:\\s*${configId}\\b`);
+        if (idPattern.test(objectText)) {
+          return { start: objectStart, end: i + 1 };
+        }
+        objectStart = null;
+      }
+    }
+  }
+
+  return null;
+}
+
+function removeObjectFromArrayText(arrayText, objectStart, objectEnd) {
+  let start = objectStart;
+  let end = objectEnd;
+
+  let j = end;
+  while (j < arrayText.length && /\s/.test(arrayText[j])) {
+    j++;
+  }
+  if (arrayText[j] === ',') {
+    end = j + 1;
+    while (end < arrayText.length && /\s/.test(arrayText[end])) {
+      end++;
+    }
+  } else {
+    let i = start - 1;
+    while (i >= 0 && /\s/.test(arrayText[i])) {
+      i--;
+    }
+    if (arrayText[i] === ',') {
+      start = i;
+    }
+  }
+
+  return arrayText.slice(0, start) + arrayText.slice(end);
+}
+
 module.exports = {
   loadForwardConfigs,
   getForwardConfigsForChannel,
@@ -495,6 +657,7 @@ module.exports = {
   getForwardConfigById,
   addForwardConfig,
   disableForwardConfig,
+  removeForwardConfig,
   getConfigStats,
   getAutoPublishConfig,
   toggleAutoPublishChannel,
