@@ -514,24 +514,25 @@ async function cleanupOrphanedLogs(client, limit = 50) {
               }
             }
           } else {
-            // Check if this is a Telegram target (negative chat ID)
-            if (log.forwardedChannelId && log.forwardedChannelId.startsWith('-')) {
+            // No server ID - could be Telegram or Discord target with missing serverId
+            // First, try to find as Discord channel
+            const targetGuild = client.guilds.cache.find(guild =>
+              guild.channels.cache.has(log.forwardedChannelId)
+            );
+            if (targetGuild) {
+              // Found as Discord channel
+              const targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
+              if (targetChannel) {
+                await targetChannel.messages.fetch(log.forwardedMessageId);
+                forwardedExists = true;
+              }
+            } else {
+              // Not found in Discord - assume Telegram target
+              // This handles both negative group IDs and positive private chat IDs
               isTelegramTarget = true;
               // For Telegram, we'll assume the message exists unless we can verify it doesn't
               // We'll handle Telegram deletion in the cleanup section below
               forwardedExists = true;
-            } else {
-              // Discord target with null serverId - find guild
-              const targetGuild = client.guilds.cache.find(guild =>
-                guild.channels.cache.has(log.forwardedChannelId)
-              );
-              if (targetGuild) {
-                const targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
-                if (targetChannel) {
-                  await targetChannel.messages.fetch(log.forwardedMessageId);
-                  forwardedExists = true;
-                }
-              }
             }
           }
         } catch (error) {

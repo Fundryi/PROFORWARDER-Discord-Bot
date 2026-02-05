@@ -1,7 +1,7 @@
 # ProForwarder Discord Bot - Code Review Issues
 
 Date: 2026-02-05
-Last Updated: 2026-02-05 (Medium issues fixed)
+Last Updated: 2026-02-05 (All issues fixed)
 
 This document tracks issues found during code review and their resolution status.
 
@@ -120,22 +120,25 @@ This document tracks issues found during code review and their resolution status
 - **Fix:** Updated `env.js.example` to document actual implemented providers (gemini as primary, google as fallback)
 - **Review status:** OK
 
+### [FIXED] Edit detection may miss embed changes (Low #10)
+- **Severity:** Low
+- **File:** `events/messageEvents.js`
+- **Issue:** Only compared embed count, not content
+- **Fix:** Added JSON comparison of embed data: `JSON.stringify(oldMessage.embeds.map(e => e.data)) !== JSON.stringify(newMessage.embeds.map(e => e.data))`
+- **Review status:** OK
+
+### [FIXED] Telegram orphan cleanup misses positive chat IDs (Low #11)
+- **Severity:** Low
+- **File:** `utils/database.js`
+- **Issue:** Only treated IDs starting with `-` as Telegram, missing private chat cleanup
+- **Fix:** Changed logic to first try finding channel in Discord guilds cache, then assume Telegram if not found. This handles both negative group IDs and positive private chat IDs
+- **Review status:** OK
+
 ---
 
 ## Open Issues
 
-### Low
-#### 2. Edit detection may miss embed changes
-- **File:** `events/messageEvents.js:70-73`
-- **Issue:** Only compares embed count, not content
-- **Impact:** Some embed edits won't propagate
-- **Suggested Fix:** Compare embed content or hash
-
-#### 3. Telegram orphan cleanup misses positive chat IDs
-- **File:** `utils/database.js:518`
-- **Issue:** Only treats IDs starting with `-` as Telegram
-- **Impact:** Orphaned messages in private chats not cleaned
-- **Suggested Fix:** Track target type in logs
+No open issues remaining.
 
 ---
 

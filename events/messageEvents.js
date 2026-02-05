@@ -81,8 +81,11 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
     }
     
     // Skip if content hasn't actually changed
+    const embedsChanged = oldMessage.embeds.length !== newMessage.embeds.length ||
+      JSON.stringify(oldMessage.embeds.map(e => e.data)) !== JSON.stringify(newMessage.embeds.map(e => e.data));
+
     if (oldMessage.content === newMessage.content &&
-        oldMessage.embeds.length === newMessage.embeds.length &&
+        !embedsChanged &&
         oldMessage.attachments.size === newMessage.attachments.size) {
       return;
     }
