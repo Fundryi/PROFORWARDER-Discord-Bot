@@ -19,7 +19,7 @@ require('dotenv').config({ path: './config/.env' });
 require("./errorHandlers");
 
 const { Client, GatewayIntentBits } = require("discord.js");
-const { db } = require('./utils/database');
+const { exec, close } = require('./utils/database');
 const { logInfo, logSuccess, logError } = require('./utils/logger');
 const config = require('./config/env');
 const { proforwardCommand, handleProforwardCommand } = require('./commands/proforwardCommand');
@@ -95,7 +95,7 @@ client.on("ready", async () => {
   // Initialize database
   logInfo('Initializing database...');
   try {
-    await db.exec('PRAGMA journal_mode = WAL;');
+    await exec('PRAGMA journal_mode = WAL;');
     logSuccess('Database initialized successfully');
   } catch (error) {
     logError('Error initializing database:', error);
@@ -155,7 +155,7 @@ process.on('SIGINT', async () => {
   
   logInfo('Closing database connection...');
   try {
-    await db.close();
+    await close();
     logSuccess('Database connection closed');
     process.exit(0);
   } catch (error) {

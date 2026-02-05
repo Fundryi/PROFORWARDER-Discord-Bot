@@ -49,6 +49,24 @@ const all = (query, params = []) => {
   });
 };
 
+const exec = (sql) => {
+  return new Promise((resolve, reject) => {
+    db.exec(sql, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+const close = () => {
+  return new Promise((resolve, reject) => {
+    db.close((err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
 // Initialize database tables
 async function initializeDatabase() {
   try {
@@ -733,5 +751,7 @@ module.exports = {
   run,
   get,
   all,
+  exec,
+  close,
   db
 };
