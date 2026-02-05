@@ -1,7 +1,7 @@
 # ProForwarder Discord Bot - New Code Review Issues
 
 Date: 2026-02-05
-Last Updated: 2026-02-05
+Last Updated: 2026-02-05 (validated against current code)
 
 This document tracks NEW issues found after the archived review.
 For previous issues and fixes, see `Documentations/CODE_REVIEW_ISSUES.md`.
@@ -31,8 +31,9 @@ For previous issues and fixes, see `Documentations/CODE_REVIEW_ISSUES.md`.
 ### [FIXED] Telegram chain edits assume media + 2 messages (High)
 - **Severity:** High
 - **File:** `handlers/telegram/telegramUtils.js`, `handlers/telegramHandler.js`, `events/messageEvents.js`
-- **Issue:** `editMessageChain()` assumes first message is media (caption edit) and only edits/deletes the second message. Text-only chains and chains with >2 parts break.
-- **Fix:** Added a `hasMedia` parameter that flows from `messageEvents.js` through `telegramHandler.js` to `telegramUtils.editMessageChain()`. The first message is now edited with `editMessageCaption` (media) or `editMessageText` (text-only) based on this flag. The first message's length limit is now correct: caption limit for media, 4000 for text. Extra messages beyond 2 parts are deleted when the chain shrinks.
+- **Issue:** `editMessageChain()` assumed the first message was media (caption edit), so text-only chains failed.
+- **Fix:** Added a `hasMedia` parameter that flows from `messageEvents.js` through `telegramHandler.js` to `telegramUtils.editMessageChain()`. The first message is now edited with `editMessageCaption` (media) or `editMessageText` (text-only) based on this flag, and the first-message length limit uses caption vs text correctly.
+- **Notes:** Chain editing still only supports 2 parts; see Open Issues.
 
 ### [FIXED] Telegram edit "delete and resend" breaks on split captions (High)
 - **Severity:** High
@@ -58,17 +59,21 @@ For previous issues and fixes, see `Documentations/CODE_REVIEW_ISSUES.md`.
 - **Issue:** Threads are tracked by forwarded message ID, but edits and deletes query threads using the original message ID.
 - **Fix:** Both `handleMessageEdit` and `handleMessageDelete` now use `getMessageLogsByOriginalMessage()` to find forwarded message IDs first, then query `threadManager.getThreadsForMessage()` for each forwarded ID. This matches how `trackThread` stores threads (keyed by forwarded message ID).
 
-### [FIXED] Unregistered command modules (Low)
-- **Severity:** Low
-- **File:** `commands/configCommands.js`, `commands/forwardCommands.js`, `commands/helpCommands.js`
-- **Issue:** Commands exist but aren't registered, so they're effectively dead code.
-- **Fix:** Deleted all three files. They defined `/config`, `/forward`, and `/help` slash commands but were never imported or registered anywhere. Their functionality is already covered by `/proforward` subcommands.
-
 ---
 
 ## Open Issues
 
-No open issues.
+### [OPEN] Telegram chain edits only handle 2 parts (Medium)
+- **Severity:** Medium
+- **File:** `handlers/telegram/telegramUtils.js`
+- **Issue:** `editMessageChain()` splits into exactly 2 parts. For long text-only chains (>2 parts), the remaining text can still exceed Telegram’s 4096 limit or get truncated.
+- **Minimal fix:** Reuse the same multi-part splitting logic as `sendLongTextMessage()` to generate N parts, then edit/create/delete chain messages to match.
+
+### [OPEN] Unregistered command modules (Low)
+- **Severity:** Low
+- **File:** `commands/configCommands.js`, `commands/forwardCommands.js`, `commands/helpCommands.js`, `index.js`
+- **Issue:** Commands exist but aren’t registered, so they’re effectively dead code.
+- **Minimal fix:** Add them to `client.application.commands.set([...])` if they’re intended, or remove the unused files.
 
 ---
 
