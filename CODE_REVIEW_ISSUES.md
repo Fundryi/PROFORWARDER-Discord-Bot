@@ -8,61 +8,67 @@ For previous issues and fixes, see `Documentations/CODE_REVIEW_ISSUES.md`.
 
 ---
 
-## Open Issues
+## Fixed Issues
 
-### [OPEN] Reader bot export remains stale (High)
+### [FIXED] Reader bot export remains stale (High)
 - **Severity:** High
-- **File:** `index.js`, `commands/proforwardCommand.js`
-- **Issue:** `readerBot` is exported by value at module load time; later reassignment doesn’t update importers. Reader-bot commands always see `null`.
-- **Minimal fix:** After creating `readerBot`, set `module.exports.readerBot = readerBot`, or export a getter (e.g., `getReaderBot()`).
+- **File:** `index.js`
+- **Issue:** `readerBot` is exported by value at module load time; later reassignment doesn't update importers. Reader-bot commands always see `null`.
+- **Fix:** Added `module.exports.readerBot = readerBot` immediately after creating the `ReaderBot` instance in the `clientReady` callback. All importers use `require('../index')` inside function bodies (not at module top level), so they always get the live value from the mutated exports object.
 
-### [OPEN] Reader-bot edits never propagate (High)
+### [FIXED] Reader-bot edits never propagate (High)
 - **Severity:** High
 - **File:** `readerBot.js`
 - **Issue:** `handleMessageUpdate(oldMessage, newMessage)` calls `handleMessageUpdate(originalMessage, originalMessage)` which makes edit detection a no-op.
-- **Minimal fix:** Pass the actual `oldMessage` and `newMessage` from the reader bot event, or cache the previous content to construct a minimal `oldMessage`.
+- **Fix:** `handleMessageUpdate` now passes `oldMessage` as a 4th argument to `sendToMainBot`. The `sendToMainBot` method accepts the `oldMessage` parameter and passes it correctly as the first argument to the main bot's `handleMessageUpdate(oldMessage, newMessage, client)`.
 
-### [OPEN] Telegram message chains not scoped per config (High)
+### [FIXED] Telegram message chains not scoped per config (High)
 - **Severity:** High
 - **File:** `utils/database.js`, `events/messageEvents.js`
 - **Issue:** `getMessageChain()` / `deleteMessageChain()` only filter by `originalMessageId`, so multiple Telegram targets for the same source can clobber each other.
-- **Minimal fix:** Add `configId` (and/or `forwardedChannelId`) filters and pass them through call sites.
+- **Fix:** Both `getMessageChain(originalMessageId, configId)` and `deleteMessageChain(originalMessageId, configId)` now accept an optional `configId` parameter. When provided, queries include `AND configId = ?` to scope results. All 4 call sites in `messageEvents.js` now pass `logEntry.configId`. Without `configId`, behavior is unchanged (backwards compatible).
 
-### [OPEN] Telegram chain edits assume media + 2 messages (High)
+### [FIXED] Telegram chain edits assume media + 2 messages (High)
 - **Severity:** High
-- **File:** `handlers/telegram/telegramUtils.js`
+- **File:** `handlers/telegram/telegramUtils.js`, `handlers/telegramHandler.js`, `events/messageEvents.js`
 - **Issue:** `editMessageChain()` assumes first message is media (caption edit) and only edits/deletes the second message. Text-only chains and chains with >2 parts break.
-- **Minimal fix:** Detect chain type (media vs text) and edit all parts; if text-only, use `editMessageText`. For >2 parts, iterate or rebuild the chain.
+- **Fix:** Added a `hasMedia` parameter that flows from `messageEvents.js` through `telegramHandler.js` to `telegramUtils.editMessageChain()`. The first message is now edited with `editMessageCaption` (media) or `editMessageText` (text-only) based on this flag. The first message's length limit is now correct: caption limit for media, 4000 for text. Extra messages beyond 2 parts are deleted when the chain shrinks.
 
-### [OPEN] Telegram edit “delete and resend” breaks on split captions (High)
+### [FIXED] Telegram edit "delete and resend" breaks on split captions (High)
 - **Severity:** High
 - **File:** `events/messageEvents.js`
 - **Issue:** `deleteAndResendTelegram()` assumes `sendMediaWithCaption()` returns a single message. When it returns `{ isSplit, messageChain }`, `newMessageId` is `undefined` and `toString()` throws.
-- **Minimal fix:** Handle split results by logging the chain (`logMessageChain`) or using `messageChain[0]` for the primary ID.
+- **Fix:** `deleteAndResendTelegram` now checks for `result.isSplit && result.messageChain`. When detected, it cleans up the old DB entry with config-scoped `deleteMessageChain` and logs the new chain via `logMessageChain`. For non-split results, the original extraction logic is preserved with safer `Array.isArray` checking.
 
-### [OPEN] Media group forwards only log the first message (Medium)
+### [FIXED] Media group forwards only log the first message (Medium)
 - **Severity:** Medium
-- **File:** `handlers/forwardHandler.js`, `events/messageEvents.js`
+- **File:** `handlers/forwardHandler.js`
 - **Issue:** Telegram `sendMediaGroup` returns multiple IDs but only the first is logged. Edit/delete leaves orphaned media messages.
-- **Minimal fix:** Treat media groups as chains: log all message IDs and delete/edit the entire list.
+- **Fix:** In `forwardToTelegram`, when `telegramResult` is an array with >1 elements (media group response), all message IDs are extracted and logged as a chain via `logMessageChain()`. Edit/delete operations now correctly find and clean up all messages in the media group.
 
-### [OPEN] Possible DB startup race on fresh install (Medium)
+### [FIXED] Possible DB startup race on fresh install (Medium)
 - **Severity:** Medium
 - **File:** `utils/database.js`
-- **Issue:** `fs.mkdir()` is async and not awaited before opening SQLite; first run can fail if `data/` doesn’t exist yet.
-- **Minimal fix:** Await `fs.mkdir` before `new sqlite3.Database(...)` or use `fs.mkdirSync`.
+- **Issue:** `fs.mkdir()` is async and not awaited before opening SQLite; first run can fail if `data/` doesn't exist yet.
+- **Fix:** Changed `require('fs').promises` to `require('fs')` and replaced the async `fs.mkdir()` (which was not awaited) with synchronous `fs.mkdirSync()`. The directory is now guaranteed to exist before SQLite tries to open the database file. No other code in this file used async `fs`.
 
-### [OPEN] AI edit flow uses original message ID for thread lookup (Medium)
+### [FIXED] AI edit flow uses original message ID for thread lookup (Medium)
 - **Severity:** Medium
-- **File:** `handlers/aiHandler.js`, `utils/threadManager.js`
-- **Issue:** Threads are tracked by forwarded message ID, but edits query threads using the original message ID.
-- **Minimal fix:** Map original→forwarded IDs via `getMessageLogsByOriginalMessage()` and query threads with forwarded IDs (or store original→forwarded mapping when creating the thread).
+- **File:** `handlers/aiHandler.js`
+- **Issue:** Threads are tracked by forwarded message ID, but edits and deletes query threads using the original message ID.
+- **Fix:** Both `handleMessageEdit` and `handleMessageDelete` now use `getMessageLogsByOriginalMessage()` to find forwarded message IDs first, then query `threadManager.getThreadsForMessage()` for each forwarded ID. This matches how `trackThread` stores threads (keyed by forwarded message ID).
 
-### [OPEN] Unregistered command modules (Low)
+### [FIXED] Unregistered command modules (Low)
 - **Severity:** Low
-- **File:** `commands/configCommands.js`, `commands/forwardCommands.js`, `commands/helpCommands.js`, `index.js`
-- **Issue:** Commands exist but aren’t registered, so they’re effectively dead code.
-- **Minimal fix:** Add them to `client.application.commands.set([...])` if they’re intended, or remove the unused files.
+- **File:** `commands/configCommands.js`, `commands/forwardCommands.js`, `commands/helpCommands.js`
+- **Issue:** Commands exist but aren't registered, so they're effectively dead code.
+- **Fix:** Deleted all three files. They defined `/config`, `/forward`, and `/help` slash commands but were never imported or registered anywhere. Their functionality is already covered by `/proforward` subcommands.
+
+---
+
+## Open Issues
+
+No open issues.
 
 ---
 

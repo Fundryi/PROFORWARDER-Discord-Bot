@@ -255,10 +255,26 @@ class ForwardHandler {
         );
 
         logSuccess(`✅ Forwarded split message from ${message.channel.name} to Telegram chat ${config.targetChatId} (${telegramResult.messageChain.length} parts)`);
+      } else if (Array.isArray(telegramResult) && telegramResult.length > 1) {
+        // Media group returned multiple message objects — log all IDs as a chain
+        const mediaGroupIds = telegramResult.map(msg => msg.message_id.toString());
+
+        await logMessageChain(
+          message.id,
+          message.channel.id,
+          message.guild?.id || null,
+          mediaGroupIds,
+          config.targetChatId,
+          null, // No server ID for Telegram
+          config.id,
+          'success'
+        );
+
+        logSuccess(`✅ Forwarded media group from ${message.channel.name} to Telegram chat ${config.targetChatId} (${mediaGroupIds.length} media messages)`);
       } else {
         // Log as single message
         const messageId = telegramResult.message_id || (Array.isArray(telegramResult) ? telegramResult[0].message_id : telegramResult.result?.message_id);
-        
+
         await logForwardedMessage(
           message.id,
           message.channel.id,

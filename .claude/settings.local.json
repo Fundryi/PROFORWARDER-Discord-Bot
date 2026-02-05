@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(node -e:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(del \"commands\\\\configCommands.js\")",
+      "Bash(del \"commands\\\\forwardCommands.js\")",
+      "Bash(del \"commands\\\\helpCommands.js\")"
     ]
   }
 }

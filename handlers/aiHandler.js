@@ -233,10 +233,20 @@ class AIHandler {
     }
 
     try {
-      // Find related threads for this message (async call)
-      const threads = await threadManager.getThreadsForMessage(newMessage.id);
+      // Threads are tracked by forwarded message ID, not the original.
+      // Map original → forwarded IDs, then look up threads for each.
+      const { getMessageLogsByOriginalMessage } = require('../utils/database');
+      const forwardedVersions = await getMessageLogsByOriginalMessage(newMessage.id);
 
-      if (!threads || threads.length === 0) {
+      let threads = [];
+      for (const log of forwardedVersions) {
+        const t = await threadManager.getThreadsForMessage(log.forwardedMessageId);
+        if (t && t.length > 0) {
+          threads.push(...t);
+        }
+      }
+
+      if (threads.length === 0) {
         return;
       }
 
@@ -336,10 +346,20 @@ class AIHandler {
     }
 
     try {
-      // Find and archive related threads (async call)
-      const threads = await threadManager.getThreadsForMessage(message.id);
+      // Threads are tracked by forwarded message ID, not the original.
+      // Map original → forwarded IDs, then look up threads for each.
+      const { getMessageLogsByOriginalMessage } = require('../utils/database');
+      const forwardedVersions = await getMessageLogsByOriginalMessage(message.id);
 
-      if (threads && threads.length > 0) {
+      let threads = [];
+      for (const log of forwardedVersions) {
+        const t = await threadManager.getThreadsForMessage(log.forwardedMessageId);
+        if (t && t.length > 0) {
+          threads.push(...t);
+        }
+      }
+
+      if (threads.length > 0) {
         logInfo(`Message deleted, archiving ${threads.length} related translation thread(s)`);
         
         for (const threadData of threads) {
