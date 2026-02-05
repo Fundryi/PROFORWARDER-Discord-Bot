@@ -111,6 +111,7 @@ This document tracks issues found during code review and their resolution status
 - **Issue:** Fallback messages didn't set `allowedMentions`, causing unintended pings
 - **Fix:** Added `allowedMentions: { parse: [] }` by default in `buildEnhancedMessage()`. Now aligned with webhook path: uses `config.allowEveryoneHereMentions`, checks bot `MentionEveryone` permission, handles @here with text indicator replacement
 - **Review status:** OK
+- **Notes:** Permission check uses `client.channels.cache` for `targetChannelId`; if the channel is not cached, it will treat as no permission and replace mentions. This is safe but slightly more restrictive than intended.
 
 ### [FIXED] AI provider config mismatch (Medium #9)
 - **Severity:** Medium
