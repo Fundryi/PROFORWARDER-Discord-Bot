@@ -312,7 +312,7 @@ async function handleSetup(interaction) {
     
     await interaction.reply({
       content: `✅ **Reader bot forward configured!**\n**From:** Channel \`${sourceChannelId}\` in server \`${sourceServerId}\`\n**To:** ${actualTargetChannel.name} in **${targetGuild.name}**\n**ID:** ${configId}\n\n🤖 **Reader bot will monitor the source channel and forward messages to the main bot for processing.**`,
-      ephemeral: false
+      ephemeral: true
     });
 
     logSuccess(`Reader bot forward: ${sourceChannelId} -> ${actualTargetChannel.name} (${targetGuild.name}) by ${interaction.user.username}`);
@@ -391,7 +391,7 @@ async function handleSetup(interaction) {
 
     await interaction.reply({
       content: `✅ **Forward configured!**\n**From:** ${sourceChannel}\n**To:** ${targetChannel}\n**ID:** ${configId}`,
-      ephemeral: false
+      ephemeral: true
     });
 
     logSuccess(`Same-server forward: ${sourceChannel.name} -> ${targetChannel.name} by ${interaction.user.username}`);
@@ -461,7 +461,7 @@ async function handleSetup(interaction) {
 
     await interaction.reply({
       content: `✅ **Cross-server forward configured!**\n**From:** ${sourceChannel} (${interaction.guild.name})\n**To:** ${actualTargetChannel.name} (${targetGuild.name})\n**ID:** ${configId}\n\n${qualityInfo}\n\n🚀 Ready to forward messages!`,
-      ephemeral: false
+      ephemeral: true
     });
 
     logSuccess(`Cross-server forward: ${sourceChannel.name} -> ${actualTargetChannel.name} (${targetGuild.name}) by ${interaction.user.username}`);
@@ -677,7 +677,7 @@ async function handleRemove(interaction) {
     
     await interaction.reply({ 
       content: `✅ Forward configuration **${configId}** has been removed.`,
-      ephemeral: false
+      ephemeral: true
     });
 
     logSuccess(`Forward config ${configId} removed by ${interaction.user.username}`);
