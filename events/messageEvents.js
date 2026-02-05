@@ -502,18 +502,18 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
   try {
     logInfo(`Smart editing Telegram message ${logEntry.forwardedMessageId} in chat ${logEntry.forwardedChannelId}`);
     
-    // Check if this is part of a message chain (split message)
-    const messageChain = await getMessageChain(logEntry.originalMessageId);
+    // Check if this is part of a message chain (split message), scoped to this config
+    const messageChain = await getMessageChain(logEntry.originalMessageId, logEntry.configId);
     const isChain = messageChain.length > 1;
-    
+
     const envConfig = require('../config/env');
     if (isChain && envConfig.debugMode) {
-      logInfo(`🔗 CHAIN EDIT: Detected message chain with ${messageChain.length} parts`);
+      logInfo(`🔗 CHAIN EDIT: Detected message chain with ${messageChain.length} parts (config ${logEntry.configId})`);
       messageChain.forEach((chainEntry, index) => {
         logInfo(`  Part ${index}: ${chainEntry.forwardedMessageId} (position: ${chainEntry.chainPosition})`);
       });
     }
-    
+
     // Get the config for this forward
     const { getForwardConfigById } = require('../utils/configManager');
     const config = await getForwardConfigById(logEntry.configId);
@@ -540,19 +540,22 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
       const chainMessageIds = messageChain.map(entry => entry.forwardedMessageId);
       
       // Use enhanced chain editing method
+      // Pass hasMedia so the editor knows whether the first message is media (caption) or text-only
+      const hasMedia = telegramMessage.media && telegramMessage.media.length > 0;
       const updatedChain = await telegramHandler.editMessageChain(
         logEntry.forwardedChannelId,
         chainMessageIds,
-        telegramMessage.text
+        telegramMessage.text,
+        hasMedia
       );
       
       // Update database with new chain structure if it changed
       if (updatedChain.length !== chainMessageIds.length) {
         const { updateMessageLog, deleteMessageChain, logMessageChain } = require('../utils/database');
         
-        // Clean up old chain entries
-        await deleteMessageChain(logEntry.originalMessageId);
-        
+        // Clean up old chain entries (scoped to this config)
+        await deleteMessageChain(logEntry.originalMessageId, logEntry.configId);
+
         // Log new chain
         await logMessageChain(
           logEntry.originalMessageId,
@@ -564,7 +567,7 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
           logEntry.configId,
           'success'
         );
-        
+
         logInfo(`🔗 CHAIN EDIT: Updated chain structure (${chainMessageIds.length} → ${updatedChain.length} messages)`);
       }
       
@@ -741,8 +744,8 @@ async function convertToChainAndUpdate(telegramHandler, logEntry, telegramMessag
       // Update database with new chain structure
       const { deleteMessageChain, logMessageChain } = require('../utils/database');
       
-      // Clean up old single message entry
-      await deleteMessageChain(logEntry.originalMessageId);
+      // Clean up old single message entry (scoped to this config)
+      await deleteMessageChain(logEntry.originalMessageId, logEntry.configId);
       
       // Log new chain
       await logMessageChain(
@@ -802,12 +805,31 @@ async function deleteAndResendTelegram(telegramHandler, logEntry, telegramMessag
   }
   
   if (result) {
-    // Update the database log with new message ID
-    const { updateMessageLog } = require('../utils/database');
-    const newMessageId = result.message_id || (result[0] && result[0].message_id);
-    await updateMessageLog(logEntry.id, newMessageId.toString());
-    
-    logSuccess(`Smart repost successful in Telegram chat ${logEntry.forwardedChannelId}`);
+    const { updateMessageLog, deleteMessageChain, logMessageChain } = require('../utils/database');
+
+    if (result.isSplit && result.messageChain) {
+      // sendMediaWithCaption returned a split result — log as a chain
+      await deleteMessageChain(logEntry.originalMessageId, logEntry.configId);
+      await logMessageChain(
+        logEntry.originalMessageId,
+        logEntry.originalChannelId,
+        logEntry.originalServerId,
+        result.messageChain,
+        logEntry.forwardedChannelId,
+        logEntry.forwardedServerId,
+        logEntry.configId,
+        'success'
+      );
+      logSuccess(`Smart repost (split) successful in Telegram chat ${logEntry.forwardedChannelId} (${result.messageChain.length} parts)`);
+    } else {
+      // Single message result — extract the message ID
+      const newMessageId = result.message_id || (Array.isArray(result) && result[0] && result[0].message_id);
+      if (newMessageId) {
+        await updateMessageLog(logEntry.id, newMessageId.toString());
+      }
+      logSuccess(`Smart repost successful in Telegram chat ${logEntry.forwardedChannelId}`);
+    }
+
     return result;
   } else {
     throw new Error(`Failed to send new message`);
@@ -939,13 +961,13 @@ async function hasMediaChanged(originalMessage, newMessage) {
 // Delete a Telegram forwarded message (handles both single messages and chains)
 async function deleteTelegramForwardedMessage(logEntry, client) {
   try {
-    // Check if this is part of a message chain
-    const messageChain = await getMessageChain(logEntry.originalMessageId);
+    // Check if this is part of a message chain (scoped to this config)
+    const messageChain = await getMessageChain(logEntry.originalMessageId, logEntry.configId);
     const isChain = messageChain.length > 1;
-    
+
     const envConfig = require('../config/env');
     if (isChain && envConfig.debugMode) {
-      logInfo(`🔗 CHAIN DELETE: Detected message chain with ${messageChain.length} parts for deletion`);
+      logInfo(`🔗 CHAIN DELETE: Detected message chain with ${messageChain.length} parts for deletion (config ${logEntry.configId})`);
     }
     
     const TelegramHandler = require('../handlers/telegramHandler');

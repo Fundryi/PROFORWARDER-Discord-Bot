@@ -82,58 +82,70 @@ class TelegramUtils {
 
   /**
    * Handle editing of split messages (message chains)
+   * @param {string} chatId - Telegram chat ID
+   * @param {string[]} messageChain - Array of message IDs in the chain
+   * @param {string} newFullText - New full text content
+   * @param {boolean} hasMedia - Whether the first message in the chain is a media message (caption vs text)
    */
-  async editMessageChain(chatId, messageChain, newFullText) {
+  async editMessageChain(chatId, messageChain, newFullText, hasMedia) {
     try {
       const envConfig = require('../../config/env');
       const isDebugMode = envConfig.debugMode;
-      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
-      
+      const firstMessageLimit = hasMedia
+        ? (envConfig.telegram?.captionLengthLimit || 900)
+        : 4000; // Telegram text message limit
+
       if (isDebugMode) {
-        logInfo(`✏️ CHAIN EDIT: Editing message chain with ${messageChain.length} messages`);
+        logInfo(`✏️ CHAIN EDIT: Editing message chain with ${messageChain.length} messages (hasMedia: ${hasMedia})`);
       }
-      
-      // Check if new text still needs splitting
-      if (newFullText.length <= captionLengthLimit) {
-        // Text now fits in single caption - need to restructure
-        if (isDebugMode) {
-          logInfo(`✏️ CHAIN EDIT: Text now fits in single caption, restructuring...`);
+
+      // Helper to edit the first message based on its type
+      const editFirstMessage = async (text) => {
+        if (hasMedia) {
+          await this.editMessageCaption(chatId, messageChain[0], text);
+        } else {
+          await this.editMessageText(chatId, messageChain[0], text);
         }
-        
-        // Edit the first message (media caption)
-        await this.editMessageCaption(chatId, messageChain[0], newFullText);
-        
-        // Delete the secondary text message since it's no longer needed
+      };
+
+      // Check if new text fits in a single message
+      if (newFullText.length <= firstMessageLimit) {
+        // Text now fits in single message - restructure
+        if (isDebugMode) {
+          logInfo(`✏️ CHAIN EDIT: Text now fits in single message, restructuring...`);
+        }
+
+        await editFirstMessage(newFullText);
+
+        // Delete all secondary messages since they're no longer needed
         for (let i = 1; i < messageChain.length; i++) {
           await this.deleteMessage(chatId, messageChain[i]);
         }
-        
+
         return [messageChain[0]]; // Return new chain with just primary message
-        
+
       } else {
         // Text still needs splitting
         const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
-        
-        // Import text splitter when needed
+
         const TelegramTextSplitter = require('./telegramTextSplitter');
         const textSplitter = new TelegramTextSplitter();
-        
-        const splitPoint = textSplitter.findOptimalSplitPoint(newFullText, captionLengthLimit - splitIndicator.length - 10);
-        
+
+        const splitPoint = textSplitter.findOptimalSplitPoint(newFullText, firstMessageLimit - splitIndicator.length - 10);
+
         const escapedSplitIndicator = this.escapeMarkdownV2ForText(splitIndicator);
         const firstPart = newFullText.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
         const remainingPart = newFullText.substring(splitPoint).trim();
-        
+
         if (isDebugMode) {
           logInfo(`✏️ CHAIN EDIT: Still needs splitting: ${firstPart.length} + ${remainingPart.length} chars`);
         }
-        
-        // Edit the first message (media caption)
-        await this.editMessageCaption(chatId, messageChain[0], firstPart);
-        
+
+        // Edit the first message
+        await editFirstMessage(firstPart);
+
         // Edit or create secondary message
         if (messageChain.length > 1) {
-          // Edit existing secondary message
           await this.editMessageText(chatId, messageChain[1], remainingPart);
         } else {
           // Create new secondary message
@@ -142,15 +154,20 @@ class TelegramUtils {
             text: remainingPart,
             parse_mode: 'MarkdownV2'
           });
-          
+
           if (textResult && textResult.ok) {
             messageChain.push(textResult.result.message_id.toString());
           }
         }
-        
-        return messageChain; // Return updated chain
+
+        // Delete any extra messages beyond the 2 we need (handles >2 part chains shrinking)
+        for (let i = 2; i < messageChain.length; i++) {
+          await this.deleteMessage(chatId, messageChain[i]);
+        }
+
+        return [messageChain[0], messageChain[1]]; // Return the 2-part chain
       }
-      
+
     } catch (error) {
       logError('Error editing message chain:', error);
       throw error;

@@ -228,17 +228,26 @@ async function logMessageChain(originalMessageId, originalChannelId, originalSer
   }
 }
 
-// Get complete message chain for an original message
-async function getMessageChain(originalMessageId) {
+// Get complete message chain for an original message, optionally scoped to a specific config
+async function getMessageChain(originalMessageId, configId) {
   try {
     const messageIdStr = String(originalMessageId);
-    
+
+    if (configId !== undefined && configId !== null) {
+      const results = await all(`
+        SELECT * FROM message_logs
+        WHERE originalMessageId = ? AND configId = ? AND status = 'success'
+        ORDER BY chainPosition ASC
+      `, [messageIdStr, configId]);
+      return results;
+    }
+
     const results = await all(`
       SELECT * FROM message_logs
       WHERE originalMessageId = ? AND status = 'success'
       ORDER BY chainPosition ASC
     `, [messageIdStr]);
-    
+
     return results;
   } catch (error) {
     logError('Error getting message chain:', error);
@@ -263,17 +272,25 @@ async function isMessageChain(originalMessageId) {
   }
 }
 
-// Delete entire message chain from database
-async function deleteMessageChain(originalMessageId) {
+// Delete entire message chain from database, optionally scoped to a specific config
+async function deleteMessageChain(originalMessageId, configId) {
   try {
     const messageIdStr = String(originalMessageId);
-    
-    const result = await run(`
-      DELETE FROM message_logs
-      WHERE originalMessageId = ? AND status = 'success'
-    `, [messageIdStr]);
-    
-    logInfo(`🗑️ Deleted message chain: ${result.changes || 0} entries for original ${originalMessageId}`);
+
+    let result;
+    if (configId !== undefined && configId !== null) {
+      result = await run(`
+        DELETE FROM message_logs
+        WHERE originalMessageId = ? AND configId = ? AND status = 'success'
+      `, [messageIdStr, configId]);
+    } else {
+      result = await run(`
+        DELETE FROM message_logs
+        WHERE originalMessageId = ? AND status = 'success'
+      `, [messageIdStr]);
+    }
+
+    logInfo(`🗑️ Deleted message chain: ${result.changes || 0} entries for original ${originalMessageId}${configId != null ? ` (config ${configId})` : ''}`);
     return result.changes || 0;
   } catch (error) {
     logError('Error deleting message chain:', error);

@@ -216,8 +216,8 @@ class TelegramHandler {
   /**
    * Handle editing of split messages (message chains)
    */
-  async editMessageChain(chatId, messageChain, newFullText) {
-    return await this.utils.editMessageChain(chatId, messageChain, newFullText);
+  async editMessageChain(chatId, messageChain, newFullText, hasMedia) {
+    return await this.utils.editMessageChain(chatId, messageChain, newFullText, hasMedia);
   }
 
   /**
