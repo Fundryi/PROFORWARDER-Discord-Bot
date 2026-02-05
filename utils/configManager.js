@@ -73,6 +73,10 @@ async function loadForwardConfigs(forceReload = false) {
     // Validate each config
     const validConfigs = [];
     for (const [index, configItem] of config.forwardConfigs.entries()) {
+      if (!configItem || typeof configItem !== 'object') {
+        logError(`Invalid forward config at index ${index}: empty entry`);
+        continue;
+      }
       const validation = validateForwardConfig(configItem, index);
       if (validation.valid) {
         validConfigs.push(configItem);
@@ -196,39 +200,17 @@ async function addForwardConfig(newConfig) {
     
     // Find the forwardConfigs array and add the new config
     let updatedContent;
-    
-    // Check if array is empty (only comments)
-    if (envContent.includes('forwardConfigs: [') && envContent.includes('// }')) {
-      // Empty array with examples, replace the entire array
-      updatedContent = envContent.replace(
-        /forwardConfigs: \[\s*\/\/[^]*?\s*\]/s,
-        `forwardConfigs: [\n    ${configString}\n  ]`
-      );
-    } else if (envContent.includes('forwardConfigs: [') && !envContent.includes('forwardConfigs: []')) {
-      // Array has existing configs, add to the end before closing bracket
-      // Look specifically for the forwardConfigs array closing bracket
-      const forwardConfigsMatch = envContent.match(/(forwardConfigs: \[[^]*?)(\n\s*\],)/s);
-      if (forwardConfigsMatch) {
-        const beforeClosing = forwardConfigsMatch[1];
-        const closingBracket = forwardConfigsMatch[2];
-        updatedContent = envContent.replace(
-          forwardConfigsMatch[0],
-          `${beforeClosing},\n    ${configString}${closingBracket}`
-        );
-      } else {
-        // Fallback: try to find the closing bracket more carefully
-        updatedContent = envContent.replace(
-          /(forwardConfigs: \[[^]*?)(\n\s*\])/s,
-          `$1,\n    ${configString}$2`
-        );
-      }
-    } else {
-      // Completely empty array or no array
-      updatedContent = envContent.replace(
-        /forwardConfigs: \[\s*\]/,
-        `forwardConfigs: [\n    ${configString}\n  ]`
-      );
+    const arrayRange = findForwardConfigsArrayRange(envContent);
+    if (!arrayRange) {
+      throw new Error('forwardConfigs array not found in env.js');
     }
+
+    const arrayText = envContent.slice(arrayRange.start, arrayRange.end + 1);
+    const updatedArrayText = appendConfigToArrayText(arrayText, configString);
+    updatedContent =
+      envContent.slice(0, arrayRange.start) +
+      updatedArrayText +
+      envContent.slice(arrayRange.end + 1);
 
     // Write back to file
     await fs.writeFile(CONFIG_PATH, updatedContent, 'utf8');
@@ -648,6 +630,29 @@ function removeObjectFromArrayText(arrayText, objectStart, objectEnd) {
   }
 
   return arrayText.slice(0, start) + arrayText.slice(end);
+}
+
+function appendConfigToArrayText(arrayText, configString) {
+  const inner = arrayText.slice(1, -1);
+  const innerTrimmed = inner.trim();
+
+  if (!innerTrimmed) {
+    return `[\n    ${configString}\n  ]`;
+  }
+
+  const trailingWhitespaceMatch = inner.match(/\s*$/);
+  const trailingWhitespace = trailingWhitespaceMatch ? trailingWhitespaceMatch[0] : '';
+  const innerWithoutTrailing = inner.slice(0, inner.length - trailingWhitespace.length);
+  const innerTrimRight = innerWithoutTrailing.replace(/\s*$/, '');
+  const needsComma = !innerTrimRight.endsWith(',');
+  const separator = needsComma ? ',' : '';
+
+  return `[` +
+    innerWithoutTrailing +
+    separator +
+    `\n    ${configString}` +
+    trailingWhitespace +
+    `]`;
 }
 
 module.exports = {
