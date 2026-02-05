@@ -125,47 +125,65 @@ class TelegramUtils {
         return [messageChain[0]]; // Return new chain with just primary message
 
       } else {
-        // Text still needs splitting
+        // Text still needs splitting — use multi-part splitting for N parts
         const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
+        const textLengthLimit = 4000; // Telegram text message limit for secondary parts
 
         const TelegramTextSplitter = require('./telegramTextSplitter');
         const textSplitter = new TelegramTextSplitter();
 
-        const splitPoint = textSplitter.findOptimalSplitPoint(newFullText, firstMessageLimit - splitIndicator.length - 10);
-
+        // Split the first part to fit the first message (media caption or text)
         const escapedSplitIndicator = this.escapeMarkdownV2ForText(splitIndicator);
-        const firstPart = newFullText.substring(0, splitPoint).trim() + '\n\n' + escapedSplitIndicator;
-        const remainingPart = newFullText.substring(splitPoint).trim();
+        const firstSplitPoint = textSplitter.findOptimalSplitPoint(newFullText, firstMessageLimit - splitIndicator.length - 10);
+        const firstPart = newFullText.substring(0, firstSplitPoint).trim() + '\n\n' + escapedSplitIndicator;
+        const afterFirst = newFullText.substring(firstSplitPoint).trim();
 
+        // Split the remainder into N secondary parts using the standard text limit
+        const secondaryParts = textSplitter.splitLongText(afterFirst, textLengthLimit, escapedSplitIndicator);
+
+        const totalParts = 1 + secondaryParts.length; // first message + secondary parts
         if (isDebugMode) {
-          logInfo(`✏️ CHAIN EDIT: Still needs splitting: ${firstPart.length} + ${remainingPart.length} chars`);
+          logInfo(`✏️ CHAIN EDIT: Splitting into ${totalParts} parts (1 primary + ${secondaryParts.length} secondary)`);
         }
 
         // Edit the first message
         await editFirstMessage(firstPart);
 
-        // Edit or create secondary message
-        if (messageChain.length > 1) {
-          await this.editMessageText(chatId, messageChain[1], remainingPart);
-        } else {
-          // Create new secondary message
-          const textResult = await this.api.callTelegramAPI('sendMessage', {
-            chat_id: chatId,
-            text: remainingPart,
-            parse_mode: 'MarkdownV2'
-          });
+        // Build the new chain starting with the first message
+        const newChain = [messageChain[0]];
 
-          if (textResult && textResult.ok) {
-            messageChain.push(textResult.result.message_id.toString());
+        // Edit existing, or create new, secondary messages
+        for (let i = 0; i < secondaryParts.length; i++) {
+          const existingIndex = i + 1; // index in the old messageChain
+
+          if (existingIndex < messageChain.length) {
+            // Edit existing message
+            await this.editMessageText(chatId, messageChain[existingIndex], secondaryParts[i]);
+            newChain.push(messageChain[existingIndex]);
+          } else {
+            // Create new message
+            const textResult = await this.api.callTelegramAPI('sendMessage', {
+              chat_id: chatId,
+              text: secondaryParts[i],
+              parse_mode: 'MarkdownV2'
+            });
+
+            if (textResult && textResult.ok) {
+              newChain.push(textResult.result.message_id.toString());
+            }
           }
         }
 
-        // Delete any extra messages beyond the 2 we need (handles >2 part chains shrinking)
-        for (let i = 2; i < messageChain.length; i++) {
+        // Delete any extra old messages beyond what we now need
+        for (let i = 1 + secondaryParts.length; i < messageChain.length; i++) {
           await this.deleteMessage(chatId, messageChain[i]);
         }
 
-        return [messageChain[0], messageChain[1]]; // Return the 2-part chain
+        if (isDebugMode) {
+          logInfo(`✏️ CHAIN EDIT: Final chain has ${newChain.length} messages`);
+        }
+
+        return newChain;
       }
 
     } catch (error) {
