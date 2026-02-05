@@ -1,0 +1,45 @@
+services:
+  init-permissions:
+    image: alpine:latest
+    container_name: proforwarder-init
+    command: >
+      sh -c "chown -R 1001:1001 /data /config && echo 'Permissions set for UID 1001'"
+    volumes:
+      - /srv/docker-data/proforwarder/data:/data
+      - /srv/docker-data/proforwarder/config:/config
+    restart: "no"
+
+  proforwarder-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: proforwarder-discord-bot:latest
+    container_name: proforwarder-discord-bot
+    restart: unless-stopped
+    depends_on:
+      init-permissions:
+        condition: service_completed_successfully
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - /srv/docker-data/proforwarder/config/.env
+    volumes:
+      - /srv/docker-data/proforwarder/data:/app/data
+      - /srv/docker-data/proforwarder/config:/app/config
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    networks:
+      - proforwarder
+
+networks:
+  proforwarder:
+    driver: bridge

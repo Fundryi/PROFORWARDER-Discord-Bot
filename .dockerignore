@@ -71,5 +71,13 @@ Thumbs.db
 # Docker files (exclude from build context)
 Dockerfile
 docker-compose.yml
+compose.yaml
 .dockerignore
 DOCKER_SETUP.md
+
+# Data directories (mounted at runtime)
+data/
+config/.env
+
+# Testing
+testing/

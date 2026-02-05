@@ -1,12 +1,9 @@
-# Use Node.js 22 LTS as base image
-FROM node:22-alpine
+FROM node:22-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies
+# Install build dependencies
 RUN apk add --no-cache \
-    sqlite \
     python3 \
     make \
     g++
@@ -14,29 +11,42 @@ RUN apk add --no-cache \
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install all dependencies (including devDependencies for build)
+RUN npm ci && npm cache clean --force
 
-# Create non-root user for security
+# Production stage
+FROM node:22-alpine
+
+WORKDIR /app
+
+# Install runtime dependencies only
+RUN apk add --no-cache sqlite
+
+# Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S botuser -u 1001
 
-# Create required directories with proper permissions
+# Create required directories
 RUN mkdir -p data config && \
     chown -R botuser:nodejs /app
 
-# Copy application files
-COPY --chown=botuser:nodejs . .
+# Copy node_modules from builder
+COPY --from=builder /app/node_modules ./node_modules
 
-# Switch to non-root user
+# Copy application files
+COPY --chown=botuser:nodejs package*.json ./
+COPY --chown=botuser:nodejs index.js ./
+COPY --chown=botuser:nodejs healthcheck.js ./
+COPY --chown=botuser:nodejs errorHandlers.js ./
+COPY --chown=botuser:nodejs readerBot.js ./
+COPY --chown=botuser:nodejs utils ./utils
+COPY --chown=botuser:nodejs handlers ./handlers
+COPY --chown=botuser:nodejs events ./events
+COPY --chown=botuser:nodejs commands ./commands
+
 USER botuser
 
-# Expose port (not needed for Discord bot but good practice)
-EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD node healthcheck.js
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "console.log('Health check')" || exit 1
-
-# Start the bot
-CMD ["npm", "start"]
+CMD ["node", "index.js"]
