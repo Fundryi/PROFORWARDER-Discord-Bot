@@ -553,7 +553,8 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
             logEntry.forwardedChannelId,
             [mediaGroupIds[0]],
             telegramMessage.text,
-            true
+            true,
+            telegramMessage.disableWebPagePreview || false
           );
 
           const combinedChain = [
@@ -596,7 +597,8 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
         logEntry.forwardedChannelId,
         chainMessageIds,
         telegramMessage.text,
-        hasMedia
+        hasMedia,
+        telegramMessage.disableWebPagePreview || false
       );
       
       // Update database with new chain structure if it changed
@@ -681,7 +683,7 @@ async function updateSingleTelegramMessage(newMessage, logEntry, client, telegra
           message_id: logEntry.forwardedMessageId,
           text: telegramMessage.text,
           parse_mode: 'MarkdownV2',
-          disable_web_page_preview: false
+          disable_web_page_preview: telegramMessage.disableWebPagePreview || false
         });
 
         if (result && result.ok) {
@@ -849,7 +851,7 @@ async function deleteAndResendTelegram(telegramHandler, logEntry, telegramMessag
       chat_id: logEntry.forwardedChannelId,
       text: telegramMessage.text,
       parse_mode: 'MarkdownV2',
-      disable_web_page_preview: false
+      disable_web_page_preview: telegramMessage.disableWebPagePreview || false
     });
     result = result.result;
   }

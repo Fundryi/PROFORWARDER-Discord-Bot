@@ -202,8 +202,8 @@ class TelegramHandler {
   /**
    * Edit message text for text-only messages
    */
-  async editMessageText(chatId, messageId, newText) {
-    return await this.utils.editMessageText(chatId, messageId, newText);
+  async editMessageText(chatId, messageId, newText, disableWebPagePreview = false) {
+    return await this.utils.editMessageText(chatId, messageId, newText, disableWebPagePreview);
   }
 
   /**
@@ -216,8 +216,8 @@ class TelegramHandler {
   /**
    * Handle editing of split messages (message chains)
    */
-  async editMessageChain(chatId, messageChain, newFullText, hasMedia) {
-    return await this.utils.editMessageChain(chatId, messageChain, newFullText, hasMedia);
+  async editMessageChain(chatId, messageChain, newFullText, hasMedia, disableWebPagePreview = false) {
+    return await this.utils.editMessageChain(chatId, messageChain, newFullText, hasMedia, disableWebPagePreview);
   }
 
   /**

@@ -37,13 +37,14 @@ class TelegramUtils {
   /**
    * Edit message text for text-only messages
    */
-  async editMessageText(chatId, messageId, newText) {
+  async editMessageText(chatId, messageId, newText, disableWebPagePreview = false) {
     try {
       const result = await this.api.callTelegramAPI('editMessageText', {
         chat_id: chatId,
         message_id: parseInt(messageId),
         text: newText,
-        parse_mode: 'MarkdownV2'
+        parse_mode: 'MarkdownV2',
+        disable_web_page_preview: disableWebPagePreview
       });
 
       if (result && result.ok) {
@@ -87,7 +88,7 @@ class TelegramUtils {
    * @param {string} newFullText - New full text content
    * @param {boolean} hasMedia - Whether the first message in the chain is a media message (caption vs text)
    */
-  async editMessageChain(chatId, messageChain, newFullText, hasMedia) {
+  async editMessageChain(chatId, messageChain, newFullText, hasMedia, disableWebPagePreview = false) {
     try {
       const envConfig = require('../../config/env');
       const isDebugMode = envConfig.debugMode;
@@ -104,7 +105,7 @@ class TelegramUtils {
         if (hasMedia) {
           await this.editMessageCaption(chatId, messageChain[0], text);
         } else {
-          await this.editMessageText(chatId, messageChain[0], text);
+          await this.editMessageText(chatId, messageChain[0], text, disableWebPagePreview);
         }
       };
 
@@ -161,14 +162,15 @@ class TelegramUtils {
 
           if (existingIndex < messageChain.length) {
             // Edit existing message
-            await this.editMessageText(chatId, messageChain[existingIndex], secondaryParts[i]);
+            await this.editMessageText(chatId, messageChain[existingIndex], secondaryParts[i], disableWebPagePreview);
             newChain.push(messageChain[existingIndex]);
           } else {
             // Create new message
             const textResult = await this.api.callTelegramAPI('sendMessage', {
               chat_id: chatId,
               text: secondaryParts[i],
-              parse_mode: 'MarkdownV2'
+              parse_mode: 'MarkdownV2',
+              disable_web_page_preview: disableWebPagePreview
             });
 
             if (textResult && textResult.ok) {
