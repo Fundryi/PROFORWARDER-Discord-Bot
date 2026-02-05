@@ -81,12 +81,25 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
     }
     
     // Skip if content hasn't actually changed
-    const embedsChanged = oldMessage.embeds.length !== newMessage.embeds.length ||
-      JSON.stringify(oldMessage.embeds.map(e => e.data)) !== JSON.stringify(newMessage.embeds.map(e => e.data));
+    // Short-circuit: check simple comparisons first before expensive JSON stringify
+    const contentChanged = oldMessage.content !== newMessage.content;
+    const attachmentsChanged = oldMessage.attachments.size !== newMessage.attachments.size;
+    const embedCountChanged = oldMessage.embeds.length !== newMessage.embeds.length;
 
-    if (oldMessage.content === newMessage.content &&
-        !embedsChanged &&
-        oldMessage.attachments.size === newMessage.attachments.size) {
+    // Only compute embed content comparison if counts are equal and nothing else changed
+    let embedContentChanged = false;
+    if (!contentChanged && !attachmentsChanged && !embedCountChanged && oldMessage.embeds.length > 0) {
+      // Compare embed data - exclude volatile timestamp field to avoid false positives
+      const stripTimestamp = (embed) => {
+        const data = { ...embed.data };
+        delete data.timestamp;
+        return data;
+      };
+      embedContentChanged = JSON.stringify(oldMessage.embeds.map(stripTimestamp)) !==
+                            JSON.stringify(newMessage.embeds.map(stripTimestamp));
+    }
+
+    if (!contentChanged && !attachmentsChanged && !embedCountChanged && !embedContentChanged) {
       return;
     }
 
@@ -230,23 +243,25 @@ async function updateForwardedMessage(newMessage, logEntry, client) {
           logSuccess(`Recreated webhook message in ${targetChannel.name} for edit`);
         } else {
           // Fallback to regular message if no webhook permissions
-          const updatedContent = await forwardHandler.buildEnhancedMessage(newMessage, {
+          // Use full config to preserve mention settings (allowEveryoneHereMentions)
+          const updatedContent = await forwardHandler.buildEnhancedMessage(newMessage, config || {
             sourceServerId: logEntry.originalServerId,
             targetServerId: logEntry.forwardedServerId
           });
-          
+
           const newForwardedMessage = await targetChannel.send(updatedContent);
-          
+
           // Update the database log with new message ID
           const { updateMessageLog } = require('../utils/database');
           await updateMessageLog(logEntry.id, newForwardedMessage.id);
-          
+
           logSuccess(`Recreated fallback message in ${targetChannel.name} for edit`);
         }
       }
     } else {
       // Regular bot message - can be edited normally
-      const updatedContent = await forwardHandler.buildEnhancedMessage(newMessage, {
+      // Use full config to preserve mention settings (allowEveryoneHereMentions)
+      const updatedContent = await forwardHandler.buildEnhancedMessage(newMessage, config || {
         sourceServerId: logEntry.originalServerId,
         targetServerId: logEntry.forwardedServerId
       });

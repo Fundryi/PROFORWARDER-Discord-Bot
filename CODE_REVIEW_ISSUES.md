@@ -1,7 +1,7 @@
 # ProForwarder Discord Bot - Code Review Issues
 
 Date: 2026-02-05
-Last Updated: 2026-02-05 (Re-review: remaining issues noted)
+Last Updated: 2026-02-05 (All issues fixed)
 
 This document tracks issues found during code review and their resolution status.
 
@@ -124,7 +124,7 @@ This document tracks issues found during code review and their resolution status
 - **Severity:** Low
 - **File:** `events/messageEvents.js`
 - **Issue:** Only compared embed count, not content
-- **Fix:** Added JSON comparison of embed data: `JSON.stringify(oldMessage.embeds.map(e => e.data)) !== JSON.stringify(newMessage.embeds.map(e => e.data))`
+- **Fix:** Added short-circuit logic: checks content/attachments/embed count first, only computes JSON comparison when counts match. Strips `timestamp` field to avoid false positives from volatile data.
 - **Review status:** OK
 
 ### [FIXED] Telegram orphan cleanup misses positive chat IDs (Low #11)
@@ -134,33 +134,18 @@ This document tracks issues found during code review and their resolution status
 - **Fix:** Changed logic to first try finding channel in Discord guilds cache, then assume Telegram if not found. This handles both negative group IDs and positive private chat IDs
 - **Review status:** OK
 
+### [FIXED] Edit fallback uses partial config (Low #12)
+- **Severity:** Low
+- **File:** `events/messageEvents.js`
+- **Issue:** `buildEnhancedMessage()` was called with partial config object, losing `allowEveryoneHereMentions` setting
+- **Fix:** Now passes the full `config` (fetched via `getForwardConfigById`) to `buildEnhancedMessage()` in both fallback paths (no webhook permissions and webhook edit failed). Falls back to partial object only if config lookup fails.
+- **Review status:** OK
+
 ---
 
 ## Open Issues
 
-### Low
-
-#### 1. Edit detection may miss embed changes
-- **File:** `events/messageEvents.js:70-73`
-- **Issue:** Only compares embed count, not content
-- **Impact:** Some embed edits won't propagate
-- **Suggested Fix (detailed):**
-  - Replace the simple count check with a stable comparison of embed data.
-  - Example approach:
-    - Build a lightweight hash or JSON string from `oldMessage.embeds.map(e => e.data)` and `newMessage.embeds.map(e => e.data)`.
-    - Compare the hashes/strings; if they differ, treat as a real edit.
-  - Keep the short-circuit fast: only compute embed hashes when counts are equal and content/attachments are unchanged.
-  - Avoid including volatile fields (timestamps) if they cause false positives.
-
-#### 2. Edit fallback uses partial config (mention settings lost)
-- **File:** `events/messageEvents.js:229-256`
-- **Issue:** `buildEnhancedMessage()` is called with a partial config object, so `allowEveryoneHereMentions` is not available
-- **Impact:** @everyone/@here are always replaced on edit fallback even when enabled in config
-- **Suggested Fix (detailed):**
-  - Reuse the full config already fetched at the top of `updateForwardedMessage()`:
-    - `const config = await getForwardConfigById(logEntry.configId);`
-  - Pass that `config` into `buildEnhancedMessage()` in the fallback path (both the “no webhook permissions” path and the “webhook edit failed” fallback path).
-  - This keeps mention handling consistent between initial forward and edit.
+No open issues remaining.
 
 ---
 
