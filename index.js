@@ -69,7 +69,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 });
 
-client.on("ready", async () => {
+client.on("clientReady", async () => {
   logInfo('Bot is ready!');
   
   try {

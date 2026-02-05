@@ -1,6 +1,5 @@
 const { logInfo, logSuccess, logError } = require('./logger');
-const { REST } = require('@discordjs/rest');
-const { Routes } = require('discord-api-types/v10');
+const { REST, Routes } = require('discord.js');
 const axios = require('axios');
 const { getBotSetting, setBotSetting } = require('./database');
 
