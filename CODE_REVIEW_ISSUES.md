@@ -109,7 +109,7 @@ This document tracks issues found during code review and their resolution status
 - **Severity:** Medium
 - **File:** `handlers/forwardHandler.js`
 - **Issue:** Fallback messages didn't set `allowedMentions`, causing unintended pings
-- **Fix:** Added `allowedMentions: { parse: [] }` by default in `buildEnhancedMessage()`, with conditional `everyone` parsing when `config.allowEveryone` is set and message contains @everyone
+- **Fix:** Added `allowedMentions: { parse: [] }` by default in `buildEnhancedMessage()`. Now aligned with webhook path: uses `config.allowEveryoneHereMentions`, checks bot `MentionEveryone` permission, handles @here with text indicator replacement
 - **Review status:** OK
 
 ### [FIXED] AI provider config mismatch (Medium #9)
@@ -124,14 +124,13 @@ This document tracks issues found during code review and their resolution status
 ## Open Issues
 
 ### Low
-
-#### 3. Edit detection may miss embed changes
+#### 2. Edit detection may miss embed changes
 - **File:** `events/messageEvents.js:70-73`
 - **Issue:** Only compares embed count, not content
 - **Impact:** Some embed edits won't propagate
 - **Suggested Fix:** Compare embed content or hash
 
-#### 4. Telegram orphan cleanup misses positive chat IDs
+#### 3. Telegram orphan cleanup misses positive chat IDs
 - **File:** `utils/database.js:518`
 - **Issue:** Only treats IDs starting with `-` as Telegram
 - **Impact:** Orphaned messages in private chats not cleaned

@@ -362,19 +362,45 @@ class ForwardHandler {
         content = `**${message.author.displayName}** from **${message.guild?.name || 'Unknown Server'}**:\n${content}`;
       }
 
-      messageOptions.content = content;
-
       // Handle @everyone/@here mentions if enabled in config
-      if (config.allowEveryone) {
+      if (config.allowEveryoneHereMentions === true) {
         const hasEveryone = content.includes('@everyone');
-        if (hasEveryone) {
-          messageOptions.allowedMentions = {
-            parse: ['everyone'],
-            users: [],
-            roles: []
-          };
+        const hasHere = content.includes('@here');
+
+        if (hasEveryone || hasHere) {
+          // Check if bot has MENTION_EVERYONE permission in target channel
+          const targetChannel = this.client.channels.cache.get(config.targetChannelId);
+          const botMember = targetChannel?.guild?.members?.cache?.get(this.client.user?.id);
+          const canMentionEveryone = botMember?.permissions?.has('MentionEveryone');
+
+          if (canMentionEveryone) {
+            // Allow @everyone mentions if present
+            if (hasEveryone) {
+              messageOptions.allowedMentions = {
+                parse: ['everyone'],
+                users: [],
+                roles: []
+              };
+            }
+            // @here doesn't work reliably with allowedMentions, replace with indicator
+            if (hasHere) {
+              content = content.replace(/@here/g, '**[📢 @here]**');
+            }
+          } else {
+            // Bot doesn't have permission, replace both with text indicators
+            content = content
+              .replace(/@everyone/g, '**[📢 @everyone]**')
+              .replace(/@here/g, '**[📢 @here]**');
+          }
         }
+      } else if (content.includes('@everyone') || content.includes('@here')) {
+        // Config disabled, replace with text indicators
+        content = content
+          .replace(/@everyone/g, '**[📢 @everyone]**')
+          .replace(/@here/g, '**[📢 @here]**');
       }
+
+      messageOptions.content = content;
     }
 
     // Handle embeds
