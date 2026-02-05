@@ -308,10 +308,9 @@ class ApplicationEmojiManager {
 
     try {
       const currentEmojis = await this.getApplicationEmojis();
-      
+
       if (currentEmojis.length < MAX_APP_EMOJIS * 0.9) {
-        this.isCleaningUp = false;
-        return; // Only clean when 90% full
+        return; // Only clean when 90% full (finally block will reset flag)
       }
 
       logInfo(`Cleaning up application emojis (${currentEmojis.length}/${MAX_APP_EMOJIS})`);

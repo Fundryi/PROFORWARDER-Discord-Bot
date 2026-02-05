@@ -5,20 +5,33 @@ const { getMessageChain, isMessageChain } = require('../utils/database');
 
 // Global forward handler instance
 let forwardHandler = null;
+let isProcessingRetryQueue = false;
 
 // Initialize forward handler
 async function initializeForwardHandler(client) {
   if (!forwardHandler) {
     forwardHandler = new ForwardHandler(client);
-    
+
     // Initialize AI features
     await forwardHandler.initialize();
-    
+
     // Start retry queue processor (runs every 5 minutes)
-    setInterval(() => {
-      forwardHandler.processRetryQueue();
+    // Use lock to prevent concurrent executions
+    setInterval(async () => {
+      if (isProcessingRetryQueue) {
+        logInfo('Retry queue already processing, skipping...');
+        return;
+      }
+      isProcessingRetryQueue = true;
+      try {
+        await forwardHandler.processRetryQueue();
+      } catch (error) {
+        logError('Error processing retry queue:', error);
+      } finally {
+        isProcessingRetryQueue = false;
+      }
     }, 5 * 60 * 1000);
-    
+
     logInfo('Forward handler initialized with retry queue processor');
   }
   return forwardHandler;
@@ -61,8 +74,9 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
           return; // Skip our own webhook messages
         }
       } catch (error) {
-        // If we can't fetch webhook info, continue processing
-        logInfo(`Could not fetch webhook info for message ${newMessage.id}, continuing...`);
+        // If we can't fetch webhook info, skip to prevent potential loops
+        logInfo(`Could not verify webhook for message ${newMessage.id}, skipping to prevent loops`);
+        return;
       }
     }
     
@@ -74,7 +88,7 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
     }
 
     // Mark message as being edited to prevent deletion interference
-    currentlyEditing.add(newMessage.id);
+    markAsEditing(newMessage.id);
 
     try {
       // Initialize handler if not already done
@@ -149,10 +163,9 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
         }
       }
     } finally {
-      // Remove from editing set after a delay to allow deletion to complete
-      setTimeout(() => {
-        currentlyEditing.delete(newMessage.id);
-      }, 5000); // 5 second delay
+      // Auto-cleanup handled by markAsEditing timeout
+      // Explicit delete for faster cleanup on success
+      currentlyEditing.delete(newMessage.id);
     }
     
   } catch (error) {
@@ -255,7 +268,30 @@ async function updateForwardedMessage(newMessage, logEntry, client) {
 }
 
 // Track messages being edited to avoid double-deletion
-const currentlyEditing = new Set();
+// Uses Map with timestamps for auto-cleanup
+const currentlyEditing = new Map();
+const EDITING_TIMEOUT = 30000; // 30 seconds max edit time
+
+// Helper to add message to editing set with auto-cleanup
+function markAsEditing(messageId) {
+  currentlyEditing.set(messageId, Date.now());
+  // Auto-remove after timeout
+  setTimeout(() => {
+    currentlyEditing.delete(messageId);
+  }, EDITING_TIMEOUT);
+}
+
+// Helper to check if message is being edited (with stale cleanup)
+function isBeingEdited(messageId) {
+  const timestamp = currentlyEditing.get(messageId);
+  if (!timestamp) return false;
+  // Clean up stale entries
+  if (Date.now() - timestamp > EDITING_TIMEOUT) {
+    currentlyEditing.delete(messageId);
+    return false;
+  }
+  return true;
+}
 
 // Handle message deletions
 async function handleMessageDelete(message, client) {
@@ -275,13 +311,14 @@ async function handleMessageDelete(message, client) {
           return; // Skip our own webhook messages
         }
       } catch (error) {
-        // If we can't fetch webhook info, continue processing
-        logInfo(`Could not fetch webhook info for deleted message ${message.id}, continuing...`);
+        // If we can't fetch webhook info, skip to prevent potential loops
+        logInfo(`Could not verify webhook for deleted message ${message.id}, skipping to prevent loops`);
+        return;
       }
     }
 
     // Skip if this message is currently being edited (to avoid interference)
-    if (currentlyEditing.has(message.id)) {
+    if (isBeingEdited(message.id)) {
       logInfo(`Skipping deletion of message ${message.id} - currently being edited`);
       return;
     }

@@ -35,7 +35,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: proforwarder-discord-bot:latest
     container_name: proforwarder-discord-bot
     restart: unless-stopped
     depends_on:

@@ -1,102 +1,152 @@
-# ProForwarder Discord Bot – Review Issues and Fix Ideas
+# ProForwarder Discord Bot - Code Review Issues
 
 Date: 2026-02-05
+Last Updated: 2026-02-05
 
-This document summarizes issues found during a read-only review and provides suggested fixes. No code changes were applied.
+This document tracks issues found during code review and their resolution status.
 
-## Critical
+---
 
-1. AI edit/delete flow can throw when AI is enabled
-- What: `threadManager.getThreadsForMessage` is async but is called without `await`, and `threadManager.sendTranslationMessage` is referenced but does not exist.
-- Impact: Edits/deletes will crash or silently fail once AI features are enabled.
-- Where:
-  - `handlers/aiHandler.js:237,291,321`
-  - `utils/threadManager.js:330`
-- Suggested fix:
-  - Add `await` to `getThreadsForMessage` calls.
-  - Replace `sendTranslationMessage` with an existing method (or implement it). If the intent is to post an updated translation, add a method to `ThreadManager` that edits or posts updates, then use it here.
+## Fixed Issues
 
-## High
+### [FIXED] Webhook Loop Risk
+- **Severity:** Critical
+- **File:** `events/messageEvents.js:76-79, 291-294`
+- **Issue:** If `fetchWebhook()` failed, the message was forwarded anyway, risking infinite loops
+- **Fix:** Now skips message if webhook cannot be verified instead of continuing
 
-2. Edit/delete propagation only checks last 100 logs
-- What: `getMessageLogs()` defaults to a 100-row limit, so older forwarded messages won’t be updated/deleted.
-- Impact: Edits/deletes of older messages won’t propagate.
-- Where:
-  - `events/messageEvents.js:93,299`
-- Suggested fix:
-  - Add a targeted DB query by `originalMessageId` (you already have `getMessageLogsByOriginalMessage`), or pass a much higher limit for edit/delete paths.
+### [FIXED] setInterval Async Race Condition
+- **Severity:** Critical
+- **File:** `events/messageEvents.js:17-29`
+- **Issue:** `processRetryQueue()` not awaited in setInterval - could cause duplicate forwards
+- **Fix:** Added `isProcessingRetryQueue` lock with try/finally pattern
 
-3. Telegram chains processed multiple times on edit/delete
-- What: You loop over `forwardedVersions` (one per chain entry) and each call updates or deletes the entire chain.
-- Impact: Duplicate Telegram API calls, race conditions, and possible errors.
-- Where:
-  - `events/messageEvents.js:106-140,318-350`
-- Suggested fix:
-  - Deduplicate by chain parent or original message ID before calling chain operations, or treat chain entries as a single logical target.
+### [FIXED] isCleaningUp Flag Not Reset on Early Return
+- **Severity:** High
+- **File:** `utils/applicationEmojiManager.js:312-314`
+- **Issue:** Early return bypassed finally block, leaving flag set permanently
+- **Fix:** Removed redundant manual reset, now relies on finally block for all paths
 
-## Medium
+### [FIXED] currentlyEditing Set Persistence After Restart
+- **Severity:** Medium
+- **File:** `events/messageEvents.js:271-295`
+- **Issue:** Set persisted indefinitely, blocking edits after restart
+- **Fix:** Changed to Map with timestamps + auto-cleanup after 30 seconds
 
-4. Fallback (non-webhook) forwarding can ping everyone/roles/users
-- What: When webhooks are unavailable, fallback messages don’t set `allowedMentions`.
-- Impact: Unintended mentions in forwarded messages.
-- Where:
-  - `handlers/forwardHandler.js:413-420`
-- Suggested fix:
-  - Set `allowedMentions` on fallback sends to block by default, and optionally allow `@everyone/@here` based on config (similar to webhook path).
+### [FIXED] Discord.js Deprecation Warning
+- **Severity:** Low
+- **File:** `index.js:72`
+- **Issue:** `client.on("ready")` deprecated in discord.js v15
+- **Fix:** Changed to `client.on("clientReady")`
 
-5. Config cache delays new `/proforward setup` taking effect
-- What: Config cache is valid for 5 minutes; new configs won’t be active until cache expires.
-- Impact: User runs setup, forwarding doesn’t start immediately.
-- Where:
-  - `utils/configManager.js:10-21,126-133`
-- Suggested fix:
-  - Invalidate cache after `addForwardConfig` or call `loadForwardConfigs(true)` after writing. Optionally reduce cache duration.
+### [FIXED] Unused Dependencies
+- **Severity:** Low
+- **File:** `package.json`
+- **Issue:** `@discordjs/rest` and `discord-api-types` listed but not needed (bundled in discord.js v14)
+- **Fix:** Removed from dependencies, updated `applicationEmojiManager.js` to import from `discord.js`
 
-6. AI provider config mismatch (OpenAI/DeepL)
-- What: `env.js.example` lists OpenAI/DeepL, but `AIManager` only initializes Gemini/Google. `optimizeContent` prefers OpenAI but it is never registered.
-- Impact: Content optimization and OpenAI/DeepL paths won’t work as documented.
-- Where:
-  - `utils/aiManager.js:43-67,191-193`
-  - `config/env.js.example`
-- Suggested fix:
-  - Initialize OpenAI/DeepL providers in `AIManager` or remove them from docs/examples. Align `providerPreferences` and `selectProvider` with actual providers.
+### [FIXED] Duplicate unhandledRejection Handlers
+- **Severity:** Low
+- **File:** `errorHandlers.js`, `index.js:144`
+- **Issue:** Handlers registered in both files causing duplicate logs
+- **Status:** `errorHandlers.js` now uses logger; `index.js` handler kept for process-specific handling
 
-## Low
+---
 
-7. Edit detection may miss embed changes
-- What: The edit check only compares embed count, not content. Changing an embed without changing count won’t trigger update.
-- Impact: Some edits won’t propagate.
-- Where:
-  - `events/messageEvents.js:70-73`
-- Suggested fix:
-  - Compare embed IDs or embed JSON (e.g., hash) to detect content changes.
+## Open Issues
 
-8. Telegram orphan cleanup misses positive chat IDs
-- What: Orphan cleanup treats Telegram targets only if `forwardedChannelId` starts with `-`.
-- Impact: Orphaned messages in private chats with positive IDs won’t be cleaned.
-- Where:
-  - `utils/database.js:518`
-- Suggested fix:
-  - Track target type in logs or infer Telegram targets from config/log fields rather than sign of ID.
+### Critical
 
-9. Duplicate unhandledRejection handlers
-- What: You register unhandled rejection handlers in both `errorHandlers.js` and `index.js`.
-- Impact: Duplicate logs, noisy output.
-- Where:
-  - `errorHandlers.js:4-6`
-  - `index.js:144`
-- Suggested fix:
-  - Keep one handler (prefer the centralized `errorHandlers.js`) and remove the duplicate.
+#### 1. AI edit/delete flow can throw when AI is enabled
+- **File:** `handlers/aiHandler.js:237,291,321`, `utils/threadManager.js:330`
+- **Issue:** `threadManager.getThreadsForMessage` is async but called without `await`; `sendTranslationMessage` does not exist
+- **Impact:** Edits/deletes crash or silently fail with AI enabled
+- **Suggested Fix:** Add `await` to calls; implement or replace `sendTranslationMessage`
+
+### High
+
+#### 2. Edit/delete propagation only checks last 100 logs
+- **File:** `events/messageEvents.js:93,299`
+- **Issue:** `getMessageLogs()` defaults to 100-row limit
+- **Impact:** Edits/deletes of older messages won't propagate
+- **Suggested Fix:** Use `getMessageLogsByOriginalMessage` or pass higher limit
+
+#### 3. Telegram chains processed multiple times on edit/delete
+- **File:** `events/messageEvents.js:106-140,318-350`
+- **Issue:** Loop over `forwardedVersions` calls chain operations multiple times
+- **Impact:** Duplicate Telegram API calls, race conditions
+- **Suggested Fix:** Deduplicate by chain parent before calling chain operations
+
+#### 4. Memory Leak: Unbounded Retry Queue
+- **File:** `handlers/forwardHandler.js:454-467`
+- **Issue:** `this.retryQueue` Map grows without cleanup strategy
+- **Impact:** Memory consumption over time
+- **Suggested Fix:** Add TTL, size limits, or periodic cleanup
+
+#### 5. Config Reload Race Condition
+- **File:** `utils/configManager.js:126-210`
+- **Issue:** No file locking between read and write operations
+- **Impact:** Concurrent config additions may lose data
+- **Suggested Fix:** Implement file locking or atomic write pattern
+
+### Medium
+
+#### 6. Fallback (non-webhook) forwarding can ping everyone/roles
+- **File:** `handlers/forwardHandler.js:413-420`
+- **Issue:** Fallback messages don't set `allowedMentions`
+- **Impact:** Unintended mentions in forwarded messages
+- **Suggested Fix:** Set `allowedMentions` on fallback sends
+
+#### 7. Config cache delays new setup taking effect
+- **File:** `utils/configManager.js:10-21,126-133`
+- **Issue:** 5-minute cache means new configs don't apply immediately
+- **Impact:** User runs setup, forwarding doesn't start immediately
+- **Suggested Fix:** Invalidate cache after `addForwardConfig`
+
+#### 8. AI provider config mismatch
+- **File:** `utils/aiManager.js:43-67,191-193`, `config/env.js.example`
+- **Issue:** Docs list OpenAI/DeepL but AIManager only initializes Gemini/Google
+- **Impact:** OpenAI/DeepL paths won't work as documented
+- **Suggested Fix:** Align providers with documentation
+
+### Low
+
+#### 9. Edit detection may miss embed changes
+- **File:** `events/messageEvents.js:70-73`
+- **Issue:** Only compares embed count, not content
+- **Impact:** Some embed edits won't propagate
+- **Suggested Fix:** Compare embed content or hash
+
+#### 10. Telegram orphan cleanup misses positive chat IDs
+- **File:** `utils/database.js:518`
+- **Issue:** Only treats IDs starting with `-` as Telegram
+- **Impact:** Orphaned messages in private chats not cleaned
+- **Suggested Fix:** Track target type in logs
+
+---
+
+## Infrastructure Improvements Made
+
+### Docker Setup
+- Multi-stage Dockerfile with Node.js 24
+- `compose.yaml` with init container for config setup and permissions
+- `compose.override.yaml` for local development (gitignored)
+- Persistent data at `/srv/docker-data/proforwarder/`
+- Healthcheck using dedicated `healthcheck.js`
+
+### Code Quality
+- Promisified `exec()` and `close()` in database.js
+- `errorHandlers.js` uses logger instead of console.error
+- Removed redundant DOCKER_SETUP.md
+- Compacted README.md from ~500 to ~210 lines
+
+---
 
 ## Test Gaps
 
-- No automated tests or test scripts detected in `package.json`.
-- Suggested fix:
-  - Add at least a minimal test script (e.g., unit tests for config manager, DB log lookups, and Telegram chain handling).
-
-## Follow-up Questions
-
-1. Do you want a single “all translations” thread per message (current behavior) or one thread per language? The edit/update logic assumes per-language threads.
+- No automated tests detected in `package.json`
+- Suggested: Add unit tests for config manager, DB operations, and Telegram chain handling
 
 ---
+
 End of report.
