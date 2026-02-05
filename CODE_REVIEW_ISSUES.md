@@ -34,6 +34,12 @@ For previous issues and fixes, see `Documentations/CODE_REVIEW_ISSUES.md`.
 - **Issue:** `editMessageChain()` assumed the first message was media (caption edit), so text-only chains failed. It also only split into exactly 2 parts, so long text could exceed Telegram's 4096 limit.
 - **Fix:** Added a `hasMedia` parameter that flows from `messageEvents.js` through `telegramHandler.js` to `telegramUtils.editMessageChain()`. The first message is now edited with `editMessageCaption` (media) or `editMessageText` (text-only) based on this flag, and the first-message length limit uses caption vs text correctly. The splitting logic now uses `TelegramTextSplitter.splitLongText()` to generate N secondary parts (instead of always 2), editing existing chain messages where available, creating new ones where needed, and deleting extras when the chain shrinks.
 
+### [FIXED] Media group edits delete extra attachments (Medium)
+- **Severity:** Medium
+- **File:** `events/messageEvents.js`
+- **Issue:** Media group forwards are logged as chains, but edits treated them as split-text chains and deleted secondary messages when the new caption fit in one message, removing extra media items.
+- **Fix:** Detect media-group chains (`media.length > 1` with matching chain length) and edit only the first caption. If the caption is too long, split using `editMessageChain` on the first message and append text messages while preserving all media-group IDs; update the DB chain only when the size changes.
+
 ### [FIXED] Telegram edit "delete and resend" breaks on split captions (High)
 - **Severity:** High
 - **File:** `events/messageEvents.js`
@@ -58,19 +64,15 @@ For previous issues and fixes, see `Documentations/CODE_REVIEW_ISSUES.md`.
 - **Issue:** Threads are tracked by forwarded message ID, but edits and deletes query threads using the original message ID.
 - **Fix:** Both `handleMessageEdit` and `handleMessageDelete` now use `getMessageLogsByOriginalMessage()` to find forwarded message IDs first, then query `threadManager.getThreadsForMessage()` for each forwarded ID. This matches how `trackThread` stores threads (keyed by forwarded message ID).
 
----
-
 ### [FIXED] Unregistered command modules (Low)
 - **Severity:** Low
-- **File:** `commands/configCommands.js`, `commands/forwardCommands.js`, `commands/helpCommands.js`
-- **Issue:** Commands exist but aren't registered, so they're effectively dead code.
-- **Fix:** Deleted all three files. They defined `/config`, `/forward`, and `/help` slash commands but were never imported or registered anywhere. Their functionality is already covered by `/proforward` subcommands.
-
----
+- **File:** `commands/configCommands.js`, `commands/forwardCommands.js`, `commands/helpCommands.js`, `index.js`
+- **Issue:** Commands existed but weren’t registered, so they were effectively dead code.
+- **Fix:** The unused command modules are no longer present in the repo; only `proforwardCommand` and `debugCommands` remain and are registered in `index.js`.
 
 ## Open Issues
 
-No open issues.
+No open issues remaining.
 
 ---
 

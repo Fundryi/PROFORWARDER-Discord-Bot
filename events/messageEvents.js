@@ -538,10 +538,60 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
       
       // Extract message IDs from the chain
       const chainMessageIds = messageChain.map(entry => entry.forwardedMessageId);
-      
+      const hasMedia = telegramMessage.media && telegramMessage.media.length > 0;
+      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
+      const isLikelyMediaGroup = hasMedia && telegramMessage.media.length > 1 && chainMessageIds.length === telegramMessage.media.length;
+
+      if (isLikelyMediaGroup) {
+        if (envConfig.debugMode) {
+          logInfo(`🔗 CHAIN EDIT: Media group detected (${telegramMessage.media.length} media items), editing caption only`);
+        }
+
+        if (telegramMessage.text.length > captionLengthLimit) {
+          const mediaGroupIds = chainMessageIds;
+          const updatedChainPartial = await telegramHandler.editMessageChain(
+            logEntry.forwardedChannelId,
+            [mediaGroupIds[0]],
+            telegramMessage.text,
+            true
+          );
+
+          const combinedChain = [
+            ...mediaGroupIds,
+            ...updatedChainPartial.filter(id => id !== mediaGroupIds[0])
+          ];
+
+          if (combinedChain.length !== chainMessageIds.length) {
+            const { deleteMessageChain, logMessageChain } = require('../utils/database');
+            await deleteMessageChain(logEntry.originalMessageId, logEntry.configId);
+            await logMessageChain(
+              logEntry.originalMessageId,
+              logEntry.originalChannelId,
+              logEntry.originalServerId,
+              combinedChain,
+              logEntry.forwardedChannelId,
+              logEntry.forwardedServerId,
+              logEntry.configId,
+              'success'
+            );
+          }
+
+          logSuccess(`✅ Chain edit successful for media group ${logEntry.originalMessageId} (${combinedChain.length} parts)`);
+          return { chainUpdated: true, newChain: combinedChain };
+        }
+
+        await telegramHandler.editMessageCaption(
+          logEntry.forwardedChannelId,
+          chainMessageIds[0],
+          telegramMessage.text
+        );
+
+        logSuccess(`✅ Chain edit successful for media group ${logEntry.originalMessageId} (${chainMessageIds.length} parts)`);
+        return { chainUpdated: false, newChain: chainMessageIds };
+      }
+
       // Use enhanced chain editing method
       // Pass hasMedia so the editor knows whether the first message is media (caption) or text-only
-      const hasMedia = telegramMessage.media && telegramMessage.media.length > 0;
       const updatedChain = await telegramHandler.editMessageChain(
         logEntry.forwardedChannelId,
         chainMessageIds,

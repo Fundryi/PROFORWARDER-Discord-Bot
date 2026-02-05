@@ -91,9 +91,9 @@ class TelegramUtils {
     try {
       const envConfig = require('../../config/env');
       const isDebugMode = envConfig.debugMode;
-      const firstMessageLimit = hasMedia
-        ? (envConfig.telegram?.captionLengthLimit || 900)
-        : 4000; // Telegram text message limit
+      const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
+      const textLengthLimit = envConfig.telegram?.textLengthLimit || 4000;
+      const firstMessageLimit = hasMedia ? captionLengthLimit : textLengthLimit;
 
       if (isDebugMode) {
         logInfo(`✏️ CHAIN EDIT: Editing message chain with ${messageChain.length} messages (hasMedia: ${hasMedia})`);
@@ -127,14 +127,17 @@ class TelegramUtils {
       } else {
         // Text still needs splitting — use multi-part splitting for N parts
         const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
-        const textLengthLimit = 4000; // Telegram text message limit for secondary parts
 
         const TelegramTextSplitter = require('./telegramTextSplitter');
         const textSplitter = new TelegramTextSplitter();
 
         // Split the first part to fit the first message (media caption or text)
         const escapedSplitIndicator = this.escapeMarkdownV2ForText(splitIndicator);
-        const firstSplitPoint = textSplitter.findOptimalSplitPoint(newFullText, firstMessageLimit - splitIndicator.length - 10);
+        const availableFirstLength = firstMessageLimit - escapedSplitIndicator.length - 10;
+        let firstSplitPoint = textSplitter.findOptimalSplitPoint(newFullText, availableFirstLength);
+        if (!firstSplitPoint || firstSplitPoint <= 0) {
+          firstSplitPoint = Math.max(1, Math.min(availableFirstLength, newFullText.length));
+        }
         const firstPart = newFullText.substring(0, firstSplitPoint).trim() + '\n\n' + escapedSplitIndicator;
         const afterFirst = newFullText.substring(firstSplitPoint).trim();
 
