@@ -518,11 +518,17 @@ class ForwardHandler {
       try {
         // Fetch fresh message to avoid stale data
         let message = null;
+        let channel = null;
         try {
-          const guild = guildId ? this.client.guilds.cache.get(guildId) : null;
-          const channel = guild
-            ? guild.channels.cache.get(channelId)
-            : this.client.channels.cache.get(channelId);
+          // Use fetch() instead of cache to handle uncached channels
+          if (guildId) {
+            const guild = this.client.guilds.cache.get(guildId) || await this.client.guilds.fetch(guildId).catch(() => null);
+            if (guild) {
+              channel = guild.channels.cache.get(channelId) || await guild.channels.fetch(channelId).catch(() => null);
+            }
+          } else {
+            channel = this.client.channels.cache.get(channelId) || await this.client.channels.fetch(channelId).catch(() => null);
+          }
 
           if (channel) {
             message = await channel.messages.fetch(messageId);
@@ -531,6 +537,12 @@ class ForwardHandler {
           // Message no longer exists, remove from queue
           this.retryQueue.delete(key);
           logInfo(`Message ${messageId} no longer exists, removing from retry queue`);
+          continue;
+        }
+
+        if (!channel) {
+          this.retryQueue.delete(key);
+          logInfo(`Could not fetch channel ${channelId}, removing from retry queue`);
           continue;
         }
 

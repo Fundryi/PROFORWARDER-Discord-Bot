@@ -22,8 +22,8 @@ This document tracks issues found during code review and their resolution status
 - **File:** `events/messageEvents.js`
 - **Issue:** `getMessageLogs()` defaults to 100-row limit, missing older forwarded messages
 - **Fix:** Changed to use `getMessageLogsByOriginalMessage()` which queries by specific message ID without limit
-- **Review status:** Needs follow-up
-- **Notes:** In the edit path, debug logging still references `messageLogs` which no longer exists. If `debugMode` is true and no forwarded versions are found, this will throw a `ReferenceError`. Either reintroduce a local `messageLogs` for debug or remove that block.
+- **Review status:** OK (follow-up completed)
+- **Notes:** Removed the debug block that referenced undefined `messageLogs` variable.
 
 ### [FIXED] Telegram chains processed multiple times (High #3)
 - **Severity:** High
@@ -37,16 +37,16 @@ This document tracks issues found during code review and their resolution status
 - **File:** `handlers/forwardHandler.js:454-467`
 - **Issue:** `this.retryQueue` Map grew without cleanup strategy
 - **Fix:** Added MAX_RETRY_QUEUE_SIZE (100), MAX_RETRY_AGE (1 hour), stale entry cleanup, and fresh message fetching
-- **Review status:** Partial
-- **Notes:** Retry processing now depends on cached channels only. If the channel is not in cache (or is a DM), the retry is dropped. Consider fetching the channel via `client.channels.fetch` or `guild.channels.fetch` before removing the item.
+- **Review status:** OK (follow-up completed)
+- **Notes:** Updated to use `client.channels.fetch()` and `guild.channels.fetch()` instead of cache-only lookups.
 
 ### [FIXED] Config Reload Race Condition (High #5)
 - **Severity:** High
 - **File:** `utils/configManager.js:126-210`
 - **Issue:** No file locking between read and write operations
 - **Fix:** Added write lock queue mechanism with `acquireWriteLock()`/`releaseWriteLock()` and cache invalidation after writes
-- **Review status:** Partial
-- **Notes:** `toggleAutoPublishChannel()` still writes without acquiring the lock and does not invalidate the cache. If multiple writes occur, races are still possible. Also note that the lock is in-process only (not safe across multiple bot processes).
+- **Review status:** OK (follow-up completed)
+- **Notes:** `toggleAutoPublishChannel()` now also uses the write lock and invalidates cache. Lock is in-process only (not safe across multiple bot processes, but this bot is typically single-instance).
 
 ### [FIXED] Webhook Loop Risk
 - **Severity:** Critical
@@ -95,50 +95,29 @@ This document tracks issues found during code review and their resolution status
 - **Severity:** Low
 - **File:** `errorHandlers.js`, `index.js:144`
 - **Issue:** Handlers registered in both files causing duplicate logs
-- **Fix:** `errorHandlers.js` now uses logger; `index.js` handler kept for process-specific handling
-- **Review status:** Incorrect
-- **Notes:** There are still two `unhandledRejection` handlers, so duplicate logging persists. Either remove the `index.js` handler or merge logic into `errorHandlers.js` and register once.
+- **Fix:** Removed the handler from `index.js`, kept only `errorHandlers.js`
+- **Review status:** OK (follow-up completed)
 
 ### [FIXED] Config cache delays new setup (Medium #7 - side effect of #5)
 - **Severity:** Medium
 - **File:** `utils/configManager.js`
 - **Issue:** 5-minute cache meant new configs didn't apply immediately
-- **Fix:** Cache is now invalidated after `addForwardConfig` and `disableForwardConfig`
-- **Review status:** OK (for forwardConfigs only)
+- **Fix:** Cache is now invalidated after `addForwardConfig`, `disableForwardConfig`, and `toggleAutoPublishChannel`
+- **Review status:** OK
 
 ---
 
 ## Open Issues
 
-### High
-
-#### 1. Debug block references undefined variable in edit path
-- **File:** `events/messageEvents.js:120-127`
-- **Issue:** `messageLogs` is not defined after switching to `getMessageLogsByOriginalMessage()`
-- **Impact:** `debugMode` will throw `ReferenceError` when no forwarded versions are found
-- **Suggested Fix:** Remove the loose-match block or reintroduce a local `messageLogs` fetch for debug only
-
 ### Medium
 
-#### 2. Retry queue may drop items if channel is not cached
-- **File:** `handlers/forwardHandler.js:519-540`
-- **Issue:** Retry processing relies on cached channels only
-- **Impact:** Retries can be dropped even when messages still exist (cache misses or DMs)
-- **Suggested Fix:** Use `client.channels.fetch(channelId)` or `guild.channels.fetch(channelId)` before removing items
-
-#### 3. Config write lock not applied to auto-publish writes
-- **File:** `utils/configManager.js:383-441`
-- **Issue:** `toggleAutoPublishChannel()` writes without acquiring the lock
-- **Impact:** Possible race conditions with concurrent config writes
-- **Suggested Fix:** Wrap this function with `acquireWriteLock()`/`releaseWriteLock()` and consider cache invalidation
-
-#### 4. Fallback (non-webhook) forwarding can ping everyone/roles
+#### 1. Fallback (non-webhook) forwarding can ping everyone/roles
 - **File:** `handlers/forwardHandler.js:413-420`
 - **Issue:** Fallback messages don't set `allowedMentions`
 - **Impact:** Unintended mentions in forwarded messages
 - **Suggested Fix:** Set `allowedMentions` on fallback sends
 
-#### 5. AI provider config mismatch
+#### 2. AI provider config mismatch
 - **File:** `utils/aiManager.js:43-67,191-193`, `config/env.js.example`
 - **Issue:** Docs list OpenAI/DeepL but AIManager only initializes Gemini/Google
 - **Impact:** OpenAI/DeepL paths won't work as documented
@@ -146,13 +125,13 @@ This document tracks issues found during code review and their resolution status
 
 ### Low
 
-#### 6. Edit detection may miss embed changes
+#### 3. Edit detection may miss embed changes
 - **File:** `events/messageEvents.js:70-73`
 - **Issue:** Only compares embed count, not content
 - **Impact:** Some embed edits won't propagate
 - **Suggested Fix:** Compare embed content or hash
 
-#### 7. Telegram orphan cleanup misses positive chat IDs
+#### 4. Telegram orphan cleanup misses positive chat IDs
 - **File:** `utils/database.js:518`
 - **Issue:** Only treats IDs starting with `-` as Telegram
 - **Impact:** Orphaned messages in private chats not cleaned

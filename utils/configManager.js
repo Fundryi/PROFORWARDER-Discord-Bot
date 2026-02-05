@@ -381,6 +381,7 @@ async function getAutoPublishConfig() {
 }
 
 async function toggleAutoPublishChannel(serverId, channelId) {
+  await acquireWriteLock();
   try {
     const envContent = await fs.readFile(CONFIG_PATH, 'utf8');
     const currentConfig = await getAutoPublishConfig();
@@ -439,13 +440,18 @@ async function toggleAutoPublishChannel(serverId, channelId) {
     }
     
     await fs.writeFile(CONFIG_PATH, updatedContent, 'utf8');
-    
+
+    // Invalidate cache so change is immediately visible
+    invalidateCache();
+
     logSuccess(`Auto-publish ${isEnabled ? 'enabled' : 'disabled'} for channel ${channelId} in server ${serverId}`);
     return { enabled: isEnabled, serverId, channelId };
-    
+
   } catch (error) {
     logError('Error toggling auto-publish channel:', error);
     throw error;
+  } finally {
+    releaseWriteLock();
   }
 }
 

@@ -141,9 +141,7 @@ client.on("clientReady", async () => {
   logInfo('ProForwarder bot is ready to forward messages!');
 });
 
-process.on('unhandledRejection', error => {
-  logError('Unhandled promise rejection:', error);
-});
+// Note: unhandledRejection is handled in errorHandlers.js
 
 // Cleanup on exit
 process.on('SIGINT', async () => {

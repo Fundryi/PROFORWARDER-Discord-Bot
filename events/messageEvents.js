@@ -116,17 +116,7 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
       if (forwardedVersions.length === 0) {
         if (envConfig.debugMode) {
           logInfo(`❌ Message edit detected but no forwarded versions found for message ${newMessage.id}`);
-          
-          // Extra debug: check if any logs match loosely
-          const looseMatches = messageLogs.filter(log =>
-            log.originalMessageId == newMessage.id || log.forwardedMessageId == newMessage.id
-          );
-          logInfo(`🔍 EDIT DEBUG: Loose matches (== comparison): ${looseMatches.length}`);
-          looseMatches.forEach(match => {
-            logInfo(`  - Log ${match.id}: Original:${match.originalMessageId} -> Forwarded:${match.forwardedMessageId} Status:${match.status}`);
-          });
         }
-        
         return;
       }
 
