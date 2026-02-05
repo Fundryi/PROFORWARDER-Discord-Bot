@@ -9,6 +9,37 @@ let configCache = null;
 let lastConfigLoad = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
+// Simple write lock to prevent concurrent modifications
+let isWriting = false;
+const writeQueue = [];
+
+async function acquireWriteLock() {
+  if (!isWriting) {
+    isWriting = true;
+    return;
+  }
+
+  // Wait in queue
+  return new Promise((resolve) => {
+    writeQueue.push(resolve);
+  });
+}
+
+function releaseWriteLock() {
+  if (writeQueue.length > 0) {
+    const next = writeQueue.shift();
+    next();
+  } else {
+    isWriting = false;
+  }
+}
+
+// Invalidate cache (call after writes)
+function invalidateCache() {
+  configCache = null;
+  lastConfigLoad = 0;
+}
+
 // Load and validate forward configurations from env.js
 async function loadForwardConfigs(forceReload = false) {
   try {
@@ -124,6 +155,7 @@ async function getForwardConfigById(configId) {
 
 // Add a new forward configuration to env.js
 async function addForwardConfig(newConfig) {
+  await acquireWriteLock();
   try {
     // Read current env.js content
     const envContent = await fs.readFile(CONFIG_PATH, 'utf8');
@@ -200,24 +232,30 @@ async function addForwardConfig(newConfig) {
 
     // Write back to file
     await fs.writeFile(CONFIG_PATH, updatedContent, 'utf8');
-    
+
+    // Invalidate cache so new config is immediately available
+    invalidateCache();
+
     logSuccess(`Added forward config ${newConfig.id} to env.js`);
     return newConfig.id;
   } catch (error) {
     logError('Error adding forward config:', error);
     throw error;
+  } finally {
+    releaseWriteLock();
   }
 }
 
 // Remove a forward configuration (by setting enabled: false)
 async function disableForwardConfig(configId) {
+  await acquireWriteLock();
   try {
     const envContent = await fs.readFile(CONFIG_PATH, 'utf8');
-    
+
     // Find and update the specific config
     const configRegex = new RegExp(`(\\{[^}]*id:\\s*${configId}[^}]*)(enabled:\\s*true)([^}]*\\})`, 'g');
     let updatedContent = envContent.replace(configRegex, '$1enabled: false$3');
-    
+
     // If enabled wasn't there, add it
     if (updatedContent === envContent) {
       const addEnabledRegex = new RegExp(`(\\{[^}]*id:\\s*${configId}[^}]*)(\\s*\\})`, 'g');
@@ -225,12 +263,17 @@ async function disableForwardConfig(configId) {
     }
 
     await fs.writeFile(CONFIG_PATH, updatedContent, 'utf8');
-    
+
+    // Invalidate cache so change is immediately visible
+    invalidateCache();
+
     logSuccess(`Disabled forward config ${configId} in env.js`);
     return true;
   } catch (error) {
     logError('Error disabling forward config:', error);
     throw error;
+  } finally {
+    releaseWriteLock();
   }
 }
 

@@ -9,6 +9,36 @@ This document tracks issues found during code review and their resolution status
 
 ## Fixed Issues
 
+### [FIXED] AI edit/delete flow throws when AI enabled (Critical #1)
+- **Severity:** Critical
+- **File:** `handlers/aiHandler.js:237,291,321`
+- **Issue:** `threadManager.getThreadsForMessage` is async but called without `await`; `sendTranslationMessage` did not exist
+- **Fix:** Added `await` to all `getThreadsForMessage` calls; replaced `sendTranslationMessage` with inline embed sending logic
+
+### [FIXED] Edit/delete propagation only checks last 100 logs (High #2)
+- **Severity:** High
+- **File:** `events/messageEvents.js`
+- **Issue:** `getMessageLogs()` defaults to 100-row limit, missing older forwarded messages
+- **Fix:** Changed to use `getMessageLogsByOriginalMessage()` which queries by specific message ID without limit
+
+### [FIXED] Telegram chains processed multiple times (High #3)
+- **Severity:** High
+- **File:** `events/messageEvents.js`
+- **Issue:** Loop over `forwardedVersions` called chain operations multiple times for the same chain
+- **Fix:** Added deduplication by `originalMessageId + configId` before processing Telegram targets
+
+### [FIXED] Memory Leak: Unbounded Retry Queue (High #4)
+- **Severity:** High
+- **File:** `handlers/forwardHandler.js:454-467`
+- **Issue:** `this.retryQueue` Map grew without cleanup strategy
+- **Fix:** Added MAX_RETRY_QUEUE_SIZE (100), MAX_RETRY_AGE (1 hour), stale entry cleanup, and fresh message fetching
+
+### [FIXED] Config Reload Race Condition (High #5)
+- **Severity:** High
+- **File:** `utils/configManager.js:126-210`
+- **Issue:** No file locking between read and write operations
+- **Fix:** Added write lock queue mechanism with `acquireWriteLock()`/`releaseWriteLock()` and cache invalidation after writes
+
 ### [FIXED] Webhook Loop Risk
 - **Severity:** Critical
 - **File:** `events/messageEvents.js:76-79, 291-294`
@@ -49,45 +79,17 @@ This document tracks issues found during code review and their resolution status
 - **Severity:** Low
 - **File:** `errorHandlers.js`, `index.js:144`
 - **Issue:** Handlers registered in both files causing duplicate logs
-- **Status:** `errorHandlers.js` now uses logger; `index.js` handler kept for process-specific handling
+- **Fix:** `errorHandlers.js` now uses logger; `index.js` handler kept for process-specific handling
+
+### [FIXED] Config cache delays new setup (Medium #7 - side effect of #5)
+- **Severity:** Medium
+- **File:** `utils/configManager.js`
+- **Issue:** 5-minute cache meant new configs didn't apply immediately
+- **Fix:** Cache is now invalidated after `addForwardConfig` and `disableForwardConfig`
 
 ---
 
 ## Open Issues
-
-### Critical
-
-#### 1. AI edit/delete flow can throw when AI is enabled
-- **File:** `handlers/aiHandler.js:237,291,321`, `utils/threadManager.js:330`
-- **Issue:** `threadManager.getThreadsForMessage` is async but called without `await`; `sendTranslationMessage` does not exist
-- **Impact:** Edits/deletes crash or silently fail with AI enabled
-- **Suggested Fix:** Add `await` to calls; implement or replace `sendTranslationMessage`
-
-### High
-
-#### 2. Edit/delete propagation only checks last 100 logs
-- **File:** `events/messageEvents.js:93,299`
-- **Issue:** `getMessageLogs()` defaults to 100-row limit
-- **Impact:** Edits/deletes of older messages won't propagate
-- **Suggested Fix:** Use `getMessageLogsByOriginalMessage` or pass higher limit
-
-#### 3. Telegram chains processed multiple times on edit/delete
-- **File:** `events/messageEvents.js:106-140,318-350`
-- **Issue:** Loop over `forwardedVersions` calls chain operations multiple times
-- **Impact:** Duplicate Telegram API calls, race conditions
-- **Suggested Fix:** Deduplicate by chain parent before calling chain operations
-
-#### 4. Memory Leak: Unbounded Retry Queue
-- **File:** `handlers/forwardHandler.js:454-467`
-- **Issue:** `this.retryQueue` Map grows without cleanup strategy
-- **Impact:** Memory consumption over time
-- **Suggested Fix:** Add TTL, size limits, or periodic cleanup
-
-#### 5. Config Reload Race Condition
-- **File:** `utils/configManager.js:126-210`
-- **Issue:** No file locking between read and write operations
-- **Impact:** Concurrent config additions may lose data
-- **Suggested Fix:** Implement file locking or atomic write pattern
 
 ### Medium
 
@@ -96,12 +98,6 @@ This document tracks issues found during code review and their resolution status
 - **Issue:** Fallback messages don't set `allowedMentions`
 - **Impact:** Unintended mentions in forwarded messages
 - **Suggested Fix:** Set `allowedMentions` on fallback sends
-
-#### 7. Config cache delays new setup taking effect
-- **File:** `utils/configManager.js:10-21,126-133`
-- **Issue:** 5-minute cache means new configs don't apply immediately
-- **Impact:** User runs setup, forwarding doesn't start immediately
-- **Suggested Fix:** Invalidate cache after `addForwardConfig`
 
 #### 8. AI provider config mismatch
 - **File:** `utils/aiManager.js:43-67,191-193`, `config/env.js.example`
@@ -133,12 +129,15 @@ This document tracks issues found during code review and their resolution status
 - `compose.override.yaml` for local development (gitignored)
 - Persistent data at `/srv/docker-data/proforwarder/`
 - Healthcheck using dedicated `healthcheck.js`
+- Removed `image:` tag to fix Komodo build issues
 
 ### Code Quality
 - Promisified `exec()` and `close()` in database.js
 - `errorHandlers.js` uses logger instead of console.error
 - Removed redundant DOCKER_SETUP.md
 - Compacted README.md from ~500 to ~210 lines
+- Updated discord.js to 14.25.1, axios to latest
+- Node.js engine requirement set to >=22.0.0
 
 ---
 

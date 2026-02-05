@@ -103,30 +103,14 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
       }
 
       // Get message logs to find forwarded versions of this message (all targets)
-      const { getMessageLogs } = require('../utils/database');
-      const messageLogs = await getMessageLogs();
-      
+      // Using getMessageLogsByOriginalMessage for efficient lookup without limit
+      const { getMessageLogsByOriginalMessage } = require('../utils/database');
+      const forwardedVersions = await getMessageLogsByOriginalMessage(newMessage.id);
+
       const envConfig = require('../config/env');
       if (envConfig.debugMode) {
         logInfo(`🔍 EDIT DEBUG: Looking for forwarded versions of edited message ${newMessage.id}`);
-        logInfo(`📊 EDIT DEBUG: Found ${messageLogs.length} total message logs in database`);
-      }
-      
-      const targetMessageId = String(newMessage.id);
-      if (envConfig.debugMode) {
-        logInfo(`🎯 EDIT DEBUG: Searching for originalMessageId === "${targetMessageId}" (${typeof targetMessageId})`);
-      }
-      
-      const forwardedVersions = messageLogs.filter(log => {
-        const matches = log.originalMessageId === targetMessageId && log.status === 'success';
-        if (envConfig.debugMode && log.originalMessageId === targetMessageId) {
-          logInfo(`🔍 EDIT DEBUG: Found matching originalMessageId: ${log.originalMessageId}, status: ${log.status}, matches: ${matches}`);
-        }
-        return matches;
-      });
-
-      if (envConfig.debugMode) {
-        logInfo(`✅ EDIT DEBUG: Found ${forwardedVersions.length} forwarded versions for message ${newMessage.id}`);
+        logInfo(`✅ EDIT DEBUG: Found ${forwardedVersions.length} forwarded versions`);
       }
 
       if (forwardedVersions.length === 0) {
@@ -148,18 +132,35 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
 
       logInfo(`Message edit detected: updating ${forwardedVersions.length} forwarded versions`);
 
-      // Update each forwarded version
-      for (const logEntry of forwardedVersions) {
+      // Separate Discord and Telegram targets
+      // For Telegram, deduplicate by configId to avoid processing chains multiple times
+      const discordTargets = forwardedVersions.filter(log => log.forwardedServerId);
+      const telegramTargets = forwardedVersions.filter(log => !log.forwardedServerId);
+
+      // Deduplicate Telegram targets by configId (chains have same originalMessageId + configId)
+      const seenTelegramConfigs = new Set();
+      const uniqueTelegramTargets = telegramTargets.filter(log => {
+        const key = `${log.originalMessageId}-${log.configId}`;
+        if (seenTelegramConfigs.has(key)) return false;
+        seenTelegramConfigs.add(key);
+        return true;
+      });
+
+      // Update Discord targets
+      for (const logEntry of discordTargets) {
         try {
-          if (logEntry.forwardedServerId) {
-            // Discord target
-            await updateForwardedMessage(newMessage, logEntry, client);
-          } else {
-            // Telegram target - handle differently
-            await updateTelegramForwardedMessage(newMessage, logEntry, client);
-          }
+          await updateForwardedMessage(newMessage, logEntry, client);
         } catch (error) {
           logError(`Failed to update forwarded message ${logEntry.forwardedMessageId}:`, error);
+        }
+      }
+
+      // Update Telegram targets (deduplicated - chain handling is inside the function)
+      for (const logEntry of uniqueTelegramTargets) {
+        try {
+          await updateTelegramForwardedMessage(newMessage, logEntry, client);
+        } catch (error) {
+          logError(`Failed to update Telegram message ${logEntry.forwardedMessageId}:`, error);
         }
       }
     } finally {
@@ -332,69 +333,54 @@ async function handleMessageDelete(message, client) {
     await forwardHandler.handleMessageDelete(message);
 
     // Get message logs to find forwarded versions of this message (all targets)
-    const { getMessageLogs } = require('../utils/database');
-    const messageLogs = await getMessageLogs();
-    
+    // Using getMessageLogsByOriginalMessage for efficient lookup without limit
+    const { getMessageLogsByOriginalMessage } = require('../utils/database');
+    const forwardedVersions = await getMessageLogsByOriginalMessage(message.id);
+
     const envConfig = require('../config/env');
     if (envConfig.debugMode) {
       logInfo(`🔍 DELETE DEBUG: Looking for forwarded versions of deleted message ${message.id}`);
-      logInfo(`📊 DELETE DEBUG: Found ${messageLogs.length} total message logs in database`);
-      
-      // Log first few entries for debugging
-      logInfo(`📋 DELETE DEBUG: Recent message logs (first 5):`);
-      messageLogs.slice(0, 5).forEach((log, index) => {
-        logInfo(`  ${index + 1}. ID:${log.id} Original:${log.originalMessageId} (${typeof log.originalMessageId}) -> Forwarded:${log.forwardedMessageId} Status:${log.status}`);
-      });
-    }
-    
-    const targetMessageId = String(message.id);
-    if (envConfig.debugMode) {
-      logInfo(`🎯 DELETE DEBUG: Searching for originalMessageId === "${targetMessageId}" (${typeof targetMessageId})`);
-    }
-    
-    const forwardedVersions = messageLogs.filter(log => {
-      const matches = log.originalMessageId === targetMessageId && log.status === 'success';
-      if (envConfig.debugMode && log.originalMessageId === targetMessageId) {
-        logInfo(`🔍 DELETE DEBUG: Found matching originalMessageId: ${log.originalMessageId}, status: ${log.status}, matches: ${matches}`);
-      }
-      return matches;
-    });
-
-    if (envConfig.debugMode) {
-      logInfo(`✅ DELETE DEBUG: Found ${forwardedVersions.length} forwarded versions for message ${message.id}`);
+      logInfo(`✅ DELETE DEBUG: Found ${forwardedVersions.length} forwarded versions`);
     }
 
     if (forwardedVersions.length === 0) {
       if (envConfig.debugMode) {
         logInfo(`❌ Message deletion detected but no forwarded versions found for message ${message.id}`);
-        
-        // Extra debug: check if any logs match loosely
-        const looseMatches = messageLogs.filter(log =>
-          log.originalMessageId == message.id || log.forwardedMessageId == message.id
-        );
-        logInfo(`🔍 DELETE DEBUG: Loose matches (== comparison): ${looseMatches.length}`);
-        looseMatches.forEach(match => {
-          logInfo(`  - Log ${match.id}: Original:${match.originalMessageId} -> Forwarded:${match.forwardedMessageId} Status:${match.status}`);
-        });
       }
-      
       return;
     }
 
     logInfo(`Message deletion detected: deleting ${forwardedVersions.length} forwarded versions`);
 
-    // Delete each forwarded version
-    for (const logEntry of forwardedVersions) {
+    // Separate Discord and Telegram targets
+    // For Telegram, deduplicate by configId to avoid processing chains multiple times
+    const discordTargets = forwardedVersions.filter(log => log.forwardedServerId);
+    const telegramTargets = forwardedVersions.filter(log => !log.forwardedServerId);
+
+    // Deduplicate Telegram targets by configId (chains have same originalMessageId + configId)
+    const seenTelegramConfigs = new Set();
+    const uniqueTelegramTargets = telegramTargets.filter(log => {
+      const key = `${log.originalMessageId}-${log.configId}`;
+      if (seenTelegramConfigs.has(key)) return false;
+      seenTelegramConfigs.add(key);
+      return true;
+    });
+
+    // Delete Discord targets
+    for (const logEntry of discordTargets) {
       try {
-        if (logEntry.forwardedServerId) {
-          // Discord target
-          await deleteForwardedMessage(logEntry, client);
-        } else {
-          // Telegram target - handle differently
-          await deleteTelegramForwardedMessage(logEntry, client);
-        }
+        await deleteForwardedMessage(logEntry, client);
       } catch (error) {
         logError(`Failed to delete forwarded message ${logEntry.forwardedMessageId}:`, error);
+      }
+    }
+
+    // Delete Telegram targets (deduplicated - chain handling is inside the function)
+    for (const logEntry of uniqueTelegramTargets) {
+      try {
+        await deleteTelegramForwardedMessage(logEntry, client);
+      } catch (error) {
+        logError(`Failed to delete Telegram message ${logEntry.forwardedMessageId}:`, error);
       }
     }
 

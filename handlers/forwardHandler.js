@@ -452,18 +452,51 @@ class ForwardHandler {
 
   // Add failed message to retry queue
   addToRetryQueue(message, config, error) {
+    const MAX_RETRY_QUEUE_SIZE = 100;
+    const MAX_RETRY_AGE = 60 * 60 * 1000; // 1 hour max age for retry entries
+
+    // Enforce size limit - remove oldest entries if at capacity
+    if (this.retryQueue.size >= MAX_RETRY_QUEUE_SIZE) {
+      const oldestKey = this.retryQueue.keys().next().value;
+      this.retryQueue.delete(oldestKey);
+      logInfo(`Retry queue at capacity, removed oldest entry: ${oldestKey}`);
+    }
+
     const retryKey = `${message.id}-${config.id}`;
     const retryData = {
-      message,
+      messageId: message.id,
+      channelId: message.channel.id,
+      guildId: message.guild?.id,
       config,
       error: error.message,
       attempts: 1,
+      createdAt: Date.now(),
       nextRetry: Date.now() + (5 * 60 * 1000), // Retry in 5 minutes
       maxRetries: 3
     };
 
     this.retryQueue.set(retryKey, retryData);
     logInfo(`Added to retry queue: ${retryKey}`);
+
+    // Clean up stale entries on every add
+    this.cleanupStaleRetries(MAX_RETRY_AGE);
+  }
+
+  // Clean up stale retry entries
+  cleanupStaleRetries(maxAge) {
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    for (const [key, data] of this.retryQueue.entries()) {
+      if (now - data.createdAt > maxAge) {
+        this.retryQueue.delete(key);
+        cleanedCount++;
+      }
+    }
+
+    if (cleanedCount > 0) {
+      logInfo(`Cleaned up ${cleanedCount} stale retry queue entries`);
+    }
   }
 
   // Process retry queue for failed messages
@@ -481,8 +514,32 @@ class ForwardHandler {
 
     logInfo(`Processing ${toRetry.length} items from retry queue`);
 
-    for (const { key, message, config, attempts, maxRetries } of toRetry) {
+    for (const { key, messageId, channelId, guildId, config, attempts, maxRetries } of toRetry) {
       try {
+        // Fetch fresh message to avoid stale data
+        let message = null;
+        try {
+          const guild = guildId ? this.client.guilds.cache.get(guildId) : null;
+          const channel = guild
+            ? guild.channels.cache.get(channelId)
+            : this.client.channels.cache.get(channelId);
+
+          if (channel) {
+            message = await channel.messages.fetch(messageId);
+          }
+        } catch (fetchError) {
+          // Message no longer exists, remove from queue
+          this.retryQueue.delete(key);
+          logInfo(`Message ${messageId} no longer exists, removing from retry queue`);
+          continue;
+        }
+
+        if (!message) {
+          this.retryQueue.delete(key);
+          logInfo(`Could not fetch message ${messageId}, removing from retry queue`);
+          continue;
+        }
+
         await this.forwardToTarget(message, config);
         this.retryQueue.delete(key);
         logSuccess(`Retry successful for ${key}`);
@@ -493,9 +550,11 @@ class ForwardHandler {
         } else {
           // Update retry data
           const retryData = this.retryQueue.get(key);
-          retryData.attempts++;
-          retryData.nextRetry = now + (Math.pow(2, attempts) * 5 * 60 * 1000); // Exponential backoff
-          logInfo(`Retry failed for ${key}, scheduling next attempt`);
+          if (retryData) {
+            retryData.attempts++;
+            retryData.nextRetry = now + (Math.pow(2, attempts) * 5 * 60 * 1000); // Exponential backoff
+            logInfo(`Retry failed for ${key}, scheduling next attempt`);
+          }
         }
       }
     }

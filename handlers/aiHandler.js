@@ -233,10 +233,10 @@ class AIHandler {
     }
 
     try {
-      // Find related threads for this message
-      const threads = threadManager.getThreadsForMessage(newMessage.id);
-      
-      if (threads.length === 0) {
+      // Find related threads for this message (async call)
+      const threads = await threadManager.getThreadsForMessage(newMessage.id);
+
+      if (!threads || threads.length === 0) {
         return;
       }
 
@@ -245,10 +245,10 @@ class AIHandler {
       // Re-process translations if content changed significantly
       if (this.hasSignificantContentChange(oldMessage, newMessage)) {
         logInfo('Significant content change detected, re-processing translations');
-        
+
         // Generate new translations
         const translationData = await translationManager.translateMessage(newMessage, config);
-        
+
         if (translationData) {
           // Update existing threads with new translations
           await this.updateTranslationThreads(threads, translationData);
@@ -280,26 +280,45 @@ class AIHandler {
   async updateTranslationThreads(threads, translationData) {
     try {
       for (const threadData of threads) {
-        const translation = translationData.translations[threadData.language];
-        
-        if (translation) {
-          try {
-            const thread = await this.client.channels.fetch(threadData.threadId);
-            
-            if (thread && !thread.archived) {
-              // Send updated translation to thread
-              await threadManager.sendTranslationMessage(
-                thread,
-                translation,
-                threadData.language,
-                translationData.sourceLanguage,
-                {} // Config not needed for this call
-              );
-              
-              logSuccess(`Updated translation thread for ${threadData.language}`);
+        // For 'all' language threads, send updates for all translations
+        const languages = threadData.language === 'all'
+          ? Object.keys(translationData.translations)
+          : [threadData.language];
+
+        for (const lang of languages) {
+          const translation = translationData.translations[lang];
+
+          if (translation) {
+            try {
+              const thread = await this.client.channels.fetch(threadData.threadId);
+
+              if (thread && !thread.archived) {
+                // Send updated translation as embed
+                const flag = translationManager.getLanguageFlag(lang);
+                const langName = translationManager.getLanguageName(lang);
+
+                const embed = {
+                  color: 0xffa500, // Orange for updates
+                  author: {
+                    name: `${flag} ${langName} Translation (Updated)`
+                  },
+                  description: translation.translatedText,
+                  footer: {
+                    text: `Updated translation by ${translation.provider?.toUpperCase() || 'AI'}`
+                  },
+                  timestamp: new Date().toISOString()
+                };
+
+                await thread.send({
+                  embeds: [embed],
+                  allowedMentions: { parse: [] }
+                });
+
+                logSuccess(`Updated translation thread for ${lang}`);
+              }
+            } catch (error) {
+              logError(`Failed to update thread for ${lang}:`, error);
             }
-          } catch (error) {
-            logError(`Failed to update thread for ${threadData.language}:`, error);
           }
         }
       }
@@ -317,10 +336,10 @@ class AIHandler {
     }
 
     try {
-      // Find and archive related threads
-      const threads = threadManager.getThreadsForMessage(message.id);
-      
-      if (threads.length > 0) {
+      // Find and archive related threads (async call)
+      const threads = await threadManager.getThreadsForMessage(message.id);
+
+      if (threads && threads.length > 0) {
         logInfo(`Message deleted, archiving ${threads.length} related translation thread(s)`);
         
         for (const threadData of threads) {
