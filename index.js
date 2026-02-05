@@ -101,15 +101,22 @@ client.on("clientReady", async () => {
     logError('Error initializing database:', error);
   }
 
-  // Validate recent message logs on startup
+  // Validate/cleanup logs on startup (run in background so bot is responsive immediately)
   const { validateRecentMessageLogs, cleanupOrphanedLogs, cleanupOrphanedThreads } = require('./utils/database');
-  await validateRecentMessageLogs(client, 20);
-  
-  // Clean up orphaned logs from previous sessions
-  await cleanupOrphanedLogs(client, 50);
-  
-  // Clean up orphaned translation threads from previous sessions
-  await cleanupOrphanedThreads(client, 50);
+  const maintenanceOptions = config.startupLogMaintenance || {};
+  if (maintenanceOptions.enabled !== false) {
+    setTimeout(async () => {
+      try {
+        await validateRecentMessageLogs(client, maintenanceOptions);
+        await cleanupOrphanedLogs(client, maintenanceOptions);
+        await cleanupOrphanedThreads(client, 50);
+      } catch (error) {
+        logError('Startup log maintenance failed:', error);
+      }
+    }, 0);
+  } else {
+    logInfo('Startup log maintenance disabled');
+  }
   
   // Initialize Discord invite manager for source headers
   logInfo('Initializing Discord invite manager...');

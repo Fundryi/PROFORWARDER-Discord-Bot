@@ -69,6 +69,52 @@ const close = () => {
   });
 };
 
+function getStartupLogMaintenanceOptions(overrides = {}) {
+  const envConfig = require('../config/env');
+  const config = envConfig.startupLogMaintenance || {};
+
+  return {
+    enabled: config.enabled !== false,
+    batchSize: config.batchSize || 200,
+    maxRuntimeMs: config.maxRuntimeMs || 2 * 60 * 1000,
+    delayBetweenBatchesMs: config.delayBetweenBatchesMs || 250,
+    retentionDays: config.retentionDays ?? 180,
+    retentionAction: config.retentionAction || 'skip',
+    debugMode: envConfig.debugMode,
+    ...overrides
+  };
+}
+
+async function getMessageLogsPage({ limit, beforeForwardedAt = null, beforeId = null, cutoffForwardedAt = null }) {
+  const conditions = [];
+  const params = [];
+
+  if (cutoffForwardedAt !== null) {
+    conditions.push('forwardedAt >= ?');
+    params.push(cutoffForwardedAt);
+  }
+
+  if (beforeForwardedAt !== null && beforeId !== null) {
+    conditions.push('(forwardedAt < ? OR (forwardedAt = ? AND id < ?))');
+    params.push(beforeForwardedAt, beforeForwardedAt, beforeId);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  return await all(
+    `SELECT * FROM message_logs ${whereClause} ORDER BY forwardedAt DESC, id DESC LIMIT ?`,
+    [...params, limit]
+  );
+}
+
+async function deleteOldMessageLogs(cutoffForwardedAt) {
+  const result = await run(
+    'DELETE FROM message_logs WHERE forwardedAt < ?',
+    [cutoffForwardedAt]
+  );
+  return result.changes || 0;
+}
+
 // Initialize database tables
 async function initializeDatabase() {
   try {
@@ -354,22 +400,58 @@ async function getMessageLogsByOriginalMessage(originalMessageId) {
 }
 
 // Validate recent message logs on startup
-async function validateRecentMessageLogs(client, limit = 20) {
+async function validateRecentMessageLogs(client, optionsOrLimit = 20) {
   try {
-    const envConfig = require('../config/env');
-    if (envConfig.debugMode) {
-      logInfo(`🔍 Validating last ${limit} message logs on startup...`);
+    const options = typeof optionsOrLimit === 'number'
+      ? { limit: optionsOrLimit }
+      : (optionsOrLimit || {});
+    const maintenance = getStartupLogMaintenanceOptions(options);
+
+    const retentionCutoff = maintenance.retentionDays !== null && maintenance.retentionDays !== undefined
+      ? Date.now() - (maintenance.retentionDays * 24 * 60 * 60 * 1000)
+      : null;
+
+    if (maintenance.debugMode) {
+      const limitLabel = options.limit ? `last ${options.limit}` : 'paged';
+      logInfo(`🔍 Validating ${limitLabel} message logs on startup...`);
     }
-    
-    const recentLogs = await getMessageLogs(null, limit);
-    logInfo(`Found ${recentLogs.length} recent message logs to validate`);
-    
+
     let validCount = 0;
     let invalidCount = 0;
-    
-    for (const log of recentLogs) {
+    let processedCount = 0;
+    let beforeForwardedAt = null;
+    let beforeId = null;
+    const startTime = Date.now();
+
+    while (true) {
+      if (Date.now() - startTime > maintenance.maxRuntimeMs) {
+        logInfo(`Stopping validation due to max runtime (${maintenance.maxRuntimeMs}ms)`);
+        break;
+      }
+
+      const remaining = options.limit ? options.limit - processedCount : null;
+      if (remaining !== null && remaining <= 0) break;
+
+      const pageSize = remaining !== null ? Math.min(maintenance.batchSize, remaining) : maintenance.batchSize;
+      const recentLogs = await getMessageLogsPage({
+        limit: pageSize,
+        beforeForwardedAt,
+        beforeId,
+        cutoffForwardedAt: retentionCutoff
+      });
+
+      if (recentLogs.length === 0) break;
+
+      if (processedCount === 0) {
+        logInfo(`Found ${recentLogs.length} recent message logs to validate`);
+      }
+
+      for (const log of recentLogs) {
+        processedCount++;
       try {
-        logInfo(`Checking log ${log.id}: ${log.originalMessageId} -> ${log.forwardedMessageId} (status: ${log.status})`);
+        if (maintenance.debugMode) {
+          logInfo(`Checking log ${log.id}: ${log.originalMessageId} -> ${log.forwardedMessageId} (status: ${log.status})`);
+        }
         
         // Skip failed logs
         if (log.status !== 'success') {
@@ -401,11 +483,15 @@ async function validateRecentMessageLogs(client, limit = 20) {
             const originalMessage = await sourceChannel.messages.fetch(log.originalMessageId);
             if (originalMessage) {
               originalExists = true;
-              logInfo(`  ✅ Original message ${log.originalMessageId} exists`);
+              if (maintenance.debugMode) {
+                logInfo(`  ✅ Original message ${log.originalMessageId} exists`);
+              }
             }
           }
         } catch (error) {
-          logInfo(`  ❌ Original message ${log.originalMessageId} not found: ${error.message}`);
+          if (maintenance.debugMode) {
+            logInfo(`  ❌ Original message ${log.originalMessageId} not found: ${error.message}`);
+          }
         }
         
         // Try to find the forwarded message
@@ -432,29 +518,49 @@ async function validateRecentMessageLogs(client, limit = 20) {
             const forwardedMessage = await targetChannel.messages.fetch(log.forwardedMessageId);
             if (forwardedMessage) {
               forwardedExists = true;
-              logInfo(`  ✅ Forwarded message ${log.forwardedMessageId} exists`);
+              if (maintenance.debugMode) {
+                logInfo(`  ✅ Forwarded message ${log.forwardedMessageId} exists`);
+              }
             }
           }
         } catch (error) {
-          logInfo(`  ❌ Forwarded message ${log.forwardedMessageId} not found: ${error.message}`);
+          if (maintenance.debugMode) {
+            logInfo(`  ❌ Forwarded message ${log.forwardedMessageId} not found: ${error.message}`);
+          }
         }
         
         if (originalExists && forwardedExists) {
           validCount++;
-          logInfo(`  ✅ Log ${log.id} is valid - both messages exist`);
+          if (maintenance.debugMode) {
+            logInfo(`  ✅ Log ${log.id} is valid - both messages exist`);
+          }
         } else {
           invalidCount++;
-          logInfo(`  ⚠️ Log ${log.id} is invalid - original: ${originalExists}, forwarded: ${forwardedExists}`);
+          if (maintenance.debugMode) {
+            logInfo(`  ⚠️ Log ${log.id} is invalid - original: ${originalExists}, forwarded: ${forwardedExists}`);
+          }
         }
         
       } catch (error) {
         logError(`Error validating log ${log.id}:`, error);
         invalidCount++;
       }
+        if (options.limit && processedCount >= options.limit) {
+          break;
+        }
+      }
+
+      const lastLog = recentLogs[recentLogs.length - 1];
+      beforeForwardedAt = lastLog.forwardedAt;
+      beforeId = lastLog.id;
+
+      if (maintenance.delayBetweenBatchesMs) {
+        await new Promise(resolve => setTimeout(resolve, maintenance.delayBetweenBatchesMs));
+      }
     }
     
-    logSuccess(`Message log validation complete: ${validCount} valid, ${invalidCount} invalid out of ${recentLogs.length} logs`);
-    return { valid: validCount, invalid: invalidCount, total: recentLogs.length };
+    logSuccess(`Message log validation complete: ${validCount} valid, ${invalidCount} invalid out of ${processedCount} logs`);
+    return { valid: validCount, invalid: invalidCount, total: processedCount };
     
   } catch (error) {
     logError('Error validating message logs:', error);
@@ -479,14 +585,54 @@ async function cleanupDeletedMessage(originalMessageId) {
 }
 
 // Clean up invalid/orphaned message logs
-async function cleanupOrphanedLogs(client, limit = 50) {
+async function cleanupOrphanedLogs(client, optionsOrLimit = 50) {
   try {
-    logInfo(`🧹 Cleaning up orphaned message logs (checking last ${limit} entries)...`);
-    
-    const recentLogs = await getMessageLogs(null, limit);
+    const options = typeof optionsOrLimit === 'number'
+      ? { limit: optionsOrLimit }
+      : (optionsOrLimit || {});
+    const maintenance = getStartupLogMaintenanceOptions(options);
+
+    const retentionCutoff = maintenance.retentionDays !== null && maintenance.retentionDays !== undefined
+      ? Date.now() - (maintenance.retentionDays * 24 * 60 * 60 * 1000)
+      : null;
+
+    if (maintenance.retentionAction === 'delete' && retentionCutoff !== null) {
+      const deletedOld = await deleteOldMessageLogs(retentionCutoff);
+      if (deletedOld > 0) {
+        logInfo(`🧹 Retention cleanup: Removed ${deletedOld} old message logs (older than ${maintenance.retentionDays} days)`);
+      }
+    }
+
+    const limitLabel = options.limit ? `last ${options.limit}` : 'paged';
+    logInfo(`🧹 Cleaning up orphaned message logs (checking ${limitLabel} entries)...`);
+
     let deletedCount = 0;
+    let processedCount = 0;
+    let beforeForwardedAt = null;
+    let beforeId = null;
+    const startTime = Date.now();
     
-    for (const log of recentLogs) {
+    while (true) {
+      if (Date.now() - startTime > maintenance.maxRuntimeMs) {
+        logInfo(`Stopping cleanup due to max runtime (${maintenance.maxRuntimeMs}ms)`);
+        break;
+      }
+
+      const remaining = options.limit ? options.limit - processedCount : null;
+      if (remaining !== null && remaining <= 0) break;
+
+      const pageSize = remaining !== null ? Math.min(maintenance.batchSize, remaining) : maintenance.batchSize;
+      const recentLogs = await getMessageLogsPage({
+        limit: pageSize,
+        beforeForwardedAt,
+        beforeId,
+        cutoffForwardedAt: retentionCutoff
+      });
+
+      if (recentLogs.length === 0) break;
+
+      for (const log of recentLogs) {
+        processedCount++;
       if (log.status !== 'success') continue;
       
       try {
@@ -558,13 +704,13 @@ async function cleanupOrphanedLogs(client, limit = 50) {
           // Forwarded message doesn't exist
         }
         
-        // Handle different cleanup scenarios
-        if (!originalExists && !forwardedExists) {
+        // Handle different cleanup scenarios (source is truth)
+        if (!originalExists) {
           // Both messages are gone - just clean up database
           await run(`DELETE FROM message_logs WHERE id = ?`, [log.id]);
           deletedCount++;
-          logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Both messages gone - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId}`);
-        } else if (!originalExists && forwardedExists) {
+          logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Original missing - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId}`);
+
           // Original is gone but forwarded still exists - delete orphaned forwarded message
           try {
             if (isTelegramTarget) {
@@ -624,22 +770,26 @@ async function cleanupOrphanedLogs(client, limit = 50) {
               }
             }
             
-            // Clean up database entry
-            await run(`DELETE FROM message_logs WHERE id = ?`, [log.id]);
-            deletedCount++;
-            logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Original gone, forwarded deleted - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId} (${isTelegramTarget ? 'Telegram' : 'Discord'})`);
-            
+            // Database entry already removed above
           } catch (deleteError) {
             logError(`Failed to delete orphaned forwarded message ${log.forwardedMessageId}:`, deleteError);
-            // Still clean up database entry even if deletion failed
-            await run(`DELETE FROM message_logs WHERE id = ?`, [log.id]);
-            deletedCount++;
-            logInfo(`🗑️ Cleaned up orphaned log ${log.id}: Original gone, forwarded deletion failed but cleaned DB - Original:${log.originalMessageId} -> Forwarded:${log.forwardedMessageId} (${isTelegramTarget ? 'Telegram' : 'Discord'})`);
           }
         }
         
       } catch (error) {
         logError(`Error checking log ${log.id}:`, error);
+      }
+        if (options.limit && processedCount >= options.limit) {
+          break;
+        }
+      }
+
+      const lastLog = recentLogs[recentLogs.length - 1];
+      beforeForwardedAt = lastLog.forwardedAt;
+      beforeId = lastLog.id;
+
+      if (maintenance.delayBetweenBatchesMs) {
+        await new Promise(resolve => setTimeout(resolve, maintenance.delayBetweenBatchesMs));
       }
     }
     
