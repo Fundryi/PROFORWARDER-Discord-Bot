@@ -126,6 +126,7 @@ client.on("clientReady", async () => {
     logInfo('Initializing Reader Bot...');
     try {
       readerBot = new ReaderBot(client); // Pass main bot client
+      module.exports.readerBot = readerBot; // Update exports so importers see the live value
       const success = await readerBot.initialize();
       if (success) {
         logSuccess('Reader Bot initialized successfully');
@@ -167,5 +168,7 @@ client.login(process.env.BOT_TOKEN).catch(error => {
   logError('Failed to login:', error);
 });
 
-// Export reader bot for use in other modules
+// Export references for use in other modules
+// Note: readerBot is set later in clientReady; importers must access
+// module.exports.readerBot (or re-require) to get the live value.
 module.exports = { client, readerBot };

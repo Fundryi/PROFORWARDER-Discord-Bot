@@ -1,15 +1,17 @@
 const sqlite3 = require('sqlite3').verbose();
-const fs = require('fs').promises;
+const fs = require('fs');
 const path = require('path');
 const chalk = require('chalk');
 const { logInfo, logSuccess, logError, formatUser } = require('./logger');
 
-// Create data directory if it doesn't exist
+// Create data directory if it doesn't exist (sync to ensure it exists before DB opens)
 const dataDir = path.join(__dirname, '..', 'data');
-fs.mkdir(dataDir, { recursive: true }).catch(err => {
+try {
+  fs.mkdirSync(dataDir, { recursive: true });
+} catch (err) {
   logError(`Error creating data directory: ${err.message}`);
   process.exit(1);
-});
+}
 
 // Create database connection
 const db = new sqlite3.Database(path.join(dataDir, 'proforwarder.db'), (err) => {

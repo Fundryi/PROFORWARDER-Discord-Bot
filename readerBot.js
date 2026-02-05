@@ -152,7 +152,7 @@ class ReaderBot {
       }
     };
 
-    await this.sendToMainBot('messageUpdate', updateData, newMessage);
+    await this.sendToMainBot('messageUpdate', updateData, newMessage, oldMessage);
   }
 
   async handleMessageDelete(message) {
@@ -174,20 +174,19 @@ class ReaderBot {
     await this.sendToMainBot('messageDelete', deleteData, message);
   }
 
-  async sendToMainBot(eventType, data, originalMessage) {
+  async sendToMainBot(eventType, data, originalMessage, oldMessage) {
     try {
       // Import the main bot's message handlers
       const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
-      
+
       // Process the message through main bot's logic using the reader bot's data
       switch (eventType) {
         case 'messageCreate':
           await handleMessageCreate(originalMessage, this.mainBot);
           break;
         case 'messageUpdate':
-          // For updates, we need the old and new message objects
-          // This is a simplified approach - you might need to reconstruct the old message
-          await handleMessageUpdate(originalMessage, originalMessage, this.mainBot);
+          // Pass the real oldMessage and newMessage (originalMessage) from the reader bot's Discord event
+          await handleMessageUpdate(oldMessage, originalMessage, this.mainBot);
           break;
         case 'messageDelete':
           await handleMessageDelete(originalMessage, this.mainBot);
