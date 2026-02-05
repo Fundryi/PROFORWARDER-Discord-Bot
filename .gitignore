@@ -4,6 +4,8 @@ data/userPoints.json
 licenses/*
 redeemed_licenses/*
 config/env.js
+config/.env
 data/proforwarder.db
 data/proforwarder.db-shm
 data/proforwarder.db-wal
+compose.override.yaml

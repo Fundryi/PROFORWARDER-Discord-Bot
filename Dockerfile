@@ -43,6 +43,7 @@ COPY --chown=botuser:nodejs utils ./utils
 COPY --chown=botuser:nodejs handlers ./handlers
 COPY --chown=botuser:nodejs events ./events
 COPY --chown=botuser:nodejs commands ./commands
+COPY --chown=botuser:nodejs config ./config
 
 USER botuser
 

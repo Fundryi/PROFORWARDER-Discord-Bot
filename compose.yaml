@@ -1,13 +1,35 @@
 services:
-  init-permissions:
-    image: alpine:latest
+  init-config:
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: proforwarder-init
-    command: >
-      sh -c "chown -R 1001:1001 /data /config && echo 'Permissions set for UID 1001'"
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        echo "==> Setting up config files"
+        if [ ! -f /config/.env ]; then
+          cp /app/config/.env.example /config/.env
+          echo "    Created .env from example - EDIT WITH YOUR TOKENS"
+        else
+          echo "    .env already exists"
+        fi
+        if [ ! -f /config/env.js ]; then
+          cp /app/config/env.js.example /config/env.js
+          echo "    Created env.js from example"
+        else
+          echo "    env.js already exists"
+        fi
+        echo "==> Setting permissions for UID 1001"
+        chown -R 1001:1001 /data /config
+        echo "==> Init complete, sleeping..."
+        sleep infinity
+    user: root
     volumes:
       - /srv/docker-data/proforwarder/data:/data
       - /srv/docker-data/proforwarder/config:/config
-    restart: "no"
+    restart: unless-stopped
 
   proforwarder-bot:
     build:
@@ -17,12 +39,10 @@ services:
     container_name: proforwarder-discord-bot
     restart: unless-stopped
     depends_on:
-      init-permissions:
-        condition: service_completed_successfully
+      init-config:
+        condition: service_started
     environment:
       - NODE_ENV=production
-    env_file:
-      - /srv/docker-data/proforwarder/config/.env
     volumes:
       - /srv/docker-data/proforwarder/data:/app/data
       - /srv/docker-data/proforwarder/config:/app/config
