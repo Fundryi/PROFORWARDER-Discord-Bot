@@ -1,6 +1,6 @@
 <div align="center">
 
-![Node.js](https://img.shields.io/badge/Node.js_24-339933?style=flat&logo=node.js&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js_22+-339933?style=flat&logo=node.js&logoColor=white)
 ![Discord.js](https://img.shields.io/badge/Discord.js_14-5865F2?style=flat&logo=discord&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-003B57?style=flat&logo=sqlite&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
@@ -18,20 +18,35 @@
 
 ## Features
 
-**Core**
+**Core Forwarding**
 - Webhook-based forwarding - messages appear as the original user
 - Same-server and cross-server Discord forwarding
-- Discord to Telegram forwarding with MarkdownV2 formatting
-- Real-time edit and delete synchronization
-- Full content preservation (text, embeds, attachments, stickers)
+- Discord-to-Telegram forwarding with MarkdownV2 formatting
+- Real-time edit and delete synchronization across all targets
+- Full content preservation (text, embeds, attachments, stickers, reactions)
+- Smart message chain handling for long captions and split messages
+
+**Telegram Integration**
+- Automatic MarkdownV2 conversion from Discord formatting
+- Smart caption splitting for media messages exceeding Telegram limits
+- Media group support with full chain tracking
+- Configurable split strategies (`smart` or `separate`)
+- 200+ Discord emoji mappings for Telegram
+
+**AI & Translation**
+- AI-powered translation with thread support
+- Multiple providers: Gemini, Google Translate, OpenAI, DeepL
+- Translation threads under forwarded messages
+- Content optimization for cross-platform readability
+- Configurable caching and fallback providers
 
 **Advanced**
-- AI translation with thread support (Gemini, OpenAI, DeepL)
-- Smart mention resolution for cross-platform forwarding
-- 200+ Discord emoji mappings for Telegram
+- Reader Bot for read-only monitoring of restricted servers
 - Auto-publishing for announcement channels
-- Self-maintaining database with orphan cleanup
-- Reader Bot support for read-only monitoring
+- Smart mention resolution (`@everyone`, `@here`) with permission checks
+- Self-maintaining SQLite database with orphan cleanup
+- Retry queue with exponential backoff for failed forwards
+- Debug commands for database inspection and message search
 
 ---
 
@@ -59,31 +74,45 @@ cp config/env.js.example config/env.js
 npm start
 ```
 
+For development with auto-reload:
+
+```bash
+npm run dev
+```
+
 ### Bot Invite Link
 
 ```
 https://discord.com/api/oauth2/authorize?client_id=YOUR_BOT_ID&permissions=536879120&scope=bot%20applications.commands
 ```
 
-**Required Permissions:** View Channels, Send Messages, Embed Links, Attach Files, Read Message History, Manage Webhooks, Create Public Threads, Mention Everyone, Manage Messages
+**Required Permissions:** View Channels, Send Messages, Embed Links, Attach Files, Read Message History, Manage Webhooks, Create Public Threads, Send Messages in Threads, Mention Everyone, Manage Messages
 
 ---
 
 ## Commands
 
-All commands require **Manage Channels** permission.
+### `/proforward` (Manage Channels permission required)
 
-| Command | Description |
-|---------|-------------|
-| `/proforward setup` | Set up Discord-to-Discord forwarding |
-| `/proforward telegram` | Set up Discord-to-Telegram forwarding |
-| `/proforward telegram-discover` | Discover available Telegram chats |
-| `/proforward list` | List active configurations |
-| `/proforward remove` | Remove a configuration |
-| `/proforward status` | Show bot and integration status |
-| `/proforward test` | Test Telegram connection |
-| `/proforward retry` | Retry a failed forward |
-| `/proforward auto-publish` | Configure auto-publishing |
+| Subcommand | Description |
+|------------|-------------|
+| `setup` | Set up Discord-to-Discord forwarding |
+| `telegram` | Set up Discord-to-Telegram forwarding |
+| `telegram-discover` | Discover available Telegram chats |
+| `list` | List active forward configurations |
+| `remove` | Remove a configuration |
+| `status` | Show bot and integration status |
+| `test` | Test Telegram connection |
+| `retry` | Retry/force forward a message by source message ID |
+| `auto-publish` | Configure auto-publishing for announcement channels |
+| `reader-status` | Check reader bot status and generate invite link |
+
+### `/debug` (Administrator permission required)
+
+| Subcommand | Description |
+|------------|-------------|
+| `database` | Show recent database entries for message tracking (limit 1-50) |
+| `search` | Search for a specific message in the database by message ID |
 
 ### Examples
 
@@ -110,8 +139,11 @@ BOT_TOKEN=your_discord_bot_token
 
 # Optional: AI Translation
 GEMINI_API_KEY=your_gemini_api_key
+GOOGLE_TRANSLATE_API_KEY=your_google_translate_api_key
+GOOGLE_PROJECT_ID=your_google_cloud_project_id
 
 # Optional: Telegram
+TELEGRAM_ENABLED=false
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 
 # Optional: Reader Bot
@@ -121,16 +153,45 @@ READER_BOT_TOKEN=your_reader_bot_token
 
 ### Application Config (`config/env.js`)
 
-Key settings in `env.js`:
+Key settings:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `debugMode` | `false` | Enable debug logging |
+| `debugMode` | `false` | Enable verbose debug logging |
 | `forwardBotMessages` | `true` | Forward messages from other bots |
+| `useSliceFormatConverter` | `true` | Use primary format converter for Telegram |
 | `telegram.enabled` | `false` | Enable Telegram integration |
-| `ai.enabled` | `false` | Enable AI translation features |
+| `telegram.captionLengthLimit` | `900` | Max caption length before splitting |
+| `telegram.textLengthLimit` | `4000` | Max text message length before splitting |
+| `telegram.captionSplitStrategy` | `separate` | Split strategy: `smart` or `separate` |
+| `telegram.hideSourceHeader` | `false` | Hide server/channel header in Telegram messages |
+| `telegram.smartLinkPreviews` | `true` | Enable smart link preview handling |
+| `ai.enabled` | `true` | Enable AI translation features |
+| `ai.translation.defaultProvider` | `gemini` | Primary translation provider |
+| `ai.translation.fallbackProvider` | `google` | Fallback translation provider |
+| `readerBot.enabled` | `false` | Enable the reader bot |
 
-Forward configurations are managed via Discord commands - don't edit `forwardConfigs` manually.
+Forward configurations are managed via `/proforward` commands - don't edit `forwardConfigs` manually.
+
+---
+
+## Reader Bot
+
+The Reader Bot is a secondary Discord bot with minimal read-only permissions for monitoring servers where the main bot cannot be invited with full permissions.
+
+**Use cases:**
+- High-security servers where full bot permissions aren't allowed
+- Cross-server monitoring from multiple servers to a central channel
+- Permission-sensitive environments requiring read-only access
+
+**Setup:**
+1. Create a second bot application in the [Discord Developer Portal](https://discord.com/developers/applications)
+2. Set `READER_BOT_ENABLED=true` and `READER_BOT_TOKEN=...` in `config/.env`
+3. Use `/proforward reader-status` to get the invite link
+4. Invite the reader bot to the target server (only needs View Channels + Read Message History)
+5. Set up forwarding with `/proforward setup` using the source server/channel IDs
+
+The reader bot runs invisibly and forwards message data (creates, edits, deletes) to the main bot for processing.
 
 ---
 
@@ -146,7 +207,7 @@ On first run, the init container copies example configs to `/srv/docker-data/pro
 
 ### Local Development
 
-Create `compose.override.yaml` (gitignored):
+Use the `compose.override.yaml` for local volume mounts:
 
 ```yaml
 services:
@@ -164,7 +225,7 @@ services:
 ### Data Persistence
 
 All persistent data is stored at `/srv/docker-data/proforwarder/`:
-- `config/.env` - Secrets
+- `config/.env` - Secrets and tokens
 - `config/env.js` - Application config
 - `data/proforwarder.db` - SQLite database
 
@@ -174,26 +235,62 @@ All persistent data is stored at `/srv/docker-data/proforwarder/`:
 
 ```
 ProForwarder-Discord-Bot/
-├── config/              # Configuration files
-├── commands/            # Slash command handlers
-├── events/              # Discord event handlers
-├── handlers/            # Business logic (forwarding, Telegram, AI)
-├── utils/               # Database, logging, webhooks, formatters
-├── data/                # SQLite database (gitignored)
-├── index.js             # Entry point
-├── compose.yaml         # Docker Compose (production)
-└── Dockerfile           # Multi-stage Node.js 24 build
+├── config/                  # Configuration files
+│   ├── .env                 # Environment variables (secrets)
+│   └── env.js               # Application configuration
+├── commands/                # Slash command handlers
+│   ├── proforwardCommand.js # /proforward command (setup, telegram, list, etc.)
+│   └── debugCommands.js     # /debug command (database, search)
+├── events/                  # Discord event handlers
+│   └── messageEvents.js     # Message create, update, delete handling
+├── handlers/                # Business logic
+│   ├── forwardHandler.js    # Main forwarding orchestrator
+│   ├── aiHandler.js         # AI translation processing
+│   ├── telegramHandler.js   # Telegram integration facade
+│   └── telegram/            # Telegram module components
+│       ├── telegramAPI.js          # API wrapper
+│       ├── telegramConverter.js    # Discord-to-Telegram format conversion
+│       ├── telegramMediaHandler.js # Media type detection and filtering
+│       ├── telegramMessageSender.js# Message sending and splitting
+│       ├── telegramTextSplitter.js # Smart text splitting logic
+│       └── telegramUtils.js        # Chain editing, deletion, escaping
+├── utils/                   # Shared utilities
+│   ├── database.js          # SQLite operations and schema
+│   ├── configManager.js     # Forward config CRUD
+│   ├── webhookManager.js    # Discord webhook operations
+│   ├── threadManager.js     # Translation thread management
+│   ├── aiManager.js         # AI provider management
+│   ├── translationManager.js# Translation orchestration
+│   ├── formatConverter.js   # Discord-to-Telegram format conversion
+│   ├── emojiManager.js      # Discord-to-Telegram emoji mapping
+│   ├── logger.js            # Colored console logging
+│   └── ai/                  # AI provider implementations
+│       ├── geminiProvider.js
+│       ├── googleProvider.js
+│       ├── openaiProvider.js
+│       └── deeplProvider.js
+├── data/                    # SQLite database (gitignored)
+├── Documentations/          # Detailed technical documentation
+├── index.js                 # Entry point and bot initialization
+├── readerBot.js             # Reader bot for read-only server monitoring
+├── errorHandlers.js         # Global error handlers
+├── healthcheck.js           # Docker health check endpoint
+├── compose.yaml             # Docker Compose (production)
+├── compose.override.yaml    # Docker Compose (local development)
+└── Dockerfile               # Multi-stage Node.js build
 ```
 
 ---
 
 ## Documentation
 
-Detailed documentation is available in the `Documentations/` folder:
+Detailed technical documentation is available in the `Documentations/` folder:
 
-- [Enhanced Format Conversion](Documentations/ENHANCED_FORMAT_CONVERSION.md)
-- [Reader Bot Implementation](Documentations/READER_BOT_IMPLEMENTATION.md)
-- [Telegram Caption Handling](Documentations/TELEGRAM_CAPTION_LENGTH_SOLUTION.md)
+- [Enhanced Format Conversion](Documentations/ENHANCED_FORMAT_CONVERSION.md) - Discord-to-Telegram formatting
+- [Reader Bot Implementation](Documentations/READER_BOT_IMPLEMENTATION.md) - Reader bot architecture
+- [Telegram Caption Handling](Documentations/TELEGRAM_CAPTION_LENGTH_SOLUTION.md) - Smart caption splitting
+- [Telegram Handler Refactoring](Documentations/TELEGRAM_HANDLER_REFACTORING_PLAN.md) - Modular Telegram architecture
+- [MarkdownV2 Conversion Summary](Documentations/MARKDOWNV2_CONVERSION_SUMMARY.md) - Conversion rules reference
 
 ---
 
