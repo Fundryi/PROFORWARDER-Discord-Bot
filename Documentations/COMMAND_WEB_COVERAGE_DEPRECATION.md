@@ -41,6 +41,13 @@ These can be marked deprecated now (warning in command response), then disabled 
 3. Add reader-bot diagnostics panel equivalent to `reader-status` details.
 4. Add Telegram username/link discovery option beyond update-history discovery.
 
+## Bot Settings UI TODO
+1. Adjust Bot Settings web UI to focus on operations we actually need.
+2. Do not support manual emoji adds from web UI.
+3. Show `uploaded_emoji_names` as individual emoji entries (not only raw JSON).
+4. Provide per-emoji remove/delete actions for those entries.
+5. Remove/disable generic "Add Setting" and emoji-add workflows in web UI.
+
 ## Suggested Rollout
 1. Phase A: mark covered commands as deprecated in responses.
 2. Phase B: hide covered commands from registration/help.

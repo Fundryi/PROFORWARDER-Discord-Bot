@@ -4,9 +4,6 @@
 
   var runtimeContainer = document.getElementById('runtime-config');
   var botSettingsContainer = document.getElementById('bot-settings');
-  var addSettingForm = document.getElementById('add-setting-form');
-  var newSettingKeyInput = document.getElementById('new-setting-key');
-  var newSettingHelp = document.getElementById('new-setting-help');
 
   var DEFAULT_DEFINITIONS = {
     uploaded_emoji_names: {
@@ -134,101 +131,6 @@
     return state.definitions[settingKey] || null;
   }
 
-  function renderAddSettingHint(rawKey) {
-    if (!newSettingHelp) return;
-
-    var key = String(rawKey == null ? '' : rawKey).trim();
-    if (!key) {
-      newSettingHelp.textContent = 'Create a key/value pair. Use JSON when storing structured values.';
-      return;
-    }
-
-    var definition = getDefinition(key);
-    if (!definition) {
-      newSettingHelp.textContent = 'This key has no built-in description. Values are stored as plain strings unless your code parses them.';
-      return;
-    }
-
-    var parts = [];
-    if (definition.description) parts.push(definition.description);
-    if (definition.format) parts.push('Format: ' + definition.format + '.');
-    if (definition.example) parts.push('Example: ' + definition.example + '.');
-    newSettingHelp.textContent = parts.join(' ');
-  }
-
-  function createEmojiPreview(value) {
-    var wrapper = document.createElement('div');
-    wrapper.className = 'setting-preview';
-
-    var parsed = parseStringArray(value);
-    if (!parsed.valid) {
-      var invalid = document.createElement('p');
-      invalid.className = 'muted-text error-text';
-      invalid.textContent = 'Expected a JSON array of emoji names (example: ["party_parrot","thonk"]).';
-      wrapper.appendChild(invalid);
-      return wrapper;
-    }
-
-    var names = parsed.values;
-    if (!names.length) {
-      var empty = document.createElement('p');
-      empty.className = 'muted-text';
-      empty.textContent = 'No emoji names currently stored.';
-      wrapper.appendChild(empty);
-      return wrapper;
-    }
-
-    var matchedCount = 0;
-    for (var m = 0; m < names.length; m++) {
-      if (state.emojiPreviewByName[names[m].toLowerCase()]) matchedCount++;
-    }
-
-    var summary = document.createElement('p');
-    summary.className = 'muted-text';
-    if (state.emojiPreviewMeta && state.emojiPreviewMeta.available) {
-      summary.textContent = 'Previewing ' + names.length + ' names (' + matchedCount + ' matched in Discord application emojis).';
-    } else {
-      summary.textContent = 'Previewing ' + names.length + ' emoji name references.';
-    }
-    wrapper.appendChild(summary);
-
-    var grid = document.createElement('div');
-    grid.className = 'emoji-preview-grid';
-
-    for (var i = 0; i < names.length; i++) {
-      var originalName = names[i];
-      var emoji = state.emojiPreviewByName[originalName.toLowerCase()] || null;
-
-      var item = document.createElement('div');
-      item.className = 'emoji-preview-item';
-      if (!emoji) item.classList.add('missing');
-
-      if (emoji && emoji.imageUrl) {
-        var image = document.createElement('img');
-        image.className = 'emoji-preview-image';
-        image.src = emoji.imageUrl;
-        image.alt = originalName;
-        image.loading = 'lazy';
-        item.appendChild(image);
-      } else {
-        var placeholder = document.createElement('span');
-        placeholder.className = 'emoji-preview-placeholder';
-        placeholder.textContent = '#';
-        item.appendChild(placeholder);
-      }
-
-      var label = document.createElement('span');
-      label.className = 'emoji-preview-name mono';
-      label.textContent = ':' + originalName + ':';
-      item.appendChild(label);
-
-      grid.appendChild(item);
-    }
-
-    wrapper.appendChild(grid);
-    return wrapper;
-  }
-
   function createSettingEditor(settingValue, valueType) {
     var editor;
     if (shouldUseTextarea(settingValue, valueType)) {
@@ -245,9 +147,116 @@
     return editor;
   }
 
+  function createEmojiManager(setting) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'setting-preview';
+
+    var parsed = parseStringArray(setting.value);
+    if (!parsed.valid) {
+      var invalid = document.createElement('p');
+      invalid.className = 'muted-text error-text';
+      invalid.textContent = 'Cannot manage emojis: uploaded_emoji_names is not a valid JSON array.';
+      wrapper.appendChild(invalid);
+      return wrapper;
+    }
+
+    var names = parsed.values;
+    if (!names.length) {
+      var empty = document.createElement('p');
+      empty.className = 'muted-text';
+      empty.textContent = 'No uploaded emoji names currently stored.';
+      wrapper.appendChild(empty);
+      return wrapper;
+    }
+
+    var matchedCount = 0;
+    for (var m = 0; m < names.length; m++) {
+      if (state.emojiPreviewByName[names[m].toLowerCase()]) matchedCount++;
+    }
+
+    var summary = document.createElement('p');
+    summary.className = 'muted-text';
+    if (state.emojiPreviewMeta && state.emojiPreviewMeta.available) {
+      summary.textContent = 'Managing ' + names.length + ' emoji names (' + matchedCount + ' matched in Discord application emojis).';
+    } else {
+      summary.textContent = 'Managing ' + names.length + ' emoji name references.';
+    }
+    wrapper.appendChild(summary);
+
+    var grid = document.createElement('div');
+    grid.className = 'emoji-preview-grid';
+
+    for (var i = 0; i < names.length; i++) {
+      (function (emojiName) {
+        var emoji = state.emojiPreviewByName[emojiName.toLowerCase()] || null;
+
+        var item = document.createElement('div');
+        item.className = 'emoji-preview-item';
+        if (!emoji) item.classList.add('missing');
+
+        var meta = document.createElement('div');
+        meta.className = 'emoji-preview-meta';
+
+        if (emoji && emoji.imageUrl) {
+          var image = document.createElement('img');
+          image.className = 'emoji-preview-image';
+          image.src = emoji.imageUrl;
+          image.alt = emojiName;
+          image.loading = 'lazy';
+          meta.appendChild(image);
+        } else {
+          var placeholder = document.createElement('span');
+          placeholder.className = 'emoji-preview-placeholder';
+          placeholder.textContent = '#';
+          meta.appendChild(placeholder);
+        }
+
+        var label = document.createElement('span');
+        label.className = 'emoji-preview-name mono';
+        label.textContent = ':' + emojiName + ':';
+        meta.appendChild(label);
+        item.appendChild(meta);
+
+        var removeButton = document.createElement('button');
+        removeButton.className = 'button secondary sm danger emoji-remove-btn';
+        removeButton.type = 'button';
+        removeButton.textContent = 'Remove';
+        removeButton.addEventListener('click', async function () {
+          if (!confirm('Remove :' + emojiName + ': from uploaded_emoji_names?')) return;
+
+          var nextNames = names.filter(function (name) {
+            return String(name).toLowerCase() !== String(emojiName).toLowerCase();
+          });
+
+          try {
+            removeButton.disabled = true;
+            AdminApp.setStatus('Removing :' + emojiName + ': ...');
+            await AdminApp.fetchJson('/api/settings/' + encodeURIComponent(setting.key), {
+              method: 'PUT',
+              body: JSON.stringify({ value: JSON.stringify(nextNames) })
+            });
+            AdminApp.setStatus('Removed :' + emojiName + ': from uploaded_emoji_names.');
+            await loadSettings();
+          } catch (error) {
+            AdminApp.setStatus('Failed to remove emoji name: ' + error.message, true);
+          } finally {
+            removeButton.disabled = false;
+          }
+        });
+        item.appendChild(removeButton);
+
+        grid.appendChild(item);
+      })(names[i]);
+    }
+
+    wrapper.appendChild(grid);
+    return wrapper;
+  }
+
   function createSettingRow(setting) {
     var valueType = inferValueType(setting.value);
     var definition = getDefinition(setting.key);
+    var isUploadedEmojiSetting = setting.key === 'uploaded_emoji_names';
 
     var row = document.createElement('article');
     row.className = 'setting-row';
@@ -286,21 +295,17 @@
 
     var valueArea = document.createElement('div');
     valueArea.className = 'setting-value';
+    var editor = null;
 
-    var editor = createSettingEditor(setting.value, valueType);
-    valueArea.appendChild(editor);
-
-    var previewHost = null;
-    if (setting.key === 'uploaded_emoji_names') {
-      previewHost = document.createElement('div');
-      previewHost.className = 'setting-preview-host';
-      previewHost.appendChild(createEmojiPreview(editor.value));
-      valueArea.appendChild(previewHost);
-
-      editor.addEventListener('input', function () {
-        previewHost.innerHTML = '';
-        previewHost.appendChild(createEmojiPreview(editor.value));
-      });
+    if (isUploadedEmojiSetting) {
+      var hint = document.createElement('p');
+      hint.className = 'muted-text';
+      hint.textContent = 'Managed automatically. Manual add/edit is disabled here. Remove entries individually below.';
+      valueArea.appendChild(hint);
+      valueArea.appendChild(createEmojiManager(setting));
+    } else {
+      editor = createSettingEditor(setting.value, valueType);
+      valueArea.appendChild(editor);
     }
 
     row.appendChild(valueArea);
@@ -308,41 +313,48 @@
     var actions = document.createElement('div');
     actions.className = 'setting-actions';
 
-    var saveBtn = document.createElement('button');
-    saveBtn.className = 'button sm';
-    saveBtn.textContent = 'Save';
-    saveBtn.addEventListener('click', async function () {
-      try {
-        AdminApp.setStatus('Saving ' + setting.key + '...');
-        await AdminApp.fetchJson('/api/settings/' + encodeURIComponent(setting.key), {
-          method: 'PUT',
-          body: JSON.stringify({ value: editor.value })
-        });
-        AdminApp.setStatus('Setting ' + setting.key + ' saved.');
-        await loadSettings();
-      } catch (error) {
-        AdminApp.setStatus('Save failed: ' + error.message, true);
-      }
-    });
-    actions.appendChild(saveBtn);
+    if (!isUploadedEmojiSetting) {
+      var saveBtn = document.createElement('button');
+      saveBtn.className = 'button sm';
+      saveBtn.textContent = 'Save';
+      saveBtn.addEventListener('click', async function () {
+        try {
+          AdminApp.setStatus('Saving ' + setting.key + '...');
+          await AdminApp.fetchJson('/api/settings/' + encodeURIComponent(setting.key), {
+            method: 'PUT',
+            body: JSON.stringify({ value: editor.value })
+          });
+          AdminApp.setStatus('Setting ' + setting.key + ' saved.');
+          await loadSettings();
+        } catch (error) {
+          AdminApp.setStatus('Save failed: ' + error.message, true);
+        }
+      });
+      actions.appendChild(saveBtn);
 
-    var deleteBtn = document.createElement('button');
-    deleteBtn.className = 'button secondary sm danger';
-    deleteBtn.textContent = 'Delete';
-    deleteBtn.addEventListener('click', async function () {
-      if (!confirm('Delete setting "' + setting.key + '"?')) return;
-      try {
-        AdminApp.setStatus('Deleting ' + setting.key + '...');
-        await AdminApp.fetchJson('/api/settings/' + encodeURIComponent(setting.key), {
-          method: 'DELETE'
-        });
-        AdminApp.setStatus('Setting ' + setting.key + ' deleted.');
-        await loadSettings();
-      } catch (error) {
-        AdminApp.setStatus('Delete failed: ' + error.message, true);
-      }
-    });
-    actions.appendChild(deleteBtn);
+      var deleteBtn = document.createElement('button');
+      deleteBtn.className = 'button secondary sm danger';
+      deleteBtn.textContent = 'Delete';
+      deleteBtn.addEventListener('click', async function () {
+        if (!confirm('Delete setting "' + setting.key + '"?')) return;
+        try {
+          AdminApp.setStatus('Deleting ' + setting.key + '...');
+          await AdminApp.fetchJson('/api/settings/' + encodeURIComponent(setting.key), {
+            method: 'DELETE'
+          });
+          AdminApp.setStatus('Setting ' + setting.key + ' deleted.');
+          await loadSettings();
+        } catch (error) {
+          AdminApp.setStatus('Delete failed: ' + error.message, true);
+        }
+      });
+      actions.appendChild(deleteBtn);
+    } else {
+      var emojiActionNote = document.createElement('span');
+      emojiActionNote.className = 'muted-text';
+      emojiActionNote.textContent = 'Per-emoji delete only';
+      actions.appendChild(emojiActionNote);
+    }
 
     row.appendChild(actions);
     return row;
@@ -387,47 +399,11 @@
       hydrateEmojiPreview(data);
       renderRuntimeConfig(data.runtime || {});
       renderBotSettings(data.settings || []);
-      renderAddSettingHint(newSettingKeyInput ? newSettingKeyInput.value : '');
     } catch (error) {
       runtimeContainer.innerHTML = '<p class="muted-text">Failed to load settings.</p>';
       botSettingsContainer.innerHTML = '';
       AdminApp.setStatus('Failed to load settings: ' + error.message, true);
     }
-  }
-
-  if (newSettingKeyInput) {
-    newSettingKeyInput.addEventListener('input', function () {
-      renderAddSettingHint(newSettingKeyInput.value);
-    });
-  }
-
-  if (addSettingForm) {
-    addSettingForm.addEventListener('submit', async function (event) {
-      event.preventDefault();
-      var keyInput = document.getElementById('new-setting-key');
-      var valueInput = document.getElementById('new-setting-value');
-      var key = keyInput.value.trim();
-      var value = valueInput.value;
-
-      if (!key) {
-        AdminApp.setStatus('Key is required.', true);
-        return;
-      }
-
-      try {
-        AdminApp.setStatus('Adding setting...');
-        await AdminApp.fetchJson('/api/settings/' + encodeURIComponent(key), {
-          method: 'PUT',
-          body: JSON.stringify({ value: value })
-        });
-        addSettingForm.reset();
-        renderAddSettingHint('');
-        AdminApp.setStatus('Setting added.');
-        await loadSettings();
-      } catch (error) {
-        AdminApp.setStatus('Add failed: ' + error.message, true);
-      }
-    });
   }
 
   AdminApp.onTabActivate('settings', function () {
