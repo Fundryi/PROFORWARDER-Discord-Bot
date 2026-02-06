@@ -95,7 +95,7 @@ Move day-to-day management from slash commands to web admin without losing criti
 - `ce37a72` web admin: split config layout, logs search, logs retry.
 - `938ada9` fixes: Telegram discovery cache invalidation + safer orphan log cleanup.
 - `331869a` phase D: `/proforward retry` disabled and tracker updated.
-- `current patch` logs hardening: DB-first-safe verification for startup maintenance + reader-client-aware source checks.
+- `0b75241` logs hardening: DB-first-safe verification for startup maintenance + reader-client-aware source checks.
 
 ## Latest Incident Note (Logs Not Showing)
 - Symptom reported: Web Logs appeared empty after restart while forwards were being used.
