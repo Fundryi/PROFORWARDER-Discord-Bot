@@ -41,11 +41,7 @@ function resolveAuthMode(configWebAdmin) {
     return raw;
   }
 
-  if (parseBoolean(configWebAdmin.localBypassAuth, false)) {
-    return 'local';
-  }
-
-  return 'oauth';
+  return 'local';
 }
 
 function getWebAdminConfig(config) {
@@ -55,12 +51,12 @@ function getWebAdminConfig(config) {
   const authMode = resolveAuthMode(configWebAdmin);
 
   const localAllowedHosts = parseStringArray(
-    configWebAdmin.localAllowedHosts || configWebAdmin.localBypassAllowedHosts,
+    configWebAdmin.localAllowedHosts,
     ['localhost', '127.0.0.1', '::1']
   );
 
   const localAllowedIps = parseStringArray(
-    configWebAdmin.localAllowedIps || configWebAdmin.localBypassAllowedIps,
+    configWebAdmin.localAllowedIps,
     []
   );
 
@@ -80,9 +76,6 @@ function getWebAdminConfig(config) {
     botInviteRedirectUri: configWebAdmin.botInviteRedirectUri || '',
     localAllowedHosts,
     localAllowedIps,
-    localBypassAuth: authMode === 'local',
-    localBypassAllowedHosts: localAllowedHosts,
-    localBypassAllowedIps: localAllowedIps,
     allowedRoleIds
   };
 }

@@ -10,11 +10,6 @@ module.exports = {
   useSliceFormatConverter: process.env.USE_SLICE_FORMAT_CONVERTER !== 'false', // default: true (PRIMARY)
   useAIFormatConverter: process.env.USE_AI_FORMAT_CONVERTER === 'true', // default: false (FALLBACK)
 
-  // Forward configurations are now stored in config/forwardConfigs.json
-  // Auto-publish channels are now stored in config/autoPublish.json
-  // Cached invites are now stored in config/cachedInvites.json
-  // These files are managed automatically by the bot — do not edit manually.
-
   // ─── Startup Log Maintenance ────────────────────────────────────
   // Background validation/cleanup of message_logs on startup
   startupLogMaintenance: {
@@ -50,15 +45,15 @@ module.exports = {
     captionLengthLimit: 900,
     textLengthLimit: 4000,
     splitIndicator: '...(continued)',
-    captionSplitStrategy: 'smart' // 'smart' | 'separate'
+    captionSplitStrategy: 'separate' // 'smart' | 'separate'
   },
 
   // ─── AI Integration ─────────────────────────────────────────────
   ai: {
-    enabled: false, // Set to true to enable AI features
+    enabled: true,
 
     providers: {
-      // Google Gemini (primary — free tier available)
+      // Google Gemini (primary)
       gemini: {
         apiKey: process.env.GEMINI_API_KEY,
         model: 'gemini-2.0-flash-exp',
@@ -94,22 +89,18 @@ module.exports = {
     // Common
     enabled: process.env.WEB_ADMIN_ENABLED === 'true',
     port: parseInt(process.env.WEB_ADMIN_PORT || '3001', 10),
-    authMode: (process.env.WEB_ADMIN_AUTH_MODE || (process.env.WEB_ADMIN_LOCAL_BYPASS_AUTH === 'true' ? 'local' : 'oauth'))
+    authMode: (process.env.WEB_ADMIN_AUTH_MODE || 'local')
       .toLowerCase(),
     sessionSecret: process.env.WEB_ADMIN_SESSION_SECRET || '',
     sessionTtlHours: parseInt(process.env.WEB_ADMIN_SESSION_TTL_HOURS || '24', 10),
     debug: process.env.WEB_ADMIN_DEBUG === 'true',
 
     // Local Mode
-    localAllowedHosts: (process.env.WEB_ADMIN_LOCAL_ALLOWED_HOSTS ||
-      process.env.WEB_ADMIN_LOCAL_BYPASS_ALLOWED_HOSTS ||
-      'localhost,127.0.0.1,::1')
+    localAllowedHosts: (process.env.WEB_ADMIN_LOCAL_ALLOWED_HOSTS || 'localhost,127.0.0.1,::1')
       .split(',')
       .map(host => host.trim().toLowerCase())
       .filter(Boolean),
-    localAllowedIps: (process.env.WEB_ADMIN_LOCAL_ALLOWED_IPS ||
-      process.env.WEB_ADMIN_LOCAL_BYPASS_ALLOWED_IPS ||
-      '')
+    localAllowedIps: (process.env.WEB_ADMIN_LOCAL_ALLOWED_IPS || '')
       .split(',')
       .map(ip => ip.trim())
       .filter(Boolean),
