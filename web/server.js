@@ -262,6 +262,7 @@ function renderDashboardPage(auth) {
     <nav class="tab-nav">
       <button data-tab="dashboard" class="active">Dashboard</button>
       <button data-tab="configs">Configs</button>
+      <button data-tab="autopublish">Auto Publish</button>
       <button data-tab="guilds">Guilds</button>
       <button data-tab="logs">Logs</button>
       <button data-tab="settings">Settings</button>
@@ -365,6 +366,52 @@ function renderDashboardPage(auth) {
           <label>Name (optional)<input id="telegram-name" class="input"></label>
           <button type="submit" class="button">Create Telegram Forward</button>
         </form>
+      </div>
+    </section>
+
+    <!-- Auto Publish Tab -->
+    <section id="tab-autopublish" class="tab-panel">
+      <div class="card">
+        <h2>Auto Publish</h2>
+        <p class="muted-text">Manage announcement channels where the bot auto-publishes posts after 1 minute.</p>
+        <div class="form-grid">
+          <label>Server
+            <input id="autopublish-guild-search" class="input select-search" placeholder="Search servers">
+            <select id="autopublish-guild-select" class="input">
+              <option value="">Loading servers...</option>
+            </select>
+          </label>
+          <label>Announcement Channel
+            <input id="autopublish-channel-search" class="input select-search" placeholder="Search announcement channels">
+            <select id="autopublish-channel-select" class="input">
+              <option value="">Select a server first</option>
+            </select>
+          </label>
+        </div>
+        <div class="row autopublish-actions">
+          <span id="autopublish-selected-state" class="status-badge retry">Select a channel</span>
+          <button id="autopublish-toggle-btn" class="button secondary sm" type="button" disabled>Enable</button>
+          <button id="autopublish-refresh-btn" class="button secondary sm" type="button">Refresh</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Enabled Announcement Channels</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Server</th>
+                <th>Channel</th>
+                <th>ID</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="autopublish-enabled-body">
+              <tr><td colspan="4" class="muted-text">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -513,6 +560,7 @@ function renderDashboardPage(auth) {
   <script src="/admin/static/app.js"></script>
   <script src="/admin/static/dashboard.js"></script>
   <script src="/admin/static/configs.js"></script>
+  <script src="/admin/static/autopublish.js"></script>
   <script src="/admin/static/guilds.js"></script>
   <script src="/admin/static/logs.js"></script>
   <script src="/admin/static/settings.js"></script>
