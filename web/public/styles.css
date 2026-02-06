@@ -765,6 +765,12 @@ select {
   cursor: pointer;
 }
 
+.select-expanded {
+  overflow-y: auto;
+  position: relative;
+  z-index: 20;
+}
+
 .is-hidden {
   display: none !important;
 }
