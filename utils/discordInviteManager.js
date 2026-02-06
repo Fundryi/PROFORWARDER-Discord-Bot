@@ -1,4 +1,6 @@
+const fs = require('fs').promises;
 const { logInfo, logError, logSuccess } = require('./logger');
+const { CACHED_INVITES_PATH } = require('./configManager');
 
 /**
  * Discord Invite Manager - Handles creation and caching of Discord server invites
@@ -18,20 +20,32 @@ class DiscordInviteManager {
   }
 
   /**
-   * Load cached invites from config/env
+   * Load cached invites from cachedInvites.json
    */
-  loadInvitesFromConfig() {
+  async loadInvitesFromConfig() {
     try {
-      const config = require('../config/env');
-      if (config.discord && config.discord.cachedInvites) {
-        for (const [guildId, inviteData] of Object.entries(config.discord.cachedInvites)) {
+      let data = {};
+      try {
+        const content = await fs.readFile(CACHED_INVITES_PATH, 'utf8');
+        data = JSON.parse(content);
+      } catch (readError) {
+        if (readError.code !== 'ENOENT') {
+          logError('Error reading cachedInvites.json:', readError.message);
+        }
+        return; // File doesn't exist yet or is invalid — start with empty cache
+      }
+
+      if (data && typeof data === 'object') {
+        for (const [guildId, inviteData] of Object.entries(data)) {
           this.inviteCache.set(guildId, {
             invite: inviteData.invite,
             expiresAt: inviteData.expiresAt || null,
             isVanity: inviteData.isVanity || false
           });
         }
-        logInfo(`Loaded ${this.inviteCache.size} cached Discord invites`);
+        if (this.inviteCache.size > 0) {
+          logInfo(`Loaded ${this.inviteCache.size} cached Discord invites`);
+        }
       }
     } catch (error) {
       logError('Error loading cached invites:', error);
@@ -39,23 +53,21 @@ class DiscordInviteManager {
   }
 
   /**
-   * Save invites to config file
+   * Save invites to cachedInvites.json
    */
   async saveInvitesToConfig() {
     try {
-      // For now, just log that we would save - avoid modifying config file automatically
-      // This prevents issues with file format and allows manual management if needed
-      logInfo(`Would save ${this.inviteCache.size} Discord invites to config (currently disabled for safety)`);
-      
-      // Instead, log the current cache state for manual addition if needed
-      if (this.inviteCache.size > 0) {
-        logInfo('Current invite cache state:');
-        for (const [guildId, inviteData] of this.inviteCache.entries()) {
-          logInfo(`  Guild ${guildId}: ${inviteData.invite} (vanity: ${inviteData.isVanity})`);
-        }
+      const data = {};
+      for (const [guildId, inviteData] of this.inviteCache.entries()) {
+        data[guildId] = {
+          invite: inviteData.invite,
+          expiresAt: inviteData.expiresAt || null,
+          isVanity: inviteData.isVanity || false
+        };
       }
+      await fs.writeFile(CACHED_INVITES_PATH, JSON.stringify(data, null, 2) + '\n', 'utf8');
     } catch (error) {
-      logError('Error in saveInvitesToConfig:', error);
+      logError('Error saving cached invites:', error);
     }
   }
 

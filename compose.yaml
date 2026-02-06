@@ -21,6 +21,18 @@ services:
         else
           echo "    env.js already exists"
         fi
+        if [ ! -f /config/forwardConfigs.json ]; then
+          cp /app/config/forwardConfigs.json.example /config/forwardConfigs.json
+          echo "    Created forwardConfigs.json from example"
+        else
+          echo "    forwardConfigs.json already exists"
+        fi
+        if [ ! -f /config/autoPublish.json ]; then
+          cp /app/config/autoPublish.json.example /config/autoPublish.json
+          echo "    Created autoPublish.json from example"
+        else
+          echo "    autoPublish.json already exists"
+        fi
         echo "==> Setting permissions for UID 1001"
         chown -R 1001:1001 /data /config
         echo "==> Init complete, sleeping..."

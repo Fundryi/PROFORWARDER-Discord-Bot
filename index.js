@@ -188,9 +188,18 @@ process.on('SIGINT', async () => {
   }
 });
 
-logInfo('Attempting to log in...');
-client.login(process.env.BOT_TOKEN).catch(error => {
-  logError('Failed to login:', error);
+// Migrate dynamic config data from env.js to JSON files (one-time, idempotent)
+const { migrateToJsonConfigs } = require('./utils/configManager');
+migrateToJsonConfigs().then(() => {
+  logInfo('Attempting to log in...');
+  client.login(process.env.BOT_TOKEN).catch(error => {
+    logError('Failed to login:', error);
+  });
+}).catch(error => {
+  logError('Config migration error (proceeding anyway):', error);
+  client.login(process.env.BOT_TOKEN).catch(err => {
+    logError('Failed to login:', err);
+  });
 });
 
 // Export references for use in other modules
