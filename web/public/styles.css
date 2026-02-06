@@ -151,3 +151,274 @@ td .button {
 .error-text {
   color: #ff9fa8;
 }
+
+/* ---- Header bar ---- */
+.header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.header-bar h1 {
+  margin: 0;
+}
+
+.header-bar .row {
+  margin-top: 0;
+}
+
+/* ---- Tab navigation ---- */
+.tab-nav {
+  display: flex;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 4px;
+  overflow-x: auto;
+}
+
+.tab-nav button {
+  background: transparent;
+  color: var(--text-muted);
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.tab-nav button:hover {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.tab-nav button.active {
+  background: var(--accent);
+  color: #041321;
+  font-weight: 600;
+}
+
+/* ---- Tab panels ---- */
+.tab-panel {
+  display: none;
+}
+
+.tab-panel.active {
+  display: grid;
+  gap: 14px;
+}
+
+/* ---- Stat cards grid ---- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.stat-value.online {
+  color: #4ade80;
+}
+
+.stat-value.offline {
+  color: #f87171;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ---- Filter bar ---- */
+.filter-bar {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-bar select,
+.filter-bar input {
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+/* ---- Status badges ---- */
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-badge.success {
+  background: #16362a;
+  color: #4ade80;
+  border: 1px solid #2d6b4f;
+}
+
+.status-badge.failed {
+  background: var(--error-bg);
+  color: #ff9fa8;
+  border: 1px solid var(--error-border);
+}
+
+.status-badge.retry {
+  background: #362d16;
+  color: #fbbf24;
+  border: 1px solid #6b5a2d;
+}
+
+/* ---- Pagination ---- */
+.pagination {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0;
+}
+
+/* ---- Logs table ---- */
+.logs-table td {
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.logs-table .mono {
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  font-size: 12px;
+}
+
+/* ---- Settings ---- */
+.settings-section {
+  margin-top: 12px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.setting-key {
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  font-size: 13px;
+  color: var(--accent);
+  min-width: 160px;
+}
+
+.setting-value {
+  flex: 1;
+  min-width: 200px;
+}
+
+.setting-value input {
+  width: 100%;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.setting-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.setting-actions .button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.add-setting-form {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+.add-setting-form label {
+  flex: 1;
+  min-width: 150px;
+}
+
+.runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.runtime-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.runtime-item .key {
+  color: var(--text-muted);
+}
+
+.runtime-item .val {
+  font-weight: 600;
+}
+
+.runtime-item .val.true {
+  color: #4ade80;
+}
+
+.runtime-item .val.false {
+  color: var(--text-muted);
+}
+
+/* ---- Small button ---- */
+.button.sm {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* ---- Cursor pointer for buttons ---- */
+.button {
+  cursor: pointer;
+}
+
+select {
+  cursor: pointer;
+}

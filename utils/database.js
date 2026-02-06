@@ -344,6 +344,32 @@ async function deleteMessageChain(originalMessageId, configId) {
   }
 }
 
+async function getMessageLogsFiltered({ configId = null, status = null, limit = 50, beforeId = null } = {}) {
+  const conditions = [];
+  const params = [];
+
+  if (configId !== null) {
+    conditions.push('configId = ?');
+    params.push(configId);
+  }
+  if (status) {
+    conditions.push('status = ?');
+    params.push(status);
+  }
+  if (beforeId !== null) {
+    conditions.push('id < ?');
+    params.push(beforeId);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const safeLimit = Math.min(Math.max(1, limit), 200);
+
+  return await all(
+    `SELECT * FROM message_logs ${where} ORDER BY forwardedAt DESC, id DESC LIMIT ?`,
+    [...params, safeLimit]
+  );
+}
+
 async function getMessageLogs(configId = null, limit = 100) {
   try {
     if (configId) {
@@ -902,6 +928,7 @@ module.exports = {
   logForwardedMessage,
   logMessageChain,
   getMessageLogs,
+  getMessageLogsFiltered,
   getFailedMessages,
   updateMessageLog,
   getMessageLogsByOriginalMessage,
