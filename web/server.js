@@ -182,6 +182,38 @@ function parseUploadedEmojiNames(settings) {
   }
 }
 
+function normalizeUploadedEmojiNamesValue(rawValue) {
+  let parsed;
+  try {
+    parsed = JSON.parse(String(rawValue));
+  } catch (_error) {
+    return {
+      valid: false,
+      error: 'uploaded_emoji_names must be a valid JSON array string'
+    };
+  }
+
+  if (!Array.isArray(parsed)) {
+    return {
+      valid: false,
+      error: 'uploaded_emoji_names must be a JSON array of names'
+    };
+  }
+
+  const normalizedNames = Array.from(
+    new Set(
+      parsed
+        .map(name => String(name || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  return {
+    valid: true,
+    value: JSON.stringify(normalizedNames)
+  };
+}
+
 async function buildUploadedEmojiPreview(client, names) {
   const normalizedNames = Array.from(
     new Set(
@@ -520,38 +552,22 @@ function renderDashboardPage(auth) {
       </div>
       <div class="card">
         <h2>Bot Settings</h2>
-        <p class="muted-text">Key-value settings stored in SQLite. Values are saved as strings and applied at runtime where supported.</p>
+        <p class="muted-text">Existing key-value settings stored in SQLite. Creating new settings from web admin is disabled.</p>
         <div class="settings-help">
           <div class="settings-help-item">
-            <strong>Key format</strong>
-            <p class="muted-text">Use stable snake_case keys. Avoid spaces so values are easy to reference in code.</p>
+            <strong>Existing keys only</strong>
+            <p class="muted-text">This page edits existing settings only. New keys are not created from web admin.</p>
           </div>
           <div class="settings-help-item">
-            <strong>Value format</strong>
-            <p class="muted-text">Simple values can be plain text. Complex values should be JSON (for example arrays or objects).</p>
+            <strong>Emoji behavior</strong>
+            <p class="muted-text"><code>uploaded_emoji_names</code> is managed automatically. Add/edit is disabled; remove entries individually.</p>
           </div>
           <div class="settings-help-item">
-            <strong>Known key</strong>
-            <p class="muted-text"><code>uploaded_emoji_names</code> expects a JSON array of emoji names.</p>
+            <strong>Safe operations</strong>
+            <p class="muted-text">Use Save/Delete for regular existing keys. Use per-emoji Remove for emoji names.</p>
           </div>
         </div>
         <div id="bot-settings" class="settings-section"></div>
-        <div class="add-setting-card">
-          <h3 class="subheading">Add Setting</h3>
-          <p id="new-setting-help" class="muted-text setting-help-text">Create a key/value pair. Use JSON when storing structured values.</p>
-          <form id="add-setting-form" class="add-setting-form">
-            <label>Key
-              <input id="new-setting-key" class="input" placeholder="uploaded_emoji_names" list="setting-key-suggestions" required>
-            </label>
-            <label>Value
-              <textarea id="new-setting-value" class="input input-textarea" rows="3" placeholder='["party_parrot","thonk"]' required></textarea>
-            </label>
-            <button type="submit" class="button sm">Add Setting</button>
-          </form>
-          <datalist id="setting-key-suggestions">
-            <option value="uploaded_emoji_names"></option>
-          </datalist>
-        </div>
       </div>
     </section>
   </main>
@@ -1821,8 +1837,25 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      await setBotSetting(key.trim(), String(value));
-      res.json({ success: true, key: key.trim(), value: String(value) });
+      const trimmedKey = key.trim();
+      const existingValue = await getBotSetting(trimmedKey);
+      if (existingValue === null) {
+        res.status(400).json({ error: 'Creating new settings from web admin is disabled' });
+        return;
+      }
+
+      let valueToPersist = String(value);
+      if (trimmedKey === 'uploaded_emoji_names') {
+        const normalized = normalizeUploadedEmojiNamesValue(value);
+        if (!normalized.valid) {
+          res.status(400).json({ error: normalized.error });
+          return;
+        }
+        valueToPersist = normalized.value;
+      }
+
+      await setBotSetting(trimmedKey, valueToPersist);
+      res.json({ success: true, key: trimmedKey, value: valueToPersist });
     } catch (error) {
       logError(`Web admin PUT /api/settings/${key} failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to save setting' });
@@ -1836,11 +1869,22 @@ function createWebAdminApp(client, config) {
       return;
     }
 
+    const key = String(req.params.key || '').trim();
+    if (!key) {
+      res.status(400).json({ error: 'Key is required' });
+      return;
+    }
+
+    if (key === 'uploaded_emoji_names') {
+      res.status(400).json({ error: 'Delete emoji names individually in the web UI instead of deleting uploaded_emoji_names.' });
+      return;
+    }
+
     try {
-      await dbRun('DELETE FROM bot_settings WHERE key = ?', [req.params.key]);
+      await dbRun('DELETE FROM bot_settings WHERE key = ?', [key]);
       res.json({ success: true });
     } catch (error) {
-      logError(`Web admin DELETE /api/settings/${req.params.key} failed: ${error.message}`);
+      logError(`Web admin DELETE /api/settings/${key} failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to delete setting' });
     }
   });
