@@ -137,6 +137,96 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
+const BOT_SETTING_DEFINITIONS = {
+  uploaded_emoji_names: {
+    label: 'Uploaded Application Emoji Names',
+    description: 'JSON array of sanitized emoji names tracked by the application emoji manager.',
+    format: 'JSON array string',
+    example: '["party_parrot","thonk"]',
+    managedBy: 'Automatic (maintained by emoji sync/upload logic)'
+  }
+};
+
+function parseUploadedEmojiNames(settings) {
+  const target = settings.find(setting => setting && setting.key === 'uploaded_emoji_names');
+  if (!target || typeof target.value !== 'string') {
+    return { names: [], parseError: false };
+  }
+
+  try {
+    const parsed = JSON.parse(target.value);
+    if (!Array.isArray(parsed)) {
+      return { names: [], parseError: true };
+    }
+
+    const names = Array.from(
+      new Set(
+        parsed
+          .map(name => String(name || '').trim())
+          .filter(Boolean)
+      )
+    );
+
+    return { names, parseError: false };
+  } catch (_error) {
+    return { names: [], parseError: true };
+  }
+}
+
+async function buildUploadedEmojiPreview(client, names) {
+  const normalizedNames = Array.from(
+    new Set(
+      (Array.isArray(names) ? names : [])
+        .map(name => String(name || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  const preview = {
+    requestedNames: normalizedNames,
+    matchedCount: 0,
+    parseError: false,
+    available: false,
+    emojis: []
+  };
+
+  if (!normalizedNames.length) {
+    return preview;
+  }
+
+  try {
+    if (!client || !client.application || !client.application.emojis) {
+      return preview;
+    }
+
+    const allEmojis = await client.application.emojis.fetch();
+    const wanted = new Set(normalizedNames.map(name => name.toLowerCase()));
+
+    const emojis = [];
+    for (const emoji of allEmojis.values()) {
+      const name = String(emoji.name || '');
+      if (!wanted.has(name.toLowerCase())) {
+        continue;
+      }
+
+      emojis.push({
+        id: emoji.id,
+        name,
+        animated: Boolean(emoji.animated),
+        imageUrl: emoji.imageURL({ size: 64 }) || null
+      });
+    }
+
+    preview.available = true;
+    preview.matchedCount = emojis.length;
+    preview.emojis = emojis.sort((a, b) => a.name.localeCompare(b.name));
+  } catch (error) {
+    logInfo(`Web admin emoji preview unavailable: ${error.message}`);
+  }
+
+  return preview;
+}
+
 function renderDashboardPage(auth) {
   const tag = escapeHtml(auth.user.global_name || auth.user.username || auth.user.id);
   return `<!doctype html>
@@ -245,7 +335,7 @@ function renderDashboardPage(auth) {
           <table>
             <thead>
               <tr>
-                <th style="width:32px"></th>
+                <th class="icon-col"></th>
                 <th>Name</th>
                 <th>ID</th>
                 <th>Members</th>
@@ -268,7 +358,7 @@ function renderDashboardPage(auth) {
           <table>
             <thead>
               <tr>
-                <th style="width:32px"></th>
+                <th class="icon-col"></th>
                 <th>Name</th>
                 <th>ID</th>
                 <th>Members</th>
@@ -319,7 +409,7 @@ function renderDashboardPage(auth) {
           </table>
         </div>
         <div class="pagination">
-          <button id="logs-load-more" class="button secondary sm" style="display:none">Load More</button>
+          <button id="logs-load-more" class="button secondary sm is-hidden">Load More</button>
         </div>
       </div>
     </section>
@@ -333,15 +423,37 @@ function renderDashboardPage(auth) {
       </div>
       <div class="card">
         <h2>Bot Settings</h2>
-        <p class="muted-text">Key-value settings stored in the database. These can be edited live.</p>
+        <p class="muted-text">Key-value settings stored in SQLite. Values are saved as strings and applied at runtime where supported.</p>
+        <div class="settings-help">
+          <div class="settings-help-item">
+            <strong>Key format</strong>
+            <p class="muted-text">Use stable snake_case keys. Avoid spaces so values are easy to reference in code.</p>
+          </div>
+          <div class="settings-help-item">
+            <strong>Value format</strong>
+            <p class="muted-text">Simple values can be plain text. Complex values should be JSON (for example arrays or objects).</p>
+          </div>
+          <div class="settings-help-item">
+            <strong>Known key</strong>
+            <p class="muted-text"><code>uploaded_emoji_names</code> expects a JSON array of emoji names.</p>
+          </div>
+        </div>
         <div id="bot-settings" class="settings-section"></div>
-        <div style="margin-top:14px">
-          <h3 style="margin:0 0 8px;font-size:14px;color:var(--text-muted)">Add Setting</h3>
+        <div class="add-setting-card">
+          <h3 class="subheading">Add Setting</h3>
+          <p id="new-setting-help" class="muted-text setting-help-text">Create a key/value pair. Use JSON when storing structured values.</p>
           <form id="add-setting-form" class="add-setting-form">
-            <label>Key<input id="new-setting-key" class="input" required></label>
-            <label>Value<input id="new-setting-value" class="input" required></label>
-            <button type="submit" class="button sm">Add</button>
+            <label>Key
+              <input id="new-setting-key" class="input" placeholder="uploaded_emoji_names" list="setting-key-suggestions" required>
+            </label>
+            <label>Value
+              <textarea id="new-setting-value" class="input input-textarea" rows="3" placeholder='["party_parrot","thonk"]' required></textarea>
+            </label>
+            <button type="submit" class="button sm">Add Setting</button>
           </form>
+          <datalist id="setting-key-suggestions">
+            <option value="uploaded_emoji_names"></option>
+          </datalist>
         </div>
       </div>
     </section>
@@ -1155,6 +1267,9 @@ function createWebAdminApp(client, config) {
 
     try {
       const settings = await getAllBotSettings();
+      const uploadedEmojiState = parseUploadedEmojiNames(settings);
+      const emojiPreview = await buildUploadedEmojiPreview(client, uploadedEmojiState.names);
+      emojiPreview.parseError = uploadedEmojiState.parseError;
 
       const configPath = require.resolve('../config/config');
       delete require.cache[configPath];
@@ -1162,6 +1277,8 @@ function createWebAdminApp(client, config) {
 
       res.json({
         settings,
+        definitions: BOT_SETTING_DEFINITIONS,
+        emojiPreview,
         runtime: {
           debugMode: runtimeConfig.debugMode || false,
           forwardBotMessages: runtimeConfig.forwardBotMessages || false,

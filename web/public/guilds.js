@@ -14,19 +14,15 @@
 
     // Main bot card
     var mainCard = document.createElement('div');
-    mainCard.className = 'stat-card';
-    mainCard.style.textAlign = 'left';
+    mainCard.className = 'stat-card invite-card';
 
     var mainTitle = document.createElement('div');
-    mainTitle.style.fontWeight = '600';
-    mainTitle.style.marginBottom = '6px';
+    mainTitle.className = 'invite-title';
     mainTitle.textContent = botInfo.mainBot.username || 'Main Bot';
     mainCard.appendChild(mainTitle);
 
     var mainId = document.createElement('div');
-    mainId.className = 'muted-text';
-    mainId.style.fontSize = '11px';
-    mainId.style.marginBottom = '10px';
+    mainId.className = 'muted-text mono invite-id';
     mainId.textContent = botInfo.mainBot.id || '--';
     mainCard.appendChild(mainId);
 
@@ -41,32 +37,26 @@
 
     // Reader bot card
     var readerCard = document.createElement('div');
-    readerCard.className = 'stat-card';
-    readerCard.style.textAlign = 'left';
+    readerCard.className = 'stat-card invite-card';
 
     var readerTitle = document.createElement('div');
-    readerTitle.style.fontWeight = '600';
-    readerTitle.style.marginBottom = '6px';
+    readerTitle.className = 'invite-title';
     readerTitle.textContent = botInfo.readerBot.username || 'Reader Bot';
     readerCard.appendChild(readerTitle);
 
     if (!botInfo.readerBot.enabled) {
       var disabledLabel = document.createElement('div');
-      disabledLabel.className = 'muted-text';
-      disabledLabel.style.fontSize = '12px';
+      disabledLabel.className = 'muted-text invite-state';
       disabledLabel.textContent = 'Disabled in config';
       readerCard.appendChild(disabledLabel);
     } else if (!botInfo.readerBot.online) {
       var offlineLabel = document.createElement('div');
-      offlineLabel.className = 'muted-text';
-      offlineLabel.style.fontSize = '12px';
+      offlineLabel.className = 'muted-text invite-state';
       offlineLabel.textContent = 'Offline';
       readerCard.appendChild(offlineLabel);
     } else {
       var readerId = document.createElement('div');
-      readerId.className = 'muted-text';
-      readerId.style.fontSize = '11px';
-      readerId.style.marginBottom = '10px';
+      readerId.className = 'muted-text mono invite-id';
       readerId.textContent = botInfo.readerBot.id || '--';
       readerCard.appendChild(readerId);
 
@@ -133,25 +123,16 @@
 
         // Icon
         var iconCell = document.createElement('td');
-        iconCell.style.width = '32px';
-        iconCell.style.padding = '4px 8px';
+        iconCell.className = 'guild-icon-cell';
         if (guild.icon) {
           var img = document.createElement('img');
           img.src = guild.icon;
           img.alt = '';
-          img.style.width = '24px';
-          img.style.height = '24px';
-          img.style.borderRadius = '50%';
-          img.style.verticalAlign = 'middle';
+          img.className = 'guild-icon';
           iconCell.appendChild(img);
         } else {
           var placeholder = document.createElement('div');
-          placeholder.style.width = '24px';
-          placeholder.style.height = '24px';
-          placeholder.style.borderRadius = '50%';
-          placeholder.style.background = 'var(--surface, #2a2a2e)';
-          placeholder.style.display = 'inline-block';
-          placeholder.style.verticalAlign = 'middle';
+          placeholder.className = 'guild-icon-placeholder';
           iconCell.appendChild(placeholder);
         }
         row.appendChild(iconCell);
@@ -159,13 +140,12 @@
         // Name
         var nameCell = document.createElement('td');
         nameCell.textContent = guild.name;
-        nameCell.style.fontWeight = '500';
+        nameCell.className = 'guild-name';
         row.appendChild(nameCell);
 
         // ID
         var idCell = document.createElement('td');
-        idCell.className = 'mono';
-        idCell.style.fontSize = '12px';
+        idCell.className = 'mono guild-id';
         idCell.textContent = guild.id;
         row.appendChild(idCell);
 
@@ -176,7 +156,7 @@
 
         // Owner
         var ownerCell = document.createElement('td');
-        ownerCell.style.fontSize = '12px';
+        ownerCell.className = 'guild-owner';
         if (guild.owner) {
           ownerCell.textContent = guild.owner;
           ownerCell.title = guild.ownerId || '';
@@ -234,13 +214,13 @@
       // Reader bot guilds
       if (!data.readerBot || !data.readerBot.enabled) {
         readerGuildsStatus.textContent = 'Reader bot is disabled in config.';
-        readerGuildsWrapper.style.display = 'none';
+        readerGuildsWrapper.classList.add('is-hidden');
       } else if (!data.readerBot.online) {
         readerGuildsStatus.textContent = 'Reader bot is offline.';
-        readerGuildsWrapper.style.display = 'none';
+        readerGuildsWrapper.classList.add('is-hidden');
       } else {
         readerGuildsStatus.textContent = 'Servers the reader bot is currently in.';
-        readerGuildsWrapper.style.display = '';
+        readerGuildsWrapper.classList.remove('is-hidden');
         var readerGuilds = data.readerBot.guilds || [];
         renderGuildTable(readerGuilds, readerGuildsBody, 'reader');
       }

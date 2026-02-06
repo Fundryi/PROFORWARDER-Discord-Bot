@@ -41,7 +41,12 @@
     cell.textContent = message;
     row.appendChild(cell);
     logsBody.appendChild(row);
-    loadMoreBtn.style.display = 'none';
+    setLoadMoreVisible(false);
+  }
+
+  function setLoadMoreVisible(visible) {
+    if (!loadMoreBtn) return;
+    loadMoreBtn.classList.toggle('is-hidden', !visible);
   }
 
   function renderLogs(logs, append) {
@@ -88,9 +93,9 @@
 
       // Error
       var errorCell = document.createElement('td');
+      errorCell.className = 'logs-error';
       errorCell.textContent = log.errorMessage || '';
-      errorCell.style.fontSize = '12px';
-      errorCell.style.color = log.errorMessage ? '#ff9fa8' : '';
+      if (log.errorMessage) errorCell.classList.add('has-error');
       row.appendChild(errorCell);
 
       logsBody.appendChild(row);
@@ -118,7 +123,7 @@
 
       renderLogs(data.logs || [], append);
       nextBeforeId = data.nextBeforeId;
-      loadMoreBtn.style.display = data.hasMore ? 'inline-block' : 'none';
+      setLoadMoreVisible(Boolean(data.hasMore));
     } catch (error) {
       if (!append) {
         setLogsMessage('Failed to load logs: ' + error.message);
