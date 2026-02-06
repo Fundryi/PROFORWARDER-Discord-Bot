@@ -3,6 +3,15 @@ const { addForwardConfig, getForwardConfigsForChannel, removeForwardConfig, getA
 const { hasWebhookPermissions } = require('../utils/webhookManager');
 const { logInfo, logSuccess, logError } = require('../utils/logger');
 
+const WEB_MANAGED_DEPRECATED_SUBCOMMANDS = new Set([
+  'setup',
+  'telegram',
+  'list',
+  'remove',
+  'test',
+  'auto-publish'
+]);
+
 const proforwardCommand = new SlashCommandBuilder()
   .setName('proforward')
   .setDescription('ProForwarder - Simple message forwarding between Discord channels')
@@ -154,6 +163,34 @@ const proforwardCommand = new SlashCommandBuilder()
        .setDescription('Check reader bot status and generate invite link')
    );
 
+function getWebAdminUrl() {
+  try {
+    const runtimeConfig = require('../config/config');
+    const base = String(runtimeConfig?.webAdmin?.baseUrl || '').trim().replace(/\/+$/, '');
+    if (!base) return '/admin';
+    if (base.endsWith('/admin')) return base;
+    return `${base}/admin`;
+  } catch (_error) {
+    return '/admin';
+  }
+}
+
+async function sendWebDeprecationNotice(interaction, subcommand) {
+  if (!WEB_MANAGED_DEPRECATED_SUBCOMMANDS.has(subcommand)) return;
+
+  const notice = `⚠️ \`/proforward ${subcommand}\` is deprecated and will be removed in a later rollout. Use Web Admin: ${getWebAdminUrl()}`;
+
+  try {
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({ content: notice, ephemeral: true });
+    } else {
+      await interaction.reply({ content: notice, ephemeral: true });
+    }
+  } catch (error) {
+    logInfo(`Could not send deprecation notice for /proforward ${subcommand}: ${error.message}`);
+  }
+}
+
 async function handleProforwardCommand(interaction) {
   const subcommand = interaction.options.getSubcommand();
 
@@ -161,21 +198,26 @@ async function handleProforwardCommand(interaction) {
     switch (subcommand) {
       case 'setup':
         await handleSetup(interaction);
+        await sendWebDeprecationNotice(interaction, subcommand);
         break;
       case 'telegram':
         await handleTelegram(interaction);
+        await sendWebDeprecationNotice(interaction, subcommand);
         break;
       case 'list':
         await handleList(interaction);
+        await sendWebDeprecationNotice(interaction, subcommand);
         break;
       case 'remove':
         await handleRemove(interaction);
+        await sendWebDeprecationNotice(interaction, subcommand);
         break;
       case 'status':
         await handleStatus(interaction);
         break;
       case 'test':
         await handleTest(interaction);
+        await sendWebDeprecationNotice(interaction, subcommand);
         break;
       case 'telegram-discover':
         await handleTelegramDiscover(interaction);
@@ -185,6 +227,7 @@ async function handleProforwardCommand(interaction) {
         break;
       case 'auto-publish':
         await handleAutoPublish(interaction);
+        await sendWebDeprecationNotice(interaction, subcommand);
         break;
       case 'reader-status':
         await handleReaderStatus(interaction);
