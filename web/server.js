@@ -4,7 +4,14 @@ const express = require('express');
 const session = require('express-session');
 const axios = require('axios');
 const { PermissionFlagsBits } = require('discord.js');
-const { loadForwardConfigs } = require('../utils/configManager');
+const {
+  loadForwardConfigs,
+  getForwardConfigById,
+  addForwardConfig,
+  enableForwardConfig,
+  disableForwardConfig,
+  removeForwardConfig
+} = require('../utils/configManager');
 const { logInfo, logSuccess, logError } = require('../utils/logger');
 
 function parseBoolean(value, fallback = false) {
@@ -226,9 +233,14 @@ function renderDashboardPage(auth) {
       <h1>ProForwarder Admin</h1>
       <p>Signed in as <strong>${tag}</strong></p>
       <div class="row">
-        <span class="badge">Phase 2: Read-only dashboard</span>
+        <span class="badge">Phase 3: Safe mutations enabled</span>
         <a class="button secondary" href="/admin/logout">Logout</a>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>Status</h2>
+      <p id="status-message" class="muted-text">Ready.</p>
     </section>
 
     <section class="card">
@@ -250,13 +262,35 @@ function renderDashboardPage(auth) {
               <th>Source</th>
               <th>Target</th>
               <th>Status</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody id="configs-body">
-            <tr><td colspan="5" class="muted-text">Loading...</td></tr>
+            <tr><td colspan="6" class="muted-text">Loading...</td></tr>
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>Create Discord Forward</h2>
+      <form id="create-discord-form" class="form-grid">
+        <label>Source Channel ID<input id="discord-source-channel" class="input" required></label>
+        <label>Target Channel ID<input id="discord-target-channel" class="input" required></label>
+        <label>Target Server ID (optional)<input id="discord-target-server" class="input"></label>
+        <label>Name (optional)<input id="discord-name" class="input"></label>
+        <button type="submit" class="button">Create Discord Forward</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Create Telegram Forward</h2>
+      <form id="create-telegram-form" class="form-grid">
+        <label>Source Channel ID<input id="telegram-source-channel" class="input" required></label>
+        <label>Telegram Chat ID<input id="telegram-chat-id" class="input" required></label>
+        <label>Name (optional)<input id="telegram-name" class="input"></label>
+        <button type="submit" class="button">Create Telegram Forward</button>
+      </form>
     </section>
   </main>
 
@@ -264,12 +298,34 @@ function renderDashboardPage(auth) {
     const guildSelect = document.getElementById('guild-select');
     const guildHelp = document.getElementById('guild-help');
     const configsBody = document.getElementById('configs-body');
+    const statusMessage = document.getElementById('status-message');
+    const createDiscordForm = document.getElementById('create-discord-form');
+    const createTelegramForm = document.getElementById('create-telegram-form');
+    let currentGuildId = '';
 
-    async function fetchJson(url) {
-      const response = await fetch(url, { credentials: 'same-origin' });
+    function setStatus(message, isError = false) {
+      statusMessage.textContent = message;
+      statusMessage.className = isError ? 'error-text' : 'muted-text';
+    }
+
+    async function fetchJson(url, options = {}) {
+      const response = await fetch(url, {
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        ...options
+      });
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || 'Request failed');
+        let message = 'Request failed';
+        try {
+          const payload = await response.json();
+          message = payload.error || message;
+        } catch (jsonError) {
+          const text = await response.text();
+          if (text) message = text;
+        }
+        throw new Error(message);
       }
       return response.json();
     }
@@ -278,7 +334,7 @@ function renderDashboardPage(auth) {
       configsBody.innerHTML = '';
       const row = document.createElement('tr');
       const cell = document.createElement('td');
-      cell.colSpan = 5;
+      cell.colSpan = 6;
       cell.className = 'muted-text';
       cell.textContent = message;
       row.appendChild(cell);
@@ -298,6 +354,12 @@ function renderDashboardPage(auth) {
       return '-';
     }
 
+    function createCell(text) {
+      const cell = document.createElement('td');
+      cell.textContent = text;
+      return cell;
+    }
+
     function renderConfigs(configs) {
       configsBody.innerHTML = '';
       if (!configs.length) {
@@ -306,20 +368,76 @@ function renderDashboardPage(auth) {
       }
       for (const config of configs) {
         const row = document.createElement('tr');
-        row.innerHTML = '<td>' + config.id + '</td>' +
-          '<td>' + (config.name || 'Unnamed') + '</td>' +
-          '<td>' + (config.sourceChannelId || '-') + '</td>' +
-          '<td>' + targetText(config) + '</td>' +
-          '<td>' + (config.enabled !== false ? 'Enabled' : 'Disabled') + '</td>';
+        row.appendChild(createCell(String(config.id)));
+        row.appendChild(createCell(config.name || 'Unnamed'));
+        row.appendChild(createCell(config.sourceChannelId || '-'));
+        row.appendChild(createCell(targetText(config)));
+        row.appendChild(createCell(config.enabled !== false ? 'Enabled' : 'Disabled'));
+
+        const actionsCell = document.createElement('td');
+        const toggleButton = document.createElement('button');
+        toggleButton.className = 'button secondary';
+        toggleButton.textContent = config.enabled !== false ? 'Disable' : 'Enable';
+        toggleButton.addEventListener('click', async () => {
+          try {
+            setStatus('Updating config ' + config.id + '...');
+            await fetchJson('/api/configs/' + config.id, {
+              method: 'PATCH',
+              body: JSON.stringify({ enabled: !(config.enabled !== false) })
+            });
+            setStatus('Config ' + config.id + ' updated.');
+            await loadConfigs(currentGuildId);
+          } catch (error) {
+            setStatus('Update failed: ' + error.message, true);
+          }
+        });
+        actionsCell.appendChild(toggleButton);
+
+        const removeButton = document.createElement('button');
+        removeButton.className = 'button secondary danger';
+        removeButton.textContent = 'Remove';
+        removeButton.addEventListener('click', async () => {
+          const confirmed = confirm('Remove config ' + config.id + '?');
+          if (!confirmed) return;
+          try {
+            setStatus('Removing config ' + config.id + '...');
+            await fetchJson('/api/configs/' + config.id, { method: 'DELETE' });
+            setStatus('Config ' + config.id + ' removed.');
+            await loadConfigs(currentGuildId);
+          } catch (error) {
+            setStatus('Remove failed: ' + error.message, true);
+          }
+        });
+        actionsCell.appendChild(removeButton);
+
+        if (config.targetType === 'telegram') {
+          const testButton = document.createElement('button');
+          testButton.className = 'button secondary';
+          testButton.textContent = 'Test Telegram';
+          testButton.addEventListener('click', async () => {
+            try {
+              setStatus('Testing Telegram for config ' + config.id + '...');
+              const result = await fetchJson('/api/configs/' + config.id + '/test-telegram', { method: 'POST' });
+              setStatus('Telegram test success. Message ID: ' + (result.messageId || '-'));
+            } catch (error) {
+              setStatus('Telegram test failed: ' + error.message, true);
+            }
+          });
+          actionsCell.appendChild(testButton);
+        }
+
+        row.appendChild(actionsCell);
         configsBody.appendChild(row);
       }
     }
 
     async function loadConfigs(guildId) {
       if (!guildId) {
+        currentGuildId = '';
         setConfigsMessage('Select a guild to view configurations.');
         return;
       }
+      currentGuildId = guildId;
       setConfigsMessage('Loading...');
       try {
         const payload = await fetchJson('/api/configs?guildId=' + encodeURIComponent(guildId));
@@ -352,7 +470,7 @@ function renderDashboardPage(auth) {
           guildSelect.appendChild(option);
         }
 
-        guildHelp.textContent = 'Read-only view is active in Phase 2.';
+        guildHelp.textContent = 'You can now create, enable/disable, remove, and test configs.';
         await loadConfigs(guildSelect.value);
       } catch (error) {
         guildHelp.textContent = 'Failed to load user context.';
@@ -364,6 +482,65 @@ function renderDashboardPage(auth) {
       loadConfigs(guildSelect.value);
     });
 
+    createDiscordForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!currentGuildId) {
+        setStatus('Select a guild first.', true);
+        return;
+      }
+
+      const payload = {
+        guildId: currentGuildId,
+        targetType: 'discord',
+        sourceChannelId: document.getElementById('discord-source-channel').value.trim(),
+        targetChannelId: document.getElementById('discord-target-channel').value.trim(),
+        targetServerId: document.getElementById('discord-target-server').value.trim(),
+        name: document.getElementById('discord-name').value.trim()
+      };
+
+      try {
+        setStatus('Creating Discord forward...');
+        await fetchJson('/api/configs', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        createDiscordForm.reset();
+        setStatus('Discord forward created.');
+        await loadConfigs(currentGuildId);
+      } catch (error) {
+        setStatus('Create failed: ' + error.message, true);
+      }
+    });
+
+    createTelegramForm.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (!currentGuildId) {
+        setStatus('Select a guild first.', true);
+        return;
+      }
+
+      const payload = {
+        guildId: currentGuildId,
+        targetType: 'telegram',
+        sourceChannelId: document.getElementById('telegram-source-channel').value.trim(),
+        targetChatId: document.getElementById('telegram-chat-id').value.trim(),
+        name: document.getElementById('telegram-name').value.trim()
+      };
+
+      try {
+        setStatus('Creating Telegram forward...');
+        await fetchJson('/api/configs', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+        createTelegramForm.reset();
+        setStatus('Telegram forward created.');
+        await loadConfigs(currentGuildId);
+      } catch (error) {
+        setStatus('Create failed: ' + error.message, true);
+      }
+    });
+
     loadMe();
   </script>
 </body>
@@ -372,6 +549,21 @@ function renderDashboardPage(auth) {
 
 function getAuthFromSession(req) {
   return req.session && req.session.webAdminAuth ? req.session.webAdminAuth : null;
+}
+
+function buildConfigView(configItem) {
+  return {
+    id: configItem.id,
+    name: configItem.name || '',
+    sourceServerId: configItem.sourceServerId || '',
+    sourceChannelId: configItem.sourceChannelId || '',
+    targetType: configItem.targetType || '',
+    targetServerId: configItem.targetServerId || '',
+    targetChannelId: configItem.targetChannelId || '',
+    targetChatId: configItem.targetChatId || '',
+    enabled: configItem.enabled !== false,
+    createdBy: configItem.createdBy || ''
+  };
 }
 
 function hasAdminPermission(permissionString) {
@@ -428,6 +620,30 @@ async function getManageableGuilds(client, auth, allowedRoleIds) {
   }));
 
   return checks.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function isTextOrAnnouncementChannel(channel) {
+  if (!channel) return false;
+  return channel.type === 0 || channel.type === 5;
+}
+
+function isDiscordId(value) {
+  return typeof value === 'string' && /^\d+$/.test(value.trim());
+}
+
+function isTelegramChatId(value) {
+  return typeof value === 'string' && /^-?\d+$/.test(value.trim());
+}
+
+function parseConfigId(value) {
+  const parsed = parseInt(value, 10);
+  if (Number.isNaN(parsed)) return null;
+  return parsed;
+}
+
+async function getAuthorizedGuildSet(client, auth, allowedRoleIds) {
+  const guilds = await getManageableGuilds(client, auth, allowedRoleIds);
+  return new Set(guilds.map(guild => guild.id));
 }
 
 function createWebAdminApp(client, config) {
@@ -574,18 +790,7 @@ function createWebAdminApp(client, config) {
       const guildConfigs = allConfigs
         .filter(configItem => configItem.sourceServerId === guildId)
         .sort((a, b) => a.id - b.id)
-        .map(configItem => ({
-          id: configItem.id,
-          name: configItem.name || '',
-          sourceServerId: configItem.sourceServerId || '',
-          sourceChannelId: configItem.sourceChannelId || '',
-          targetType: configItem.targetType || '',
-          targetServerId: configItem.targetServerId || '',
-          targetChannelId: configItem.targetChannelId || '',
-          targetChatId: configItem.targetChatId || '',
-          enabled: configItem.enabled !== false,
-          createdBy: configItem.createdBy || ''
-        }));
+        .map(buildConfigView);
 
       res.json({
         guildId,
@@ -594,6 +799,277 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin /api/configs failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to load configs' });
+    }
+  });
+
+  app.post('/api/configs', async (req, res) => {
+    const auth = getAuthFromSession(req);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const guildId = typeof req.body.guildId === 'string' ? req.body.guildId.trim() : '';
+    if (!guildId) {
+      res.status(400).json({ error: 'guildId is required' });
+      return;
+    }
+
+    const sourceChannelId = typeof req.body.sourceChannelId === 'string' ? req.body.sourceChannelId.trim() : '';
+    const targetType = typeof req.body.targetType === 'string' ? req.body.targetType.trim().toLowerCase() : '';
+    const customName = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+
+    if (!isDiscordId(sourceChannelId)) {
+      res.status(400).json({ error: 'sourceChannelId must be a numeric Discord ID' });
+      return;
+    }
+
+    if (targetType !== 'discord' && targetType !== 'telegram') {
+      res.status(400).json({ error: 'targetType must be discord or telegram' });
+      return;
+    }
+
+    try {
+      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      if (!allowedGuilds.has(guildId)) {
+        res.status(403).json({ error: 'Forbidden for this guild' });
+        return;
+      }
+
+      const sourceGuild = client.guilds.cache.get(guildId);
+      if (!sourceGuild) {
+        res.status(400).json({ error: 'Source guild not found in bot cache' });
+        return;
+      }
+
+      let sourceChannel = sourceGuild.channels.cache.get(sourceChannelId);
+      if (!sourceChannel) {
+        try {
+          sourceChannel = await sourceGuild.channels.fetch(sourceChannelId);
+        } catch (error) {
+          sourceChannel = null;
+        }
+      }
+      if (!isTextOrAnnouncementChannel(sourceChannel)) {
+        res.status(400).json({ error: 'Source channel must be a text or announcement channel' });
+        return;
+      }
+
+      const newConfig = {
+        sourceType: 'discord',
+        sourceServerId: guildId,
+        sourceChannelId,
+        targetType,
+        createdBy: auth.user.id
+      };
+
+      if (targetType === 'discord') {
+        const targetChannelId = typeof req.body.targetChannelId === 'string' ? req.body.targetChannelId.trim() : '';
+        const targetServerIdRaw = typeof req.body.targetServerId === 'string' ? req.body.targetServerId.trim() : '';
+        const targetServerId = targetServerIdRaw || guildId;
+
+        if (!isDiscordId(targetChannelId)) {
+          res.status(400).json({ error: 'targetChannelId must be a numeric Discord ID' });
+          return;
+        }
+        if (!isDiscordId(targetServerId)) {
+          res.status(400).json({ error: 'targetServerId must be a numeric Discord ID' });
+          return;
+        }
+
+        const targetGuild = client.guilds.cache.get(targetServerId);
+        if (!targetGuild) {
+          res.status(400).json({ error: 'Target guild not found in bot cache' });
+          return;
+        }
+
+        let targetChannel = targetGuild.channels.cache.get(targetChannelId);
+        if (!targetChannel) {
+          try {
+            targetChannel = await targetGuild.channels.fetch(targetChannelId);
+          } catch (error) {
+            targetChannel = null;
+          }
+        }
+        if (!isTextOrAnnouncementChannel(targetChannel)) {
+          res.status(400).json({ error: 'Target channel must be a text or announcement channel' });
+          return;
+        }
+
+        if (guildId === targetServerId && sourceChannelId === targetChannelId) {
+          res.status(400).json({ error: 'Source and target channels cannot be the same' });
+          return;
+        }
+
+        newConfig.targetServerId = targetServerId;
+        newConfig.targetChannelId = targetChannelId;
+        newConfig.name = customName || `${sourceChannel.name} to ${targetChannel.name}`;
+      } else {
+        const targetChatId = typeof req.body.targetChatId === 'string' ? req.body.targetChatId.trim() : '';
+        if (!isTelegramChatId(targetChatId)) {
+          res.status(400).json({ error: 'targetChatId must be a valid numeric Telegram chat ID' });
+          return;
+        }
+        newConfig.targetChatId = targetChatId;
+        newConfig.name = customName || `${sourceChannel.name} to Telegram`;
+      }
+
+      const configId = await addForwardConfig(newConfig);
+      const created = await getForwardConfigById(configId);
+      if (!created) {
+        res.status(500).json({ error: 'Config created but could not be reloaded' });
+        return;
+      }
+
+      res.status(201).json({
+        config: buildConfigView(created)
+      });
+    } catch (error) {
+      logError(`Web admin create config failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to create config' });
+    }
+  });
+
+  app.patch('/api/configs/:id', async (req, res) => {
+    const auth = getAuthFromSession(req);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const configId = parseConfigId(req.params.id);
+    if (!configId) {
+      res.status(400).json({ error: 'Invalid config id' });
+      return;
+    }
+
+    if (typeof req.body.enabled !== 'boolean') {
+      res.status(400).json({ error: 'enabled must be boolean' });
+      return;
+    }
+
+    try {
+      const existing = await getForwardConfigById(configId);
+      if (!existing) {
+        res.status(404).json({ error: 'Config not found' });
+        return;
+      }
+
+      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      if (!allowedGuilds.has(existing.sourceServerId)) {
+        res.status(403).json({ error: 'Forbidden for this guild' });
+        return;
+      }
+
+      if (req.body.enabled) {
+        await enableForwardConfig(configId);
+      } else {
+        await disableForwardConfig(configId);
+      }
+
+      const updated = await getForwardConfigById(configId);
+      if (!updated) {
+        res.status(500).json({ error: 'Config update succeeded but reload failed' });
+        return;
+      }
+
+      res.json({
+        config: buildConfigView(updated)
+      });
+    } catch (error) {
+      logError(`Web admin toggle config failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to update config' });
+    }
+  });
+
+  app.delete('/api/configs/:id', async (req, res) => {
+    const auth = getAuthFromSession(req);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const configId = parseConfigId(req.params.id);
+    if (!configId) {
+      res.status(400).json({ error: 'Invalid config id' });
+      return;
+    }
+
+    try {
+      const existing = await getForwardConfigById(configId);
+      if (!existing) {
+        res.status(404).json({ error: 'Config not found' });
+        return;
+      }
+
+      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      if (!allowedGuilds.has(existing.sourceServerId)) {
+        res.status(403).json({ error: 'Forbidden for this guild' });
+        return;
+      }
+
+      await removeForwardConfig(configId);
+      res.json({ success: true, removedConfigId: configId });
+    } catch (error) {
+      logError(`Web admin remove config failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to remove config' });
+    }
+  });
+
+  app.post('/api/configs/:id/test-telegram', async (req, res) => {
+    const auth = getAuthFromSession(req);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const configId = parseConfigId(req.params.id);
+    if (!configId) {
+      res.status(400).json({ error: 'Invalid config id' });
+      return;
+    }
+
+    try {
+      const existing = await getForwardConfigById(configId);
+      if (!existing) {
+        res.status(404).json({ error: 'Config not found' });
+        return;
+      }
+
+      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      if (!allowedGuilds.has(existing.sourceServerId)) {
+        res.status(403).json({ error: 'Forbidden for this guild' });
+        return;
+      }
+
+      if (existing.targetType !== 'telegram') {
+        res.status(400).json({ error: 'Config target is not Telegram' });
+        return;
+      }
+
+      const runtimeConfig = require('../config/env');
+      if (!runtimeConfig.telegram || runtimeConfig.telegram.enabled !== true) {
+        res.status(400).json({ error: 'Telegram integration is disabled' });
+        return;
+      }
+
+      const TelegramHandler = require('../handlers/telegramHandler');
+      const telegramHandler = new TelegramHandler();
+      const initialized = await telegramHandler.initialize();
+      if (!initialized) {
+        res.status(500).json({ error: 'Telegram handler initialization failed' });
+        return;
+      }
+
+      const testResult = await telegramHandler.testTelegram(existing.targetChatId);
+      if (testResult.success) {
+        res.json({ success: true, messageId: testResult.messageId || null });
+      } else {
+        res.status(400).json({ error: testResult.error || 'Telegram test failed' });
+      }
+    } catch (error) {
+      logError(`Web admin telegram test failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to test Telegram target' });
     }
   });
 

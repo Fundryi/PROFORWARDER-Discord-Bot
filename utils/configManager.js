@@ -228,35 +228,176 @@ async function addForwardConfig(newConfig) {
   }
 }
 
-// Remove a forward configuration (by setting enabled: false)
-async function disableForwardConfig(configId) {
+function setTopLevelBooleanProperty(objectText, propertyName, value) {
+  let inString = false;
+  let stringChar = '';
+  let escape = false;
+  let depth = 0;
+
+  const keyPattern = new RegExp(`\\b${propertyName}\\b`);
+
+  for (let i = 0; i < objectText.length; i++) {
+    const ch = objectText[i];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === '\\') {
+        escape = true;
+      } else if (ch === stringChar) {
+        inString = false;
+        stringChar = '';
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'" || ch === '`') {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+
+    if (ch === '{') {
+      depth++;
+      continue;
+    }
+
+    if (ch === '}') {
+      depth--;
+      continue;
+    }
+
+    if (depth !== 1) continue;
+
+    const rest = objectText.slice(i);
+    if (!keyPattern.test(rest.slice(0, propertyName.length + 1))) continue;
+    if (!rest.startsWith(propertyName)) continue;
+
+    const prevChar = i > 0 ? objectText[i - 1] : '';
+    if (prevChar && /[a-zA-Z0-9_$]/.test(prevChar)) continue;
+
+    let cursor = i + propertyName.length;
+    while (cursor < objectText.length && /\s/.test(objectText[cursor])) cursor++;
+    if (objectText[cursor] !== ':') continue;
+    cursor++;
+    while (cursor < objectText.length && /\s/.test(objectText[cursor])) cursor++;
+    const valueStart = cursor;
+
+    let valueInString = false;
+    let valueStringChar = '';
+    let valueEscape = false;
+    let localDepth = 1;
+    let valueEnd = valueStart;
+
+    for (let j = valueStart; j < objectText.length; j++) {
+      const valueChar = objectText[j];
+
+      if (valueInString) {
+        if (valueEscape) {
+          valueEscape = false;
+        } else if (valueChar === '\\') {
+          valueEscape = true;
+        } else if (valueChar === valueStringChar) {
+          valueInString = false;
+          valueStringChar = '';
+        }
+        continue;
+      }
+
+      if (valueChar === '"' || valueChar === "'" || valueChar === '`') {
+        valueInString = true;
+        valueStringChar = valueChar;
+        continue;
+      }
+
+      if (valueChar === '{' || valueChar === '[' || valueChar === '(') {
+        localDepth++;
+        continue;
+      }
+
+      if (valueChar === '}' || valueChar === ']' || valueChar === ')') {
+        localDepth--;
+        if (localDepth === 0 && valueChar === '}') {
+          valueEnd = j;
+          break;
+        }
+        continue;
+      }
+
+      if (valueChar === ',' && localDepth === 1) {
+        valueEnd = j;
+        break;
+      }
+    }
+
+    if (valueEnd === valueStart) {
+      valueEnd = objectText.length - 1;
+    }
+
+    return objectText.slice(0, valueStart) + String(value) + objectText.slice(valueEnd);
+  }
+
+  const closingBraceIndex = objectText.lastIndexOf('}');
+  if (closingBraceIndex === -1) {
+    return objectText;
+  }
+
+  const beforeBrace = objectText.slice(0, closingBraceIndex);
+  const trimmedBeforeBrace = beforeBrace.trimEnd();
+  const needsComma = !trimmedBeforeBrace.endsWith('{') && !trimmedBeforeBrace.endsWith(',');
+  const insertion = `${needsComma ? ',' : ''}\n      ${propertyName}: ${value}\n    `;
+  return objectText.slice(0, closingBraceIndex) + insertion + objectText.slice(closingBraceIndex);
+}
+
+async function setForwardConfigEnabled(configId, enabled) {
   await acquireWriteLock();
   try {
     const envContent = await fs.readFile(CONFIG_PATH, 'utf8');
-
-    // Find and update the specific config
-    const configRegex = new RegExp(`(\\{[^}]*id:\\s*${configId}[^}]*)(enabled:\\s*true)([^}]*\\})`, 'g');
-    let updatedContent = envContent.replace(configRegex, '$1enabled: false$3');
-
-    // If enabled wasn't there, add it
-    if (updatedContent === envContent) {
-      const addEnabledRegex = new RegExp(`(\\{[^}]*id:\\s*${configId}[^}]*)(\\s*\\})`, 'g');
-      updatedContent = envContent.replace(addEnabledRegex, '$1,\n      enabled: false$2');
+    const arrayRange = findForwardConfigsArrayRange(envContent);
+    if (!arrayRange) {
+      throw new Error('forwardConfigs array not found in env.js');
     }
+
+    const arrayText = envContent.slice(arrayRange.start, arrayRange.end + 1);
+    const objectRange = findConfigObjectRange(arrayText, configId);
+    if (!objectRange) {
+      throw new Error(`Configuration ${configId} not found`);
+    }
+
+    const objectText = arrayText.slice(objectRange.start, objectRange.end);
+    const updatedObjectText = setTopLevelBooleanProperty(objectText, 'enabled', enabled ? 'true' : 'false');
+    const updatedArrayText =
+      arrayText.slice(0, objectRange.start) +
+      updatedObjectText +
+      arrayText.slice(objectRange.end);
+    const updatedContent =
+      envContent.slice(0, arrayRange.start) +
+      updatedArrayText +
+      envContent.slice(arrayRange.end + 1);
 
     await fs.writeFile(CONFIG_PATH, updatedContent, 'utf8');
 
     // Invalidate cache so change is immediately visible
     invalidateCache();
 
-    logSuccess(`Disabled forward config ${configId} in env.js`);
+    logSuccess(`${enabled ? 'Enabled' : 'Disabled'} forward config ${configId} in env.js`);
     return true;
   } catch (error) {
-    logError('Error disabling forward config:', error);
+    logError(`Error ${enabled ? 'enabling' : 'disabling'} forward config:`, error);
     throw error;
   } finally {
     releaseWriteLock();
   }
+}
+
+// Remove a forward configuration (by setting enabled: false)
+async function disableForwardConfig(configId) {
+  return setForwardConfigEnabled(configId, false);
+}
+
+// Enable a forward configuration (set enabled: true)
+async function enableForwardConfig(configId) {
+  return setForwardConfigEnabled(configId, true);
 }
 
 // Remove a forward configuration from env.js entirely
@@ -661,6 +802,7 @@ module.exports = {
   getAllActiveForwardConfigs,
   getForwardConfigById,
   addForwardConfig,
+  enableForwardConfig,
   disableForwardConfig,
   removeForwardConfig,
   getConfigStats,

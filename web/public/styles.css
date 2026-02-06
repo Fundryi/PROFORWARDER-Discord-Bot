@@ -72,6 +72,11 @@ p {
   border: 1px solid var(--border);
 }
 
+.button.danger {
+  border-color: #8f3b44;
+  color: #f0c1c7;
+}
+
 .row {
   display: flex;
   gap: 10px;
@@ -124,4 +129,25 @@ td {
 th {
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 10px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+td .button {
+  margin-right: 6px;
+  margin-bottom: 6px;
+}
+
+.error-text {
+  color: #ff9fa8;
 }

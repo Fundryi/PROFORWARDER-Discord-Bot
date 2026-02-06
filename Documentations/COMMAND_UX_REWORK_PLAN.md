@@ -3,6 +3,18 @@
 Date: 2026-02-06
 Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 
+## Current Progress Snapshot
+- Latest completed phase: Phase 3 (safe mutations).
+- Current state:
+  - Bot runtime stable and unchanged for forwarding logic.
+  - Web admin remains feature-flagged by `WEB_ADMIN_ENABLED`.
+  - OAuth/session/login + read/write config management now implemented in web admin.
+- Completed implementation commits:
+  - `991e4ba` phase 0: add web admin config flags and env placeholders
+  - `5f56674` phase 1: add feature-flagged web admin OAuth auth and session shell
+  - `11314dc` phase 2: add read-only web dashboard with guild-scoped config view
+  - `92293af` fix: include web module in image and guard missing web admin import
+
 ## Objective
 - Replace complex in-Discord management UX with a simple web admin interface.
 - Keep bot behavior and forwarding engine unchanged.
@@ -190,6 +202,21 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 - Add enable/disable, remove with confirmation.
 - Add create forms for Discord and Telegram forwards.
 - All mutations routed through existing config manager functions.
+- Status: done.
+- Implementation notes:
+  - Added mutation APIs in `web/server.js`:
+    - `POST /api/configs` (create)
+    - `PATCH /api/configs/:id` (enable/disable)
+    - `DELETE /api/configs/:id` (remove)
+    - `POST /api/configs/:id/test-telegram` (telegram test)
+  - Added mutation UI in `/admin` dashboard:
+    - Create Discord forward form
+    - Create Telegram forward form
+    - Per-row actions: enable/disable, remove, telegram test
+  - Kept server-side guild authorization checks on every mutation route.
+  - Updated `utils/configManager.js`:
+    - Added `enableForwardConfig` export and shared `setForwardConfigEnabled` path.
+    - Replaced fragile toggle logic with object-range based updates inside `forwardConfigs`.
 
 ### Phase 4: Operational Hardening
 - Add CSRF, rate limits, audit logs.
