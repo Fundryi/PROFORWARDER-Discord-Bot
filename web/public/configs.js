@@ -219,9 +219,27 @@
   }
 
   function telegramChatLabel(chat) {
-    var type = '[' + (chat.type || 'unknown') + '] ';
-    var source = chat.source === 'updates' ? ' - recent' : (chat.source === 'configured' ? ' - configured' : '');
-    return type + chat.title + ' (' + chat.id + ')' + source;
+    var type = '[' + String(chat.type || 'unknown') + ']';
+    var source = chat.source === 'updates' ? 'recent' : (chat.source === 'configured' ? 'configured' : '');
+    var id = String(chat.id || '').trim();
+    var title = String(chat.title || '').trim();
+    if (!title) {
+      title = id ? ('Chat ' + id) : 'Chat';
+    }
+
+    var includesId = Boolean(id) && title.indexOf(id) >= 0;
+    if (title.length > 58) {
+      title = title.slice(0, 55) + '...';
+    }
+
+    var parts = [type, title];
+    if (id && !includesId) {
+      parts.push('(' + id + ')');
+    }
+    if (source) {
+      parts.push('- ' + source);
+    }
+    return parts.join(' ');
   }
 
   function refreshDiscordSourceGuildSelect() {
