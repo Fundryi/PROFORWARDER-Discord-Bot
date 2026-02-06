@@ -18,13 +18,17 @@ function normalizeHost(hostHeader) {
 function evaluateLocalBypassRequest(req, webAdminConfig) {
   const host = normalizeHost(req.get('host') || req.headers.host || '');
   const remoteIp = normalizeIp(req.socket?.remoteAddress || req.ip || '');
-  const allowedHosts = new Set((webAdminConfig.localBypassAllowedHosts || []).map(normalizeHost));
-  const allowedIps = new Set((webAdminConfig.localBypassAllowedIps || []).map(normalizeIp));
+  const allowedHosts = new Set(
+    (webAdminConfig.localAllowedHosts || webAdminConfig.localBypassAllowedHosts || []).map(normalizeHost)
+  );
+  const allowedIps = new Set(
+    (webAdminConfig.localAllowedIps || webAdminConfig.localBypassAllowedIps || []).map(normalizeIp)
+  );
 
-  if (!webAdminConfig.localBypassAuth) {
+  if (webAdminConfig.authMode !== 'local') {
     return {
       allowed: false,
-      reason: 'local bypass is disabled',
+      reason: 'auth mode is not local',
       host,
       remoteIp
     };

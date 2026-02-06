@@ -8,10 +8,11 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 - Current state:
   - Bot runtime stable and unchanged for forwarding logic.
   - Web admin remains feature-flagged by `WEB_ADMIN_ENABLED`.
-  - OAuth/session/login + read/write config management now implemented in web admin.
-  - Localhost test bypass mode available via env flags (for local-only dev access without OAuth).
+  - Read/write config management is implemented in web admin.
+  - Auth is local-first via `WEB_ADMIN_AUTH_MODE=local` with localhost checks and automatic local session creation.
+  - OAuth stays available behind `WEB_ADMIN_AUTH_MODE=oauth` for later domain rollout.
   - Web admin config loading consolidated to `config.webAdmin` (no direct env fallback in `web/server.js`).
-  - Local bypass now supports explicit host allowlist and debug logging to diagnose denied requests.
+  - Local auth supports explicit host allowlist and optional IP allowlist with debug logging.
 - Completed implementation commits:
   - `991e4ba` phase 0: add web admin config flags and env placeholders
   - `5f56674` phase 1: add feature-flagged web admin OAuth auth and session shell
@@ -36,11 +37,8 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - Complex frontend framework migration.
 
 ## Authentication Decision
-- Recommended primary auth: Discord OAuth2 Authorization Code flow.
-- Reason:
-  - Native identity verification.
-  - No manual code copy workflow for users.
-  - Lower user error and better UX than one-time codes.
+- Current primary mode: local-only auth (`WEB_ADMIN_AUTH_MODE=local`) for development and initial rollout.
+- OAuth mode (`WEB_ADMIN_AUTH_MODE=oauth`) remains implemented and can be enabled later for domain-based deployments.
 
 ## Authorization Model
 - Access is granted only if the logged-in Discord user matches at least one rule:
@@ -167,7 +165,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - Added `WEB_ADMIN_*` placeholders in `config/.env.example`.
 
 ### Phase 1: Auth + Session
-- Implement OAuth login, callback, logout.
+- Implement local-first auth and keep OAuth login/callback/logout available for later use.
 - Implement session store and permission middleware.
 - Build `GET /admin` shell page.
 - Add `Caddy` service and minimal `Caddyfile` with HTTPS + reverse proxy to bot web port.
@@ -182,15 +180,16 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - Integrated startup/shutdown in `index.js` via `startWebAdminServer` and `stopWebAdminServer`.
   - Added dependencies in `package.json`: `express`, `express-session`.
   - Moved more web settings into `.env` via `config/.env.example` and `config/env.js.example`:
-    - OAuth client ID/secret/redirect URI/scopes
-    - Session secret
+    - Auth mode switch:
+      - `WEB_ADMIN_AUTH_MODE=local|oauth`
     - Allowed role IDs (CSV)
     - Debug toggle:
       - `WEB_ADMIN_DEBUG`
-    - Local bypass controls:
-      - `WEB_ADMIN_LOCAL_BYPASS_AUTH`
-      - `WEB_ADMIN_LOCAL_BYPASS_ALLOWED_HOSTS`
-      - `WEB_ADMIN_LOCAL_BYPASS_ALLOWED_IPS`
+    - Local auth controls:
+      - `WEB_ADMIN_LOCAL_ALLOWED_HOSTS`
+      - `WEB_ADMIN_LOCAL_ALLOWED_IPS` (optional)
+    - OAuth client ID/secret/redirect URI/scopes (only for OAuth mode)
+    - Session secret (required only for OAuth mode)
   - Refactored web config parsing into `web/lib/config.js` and local bypass checks into `web/lib/localBypass.js` to reduce risk in `web/server.js` and keep behavior testable.
 
 ### Phase 2: Read-Only Dashboard
@@ -256,7 +255,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - Session expiry and logout behavior.
 
 ## Open Decisions to Confirm
-- Confirm OAuth as v1 auth method: `yes/no`.
+- Confirm OAuth activation timing (keep local-only for now vs enable in next phase).
 - Confirm allowed-role model:
   - global roles only from config
   - or per-guild role mapping.

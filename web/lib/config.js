@@ -32,19 +32,36 @@ function parseStringArray(value, fallback = []) {
   return fallback;
 }
 
+function resolveAuthMode(configWebAdmin) {
+  const raw = typeof configWebAdmin.authMode === 'string'
+    ? configWebAdmin.authMode.trim().toLowerCase()
+    : '';
+
+  if (raw === 'local' || raw === 'oauth') {
+    return raw;
+  }
+
+  if (parseBoolean(configWebAdmin.localBypassAuth, false)) {
+    return 'local';
+  }
+
+  return 'oauth';
+}
+
 function getWebAdminConfig(config) {
   const configWebAdmin = config.webAdmin || {};
   const commandUiAllowedRoleIds = parseStringArray(config.commandUi?.allowedRoleIds, []);
   const allowedRoleIds = parseStringArray(configWebAdmin.allowedRoleIds, commandUiAllowedRoleIds);
+  const authMode = resolveAuthMode(configWebAdmin);
 
-  const localBypassAllowedIps = parseStringArray(
-    configWebAdmin.localBypassAllowedIps,
-    ['127.0.0.1', '::1', '::ffff:127.0.0.1', '172.17.0.1', '::ffff:172.17.0.1']
+  const localAllowedHosts = parseStringArray(
+    configWebAdmin.localAllowedHosts || configWebAdmin.localBypassAllowedHosts,
+    ['localhost', '127.0.0.1', '::1']
   );
 
-  const localBypassAllowedHosts = parseStringArray(
-    configWebAdmin.localBypassAllowedHosts,
-    ['localhost', '127.0.0.1', '::1']
+  const localAllowedIps = parseStringArray(
+    configWebAdmin.localAllowedIps || configWebAdmin.localBypassAllowedIps,
+    []
   );
 
   return {
@@ -54,25 +71,27 @@ function getWebAdminConfig(config) {
     sessionTtlHours: parseNumber(configWebAdmin.sessionTtlHours, 24),
     trustProxy: parseBoolean(configWebAdmin.trustProxy, false),
     debug: parseBoolean(configWebAdmin.debug, false),
+    authMode,
     sessionSecret: configWebAdmin.sessionSecret || '',
     oauthClientId: configWebAdmin.oauthClientId || '',
     oauthClientSecret: configWebAdmin.oauthClientSecret || '',
     oauthRedirectUri: configWebAdmin.oauthRedirectUri || '',
     oauthScopes: configWebAdmin.oauthScopes || 'identify guilds',
-    localBypassAuth: parseBoolean(configWebAdmin.localBypassAuth, false),
-    localBypassAllowedIps,
-    localBypassAllowedHosts,
+    localAllowedHosts,
+    localAllowedIps,
+    localBypassAuth: authMode === 'local',
+    localBypassAllowedHosts: localAllowedHosts,
+    localBypassAllowedIps: localAllowedIps,
     allowedRoleIds
   };
 }
 
 function validateWebAdminConfig(webAdminConfig) {
-  const required = [
-    ['WEB_ADMIN_SESSION_SECRET', webAdminConfig.sessionSecret]
-  ];
+  const required = [];
 
-  if (!webAdminConfig.localBypassAuth) {
+  if (webAdminConfig.authMode === 'oauth') {
     required.push(
+      ['WEB_ADMIN_SESSION_SECRET', webAdminConfig.sessionSecret],
       ['WEB_ADMIN_DISCORD_CLIENT_ID', webAdminConfig.oauthClientId],
       ['WEB_ADMIN_DISCORD_CLIENT_SECRET', webAdminConfig.oauthClientSecret],
       ['WEB_ADMIN_DISCORD_REDIRECT_URI', webAdminConfig.oauthRedirectUri]

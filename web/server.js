@@ -75,13 +75,22 @@ function renderLoginPage(webAdminConfig, errorMessage = '', localBypassAvailable
     ? `<div class="card error">${errorMessage}</div>`
     : '';
   const loginUrl = '/admin/login';
-  const localBypassBlock = localBypassAvailable
+  const isLocalMode = webAdminConfig.authMode === 'local';
+  const localBypassBlock = isLocalMode
     ? `<section class="card">
-      <h2>Local Test Mode</h2>
-      <p>Local bypass is enabled for localhost-only testing.</p>
-      <a class="button secondary" href="/admin/dev-login">Continue without OAuth</a>
+      <h2>Local Mode</h2>
+      <p>Web admin is in localhost mode. Open this page from localhost and continue.</p>
+      ${localBypassAvailable ? '<a class="button secondary" href="/admin">Continue to Admin</a>' : ''}
     </section>`
     : '';
+  const oauthBlock = isLocalMode
+    ? ''
+    : `<section class="card">
+      <h1>ProForwarder Admin</h1>
+      <p>Login with Discord to access the web admin panel.</p>
+      <a class="button" href="${loginUrl}">Login with Discord</a>
+    </section>`;
+  const modeLabel = isLocalMode ? 'local' : 'oauth';
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -92,14 +101,11 @@ function renderLoginPage(webAdminConfig, errorMessage = '', localBypassAvailable
 </head>
 <body>
   <main class="layout">
-    <section class="card">
-      <h1>ProForwarder Admin</h1>
-      <p>Login with Discord to access the web admin panel.</p>
-      <a class="button" href="${loginUrl}">Login with Discord</a>
-    </section>
+    ${oauthBlock}
     ${localBypassBlock}
     ${errorBlock}
     <section class="card muted">
+      <p>Web admin auth mode: ${modeLabel}</p>
       <p>Web admin base URL: ${webAdminConfig.baseUrl || '(not set)'}</p>
     </section>
   </main>
@@ -487,6 +493,18 @@ function isLocalBypassRequestAllowed(req, webAdminConfig) {
   return decision.allowed;
 }
 
+function getEffectiveAuth(req, client, webAdminConfig) {
+  const sessionAuth = getAuthFromSession(req);
+  if (sessionAuth) return sessionAuth;
+
+  if (webAdminConfig.authMode === 'local' && isLocalBypassRequestAllowed(req, webAdminConfig)) {
+    req.session.webAdminAuth = buildLocalBypassAuth(client);
+    return req.session.webAdminAuth;
+  }
+
+  return null;
+}
+
 function buildLocalBypassAuth(client) {
   const oauthGuilds = Array.from(client.guilds.cache.values()).map(guild => ({
     id: guild.id,
@@ -629,11 +647,27 @@ function createWebAdminApp(client, config) {
   }));
 
   app.get('/admin/login', (req, res) => {
+    if (webAdminConfig.authMode === 'local') {
+      if (isLocalBypassRequestAllowed(req, webAdminConfig)) {
+        req.session.webAdminAuth = buildLocalBypassAuth(client);
+        delete req.session.oauthState;
+        res.redirect('/admin');
+        return;
+      }
+
+      res.status(403).send(renderLoginPage(
+        webAdminConfig,
+        'Local mode only allows localhost requests.',
+        false
+      ));
+      return;
+    }
+
     if (!webAdminConfig.oauthClientId || !webAdminConfig.oauthClientSecret || !webAdminConfig.oauthRedirectUri) {
       const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
       res.status(400).send(renderLoginPage(
         webAdminConfig,
-        'OAuth is not configured. Set Discord OAuth env values or use local bypass.',
+        'OAuth is not configured. Set Discord OAuth env values.',
         localBypassAvailable
       ));
       return;
@@ -645,10 +679,10 @@ function createWebAdminApp(client, config) {
   });
 
   app.get('/admin/dev-login', (req, res) => {
-    if (!isLocalBypassRequestAllowed(req, webAdminConfig)) {
+    if (webAdminConfig.authMode !== 'local' || !isLocalBypassRequestAllowed(req, webAdminConfig)) {
       res.status(403).send(renderLoginPage(
         webAdminConfig,
-        'Local bypass is not allowed for this request origin.',
+        'Local mode is not allowed for this request origin.',
         false
       ));
       return;
@@ -660,6 +694,11 @@ function createWebAdminApp(client, config) {
   });
 
   app.get('/admin/callback', async (req, res) => {
+    if (webAdminConfig.authMode !== 'oauth') {
+      res.redirect('/admin');
+      return;
+    }
+
     const { code, state, error, error_description: errorDescription } = req.query;
 
     if (error) {
@@ -716,7 +755,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.get('/admin', (req, res) => {
-    const auth = getAuthFromSession(req);
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
       const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
       res.status(200).send(renderLoginPage(webAdminConfig, '', localBypassAvailable));
@@ -727,7 +766,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.get('/admin/shell', (req, res) => {
-    const auth = getAuthFromSession(req);
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
       const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
       res.status(401).send(renderLoginPage(webAdminConfig, 'Not authenticated.', localBypassAvailable));
@@ -737,7 +776,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.get('/api/me', async (req, res) => {
-    const auth = getAuthFromSession(req);
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
       res.status(401).json({ error: 'Not authenticated' });
       return;
@@ -756,7 +795,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.get('/api/configs', async (req, res) => {
-    const auth = getAuthFromSession(req);
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
       res.status(401).json({ error: 'Not authenticated' });
       return;
@@ -793,7 +832,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.post('/api/configs', async (req, res) => {
-    const auth = getAuthFromSession(req);
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
       res.status(401).json({ error: 'Not authenticated' });
       return;
@@ -921,7 +960,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.patch('/api/configs/:id', async (req, res) => {
-    const auth = getAuthFromSession(req);
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
       res.status(401).json({ error: 'Not authenticated' });
       return;
@@ -973,7 +1012,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.delete('/api/configs/:id', async (req, res) => {
-    const auth = getAuthFromSession(req);
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
       res.status(401).json({ error: 'Not authenticated' });
       return;
@@ -1007,7 +1046,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.post('/api/configs/:id/test-telegram', async (req, res) => {
-    const auth = getAuthFromSession(req);
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
       res.status(401).json({ error: 'Not authenticated' });
       return;
@@ -1064,7 +1103,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.get('/admin/health', (req, res) => {
-    const auth = getAuthFromSession(req);
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
     res.json({
       ok: true,
       loggedIn: Boolean(auth),
@@ -1082,16 +1121,16 @@ function startWebAdminServer(client, config) {
     return null;
   }
 
-  if (webAdminConfig.localBypassAuth) {
-    logInfo('Web admin local bypass auth is enabled (localhost-only checks active)');
+  if (webAdminConfig.authMode === 'local') {
+    logInfo('Web admin auth mode is local (localhost checks active)');
   }
   if (webAdminConfig.debug) {
     logInfo(
       `[WebAdmin Debug] trustProxy=${webAdminConfig.trustProxy}; ` +
       `baseUrl=${webAdminConfig.baseUrl || '(not set)'}; ` +
-      `localBypassAuth=${webAdminConfig.localBypassAuth}; ` +
-      `allowedHosts=${(webAdminConfig.localBypassAllowedHosts || []).join(',') || '(none)'}; ` +
-      `allowedIps=${(webAdminConfig.localBypassAllowedIps || []).join(',') || '(none)'}`
+      `authMode=${webAdminConfig.authMode}; ` +
+      `allowedHosts=${(webAdminConfig.localAllowedHosts || []).join(',') || '(none)'}; ` +
+      `allowedIps=${(webAdminConfig.localAllowedIps || []).join(',') || '(none)'}`
     );
   }
 
