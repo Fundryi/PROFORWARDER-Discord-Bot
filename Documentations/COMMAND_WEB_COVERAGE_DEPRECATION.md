@@ -14,9 +14,11 @@ Move day-to-day management from slash commands to web admin without losing criti
 - [x] `uploaded_emoji_names` is shown as individual entries with per-emoji remove actions.
 - [x] Generic add-setting and manual emoji-add workflow was removed from web settings UI.
 - [x] Deleting the whole `uploaded_emoji_names` key via web API is blocked.
+- [x] Settings UI cleanup: removed outdated helper copy and improved emoji-name visibility layout.
+- [x] Telegram chat dropdown labels shortened to avoid clipped/truncated option rendering.
+- [x] Phase A complete: covered `/proforward` subcommands now show deprecation notice pointing to Web Admin.
 
 ### Still To Do
-- [ ] Phase A: mark covered commands as deprecated in slash command responses.
 - [ ] Phase B: hide covered commands from registration/help.
 - [ ] Phase C: disable covered commands after 1-2 release cycles.
 - [ ] Phase D: disable remaining commands after web parity for remaining gaps.
