@@ -370,6 +370,28 @@ async function getMessageLogsFiltered({ configId = null, status = null, limit = 
   );
 }
 
+async function deleteMessageLogsFiltered({ configId = null, status = null } = {}) {
+  const conditions = [];
+  const params = [];
+
+  if (configId !== null) {
+    conditions.push('configId = ?');
+    params.push(configId);
+  }
+  if (status) {
+    conditions.push('status = ?');
+    params.push(status);
+  }
+
+  if (conditions.length === 0) {
+    throw new Error('Refusing to delete logs without filters');
+  }
+
+  const where = `WHERE ${conditions.join(' AND ')}`;
+  const result = await run(`DELETE FROM message_logs ${where}`, params);
+  return result.changes || 0;
+}
+
 async function getMessageLogs(configId = null, limit = 100) {
   try {
     if (configId) {
@@ -929,6 +951,7 @@ module.exports = {
   logMessageChain,
   getMessageLogs,
   getMessageLogsFiltered,
+  deleteMessageLogsFiltered,
   getFailedMessages,
   updateMessageLog,
   getMessageLogsByOriginalMessage,
