@@ -10,6 +10,7 @@ const {
   loadForwardConfigs,
   getForwardConfigById,
   addForwardConfig,
+  getForwardConfigsForChannel,
   enableForwardConfig,
   disableForwardConfig,
   removeForwardConfig,
@@ -342,31 +343,39 @@ function renderDashboardPage(auth) {
 
       <div class="card">
         <h2>Create Discord Forward</h2>
-        <form id="create-discord-form" class="form-grid">
-          <label>Source Server
-            <input id="discord-source-server-search" class="input select-search" placeholder="Search source servers">
-            <select id="discord-source-server" class="input" required>
-              <option value="">Loading source servers...</option>
-            </select>
-          </label>
-          <label>Source Channel
-            <input id="discord-source-channel-search" class="input select-search" placeholder="Search source channels">
-            <select id="discord-source-channel" class="input" required>
-              <option value="">Select source server first</option>
-            </select>
-          </label>
-          <label>Target Server (Main Bot)
-            <input id="discord-target-server-search" class="input select-search" placeholder="Search target servers">
-            <select id="discord-target-server" class="input" required>
-              <option value="">Loading target servers...</option>
-            </select>
-          </label>
-          <label>Target Channel (Main Bot)
-            <input id="discord-target-channel-search" class="input select-search" placeholder="Search target channels">
-            <select id="discord-target-channel" class="input" required>
-              <option value="">Select target server first</option>
-            </select>
-          </label>
+        <form id="create-discord-form" class="form-grid config-builder-form">
+          <div class="config-builder-grid">
+            <fieldset class="config-box">
+              <legend>Source</legend>
+              <label>Source Server
+                <input id="discord-source-server-search" class="input select-search" placeholder="Search source servers">
+                <select id="discord-source-server" class="input" required>
+                  <option value="">Loading source servers...</option>
+                </select>
+              </label>
+              <label>Source Channel
+                <input id="discord-source-channel-search" class="input select-search" placeholder="Search source channels">
+                <select id="discord-source-channel" class="input" required>
+                  <option value="">Select source server first</option>
+                </select>
+              </label>
+            </fieldset>
+            <fieldset class="config-box">
+              <legend>Target</legend>
+              <label>Target Server (Main Bot)
+                <input id="discord-target-server-search" class="input select-search" placeholder="Search target servers">
+                <select id="discord-target-server" class="input" required>
+                  <option value="">Loading target servers...</option>
+                </select>
+              </label>
+              <label>Target Channel (Main Bot)
+                <input id="discord-target-channel-search" class="input select-search" placeholder="Search target channels">
+                <select id="discord-target-channel" class="input" required>
+                  <option value="">Select target server first</option>
+                </select>
+              </label>
+            </fieldset>
+          </div>
           <label>Name (optional)<input id="discord-name" class="input"></label>
           <button type="submit" class="button">Create Discord Forward</button>
         </form>
@@ -374,27 +383,35 @@ function renderDashboardPage(auth) {
 
       <div class="card">
         <h2>Create Telegram Forward</h2>
-        <form id="create-telegram-form" class="form-grid">
-          <label>Source Server
-            <input id="telegram-source-server-search" class="input select-search" placeholder="Search source servers">
-            <select id="telegram-source-server" class="input" required>
-              <option value="">Loading source servers...</option>
-            </select>
-          </label>
-          <label>Source Channel
-            <input id="telegram-source-channel-search" class="input select-search" placeholder="Search source channels">
-            <select id="telegram-source-channel" class="input" required>
-              <option value="">Select source server first</option>
-            </select>
-          </label>
-          <label>Telegram Chat (discovered)
-            <input id="telegram-chat-search" class="input select-search" placeholder="Search discovered chats">
-            <select id="telegram-chat-select" class="input">
-              <option value="">Select discovered chat (optional)</option>
-            </select>
-          </label>
-          <label>Telegram Chat ID (manual or selected)<input id="telegram-chat-id" class="input" required></label>
-          <p id="telegram-chat-hint" class="muted-text">Chat list uses best-effort discovery from bot updates and existing configs.</p>
+        <form id="create-telegram-form" class="form-grid config-builder-form">
+          <div class="config-builder-grid">
+            <fieldset class="config-box">
+              <legend>Source</legend>
+              <label>Source Server
+                <input id="telegram-source-server-search" class="input select-search" placeholder="Search source servers">
+                <select id="telegram-source-server" class="input" required>
+                  <option value="">Loading source servers...</option>
+                </select>
+              </label>
+              <label>Source Channel
+                <input id="telegram-source-channel-search" class="input select-search" placeholder="Search source channels">
+                <select id="telegram-source-channel" class="input" required>
+                  <option value="">Select source server first</option>
+                </select>
+              </label>
+            </fieldset>
+            <fieldset class="config-box">
+              <legend>Target</legend>
+              <label>Telegram Chat (discovered)
+                <input id="telegram-chat-search" class="input select-search" placeholder="Search discovered chats">
+                <select id="telegram-chat-select" class="input">
+                  <option value="">Select discovered chat (optional)</option>
+                </select>
+              </label>
+              <label>Telegram Chat ID (manual or selected)<input id="telegram-chat-id" class="input" required></label>
+              <p id="telegram-chat-hint" class="muted-text">Chat list uses best-effort discovery from bot updates and existing configs.</p>
+            </fieldset>
+          </div>
           <label>Name (optional)<input id="telegram-name" class="input"></label>
           <button type="submit" class="button">Create Telegram Forward</button>
         </form>
@@ -516,8 +533,15 @@ function renderDashboardPage(auth) {
             <option value="failed">Failed</option>
             <option value="retry">Retry</option>
           </select>
+          <input id="logs-message-search" class="input filter-wide-input" placeholder="Search message ID (source or forwarded)">
+          <button id="logs-search" class="button secondary sm">Search</button>
+          <button id="logs-clear-search" class="button secondary sm">Clear</button>
           <button id="logs-refresh" class="button secondary sm">Refresh</button>
           <button id="logs-delete-failed" class="button secondary sm danger">Delete Failed Logs</button>
+        </div>
+        <div class="filter-bar">
+          <input id="logs-retry-source-id" class="input filter-wide-input" placeholder="Source message ID to retry">
+          <button id="logs-retry-source" class="button secondary sm">Retry Source Message</button>
         </div>
         <div class="table-wrapper">
           <table class="logs-table">
@@ -1679,6 +1703,126 @@ function createWebAdminApp(client, config) {
     }
   });
 
+  app.post('/api/forwards/retry', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const sourceMessageId = typeof req.body.sourceMessageId === 'string'
+      ? req.body.sourceMessageId.trim()
+      : '';
+    if (!/^\d+$/.test(sourceMessageId)) {
+      res.status(400).json({ error: 'sourceMessageId must be a numeric Discord message ID' });
+      return;
+    }
+
+    try {
+      const allowedGuildIds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      if (!allowedGuildIds.size) {
+        res.status(403).json({ error: 'No authorized source guilds' });
+        return;
+      }
+
+      let originalMessage = null;
+      let sourceGuild = null;
+      let sourceChannel = null;
+
+      for (const guildId of allowedGuildIds) {
+        const sourceContext = getSourceGuildContext(client, guildId);
+        if (!sourceContext || !sourceContext.guild || !sourceContext.botUser) continue;
+
+        const channels = Array.from(sourceContext.guild.channels.cache.values()).filter(channel => {
+          if (!isTextOrAnnouncementChannel(channel)) return false;
+          const perms = channel.permissionsFor(sourceContext.botUser);
+          return perms && perms.has(PermissionFlagsBits.ViewChannel);
+        });
+
+        for (const channel of channels) {
+          try {
+            const fetched = await channel.messages.fetch(sourceMessageId);
+            if (!fetched) continue;
+            originalMessage = fetched;
+            sourceGuild = sourceContext.guild;
+            sourceChannel = channel;
+            break;
+          } catch (_error) {
+            // Continue searching other channels
+          }
+        }
+
+        if (originalMessage) break;
+      }
+
+      if (!originalMessage || !sourceGuild || !sourceChannel) {
+        res.status(404).json({
+          error: 'Source message not found in authorized guilds/channels'
+        });
+        return;
+      }
+
+      const forwardConfigs = await getForwardConfigsForChannel(sourceChannel.id);
+      const allowedConfigs = forwardConfigs.filter(cfg => allowedGuildIds.has(cfg.sourceServerId));
+      if (!allowedConfigs.length) {
+        res.status(400).json({
+          error: 'No active forward configurations found for the source channel'
+        });
+        return;
+      }
+
+      const ForwardHandler = require('../handlers/forwardHandler');
+      const forwardHandler = new ForwardHandler(client);
+      await forwardHandler.initialize();
+
+      const results = [];
+      let successCount = 0;
+      let failedCount = 0;
+
+      for (const configItem of allowedConfigs) {
+        try {
+          const retryResult = await forwardHandler.forwardToTarget(originalMessage, configItem);
+          const ok = Boolean(retryResult);
+          if (ok) successCount += 1;
+          else failedCount += 1;
+
+          results.push({
+            configId: configItem.id,
+            configName: configItem.name || `Config ${configItem.id}`,
+            targetType: configItem.targetType || 'discord',
+            success: ok,
+            error: ok ? null : 'Forward attempt failed'
+          });
+        } catch (error) {
+          failedCount += 1;
+          results.push({
+            configId: configItem.id,
+            configName: configItem.name || `Config ${configItem.id}`,
+            targetType: configItem.targetType || 'discord',
+            success: false,
+            error: error.message
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        sourceMessageId,
+        sourceGuildId: sourceGuild.id,
+        sourceGuildName: sourceGuild.name,
+        sourceChannelId: sourceChannel.id,
+        sourceChannelName: sourceChannel.name,
+        processed: allowedConfigs.length,
+        successCount,
+        failedCount,
+        results
+      });
+    } catch (error) {
+      logError(`Web admin /api/forwards/retry failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to retry source message forward' });
+    }
+  });
+
   // --- Message Logs API ---
   app.get('/api/logs', async (req, res) => {
     const auth = getEffectiveAuth(req, client, webAdminConfig);
@@ -1690,10 +1834,13 @@ function createWebAdminApp(client, config) {
     try {
       const configId = req.query.configId ? parseInt(req.query.configId, 10) : null;
       const status = ['success', 'failed', 'retry'].includes(req.query.status) ? req.query.status : null;
+      const messageId = typeof req.query.messageId === 'string' && req.query.messageId.trim()
+        ? req.query.messageId.trim()
+        : null;
       const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
       const beforeId = req.query.beforeId ? parseInt(req.query.beforeId, 10) : null;
 
-      const logs = await getMessageLogsFiltered({ configId, status, limit, beforeId });
+      const logs = await getMessageLogsFiltered({ configId, status, limit, beforeId, messageId });
       const forwardConfigs = await loadForwardConfigs();
       const configMap = new Map(
         (forwardConfigs || []).map(item => [Number(item.id), item])

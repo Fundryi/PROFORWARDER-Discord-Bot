@@ -19,11 +19,12 @@ Move day-to-day management from slash commands to web admin without losing criti
 - [x] Phase A complete: covered `/proforward` subcommands now show deprecation notice pointing to Web Admin.
 - [x] Phase B complete: web-managed `/proforward` subcommands are hidden from slash command registration/help surface.
 - [x] Phase C complete: covered `/proforward` subcommands are disabled at runtime and now redirect to Web Admin.
+- [x] Config tab create forms were redesigned into side-by-side Source/Target boxes for denser layout.
+- [x] Phase D progress: web Logs tab now supports message-ID search and source-message retry action.
 
 ### Still To Do
 - [ ] Phase D: disable remaining commands after web parity for remaining gaps.
-- [ ] Add web action to retry/force-forward by source message ID.
-- [ ] Add web logs search by original/forwarded message ID.
+- [ ] Decide whether to disable `/proforward retry` now that web retry exists.
 - [ ] Add reader-bot diagnostics panel equivalent to `reader-status`.
 - [ ] Add Telegram username/link discovery option beyond update-history discovery.
 - [ ] Decide whether per-emoji remove should also delete the actual Discord application emoji asset (current behavior removes the stored name entry).
@@ -38,9 +39,9 @@ Move day-to-day management from slash commands to web admin without losing criti
 - `/proforward status`: Mostly covered by `Dashboard` and `Guilds` tabs.
 - `/proforward reader-status`: Partially covered by `Guilds` tab (reader visibility present, but no direct command-style diagnostic output).
 - `/proforward telegram-discover`: Partially covered by Telegram chat discovery in `Create Telegram Forward` (update-based discovery only).
-- `/proforward retry`: Not covered in web admin yet.
+- `/proforward retry`: Covered by `Logs` tab -> `Retry Source Message`.
 - `/debug database`: Partially covered by `Logs` tab (no raw DB-style multi-entry debug dump).
-- `/debug search`: Not covered in web admin yet (no direct message-id search UI).
+- `/debug search`: Covered by `Logs` tab -> message-ID search.
 
 ## Safe First Deprecation Set
 These can be marked deprecated now (warning in command response), then disabled later:

@@ -388,7 +388,7 @@ async function deleteMessageChain(originalMessageId, configId) {
   }
 }
 
-async function getMessageLogsFiltered({ configId = null, status = null, limit = 50, beforeId = null } = {}) {
+async function getMessageLogsFiltered({ configId = null, status = null, limit = 50, beforeId = null, messageId = null } = {}) {
   const conditions = [];
   const params = [];
 
@@ -403,6 +403,10 @@ async function getMessageLogsFiltered({ configId = null, status = null, limit = 
   if (beforeId !== null) {
     conditions.push('id < ?');
     params.push(beforeId);
+  }
+  if (messageId !== null) {
+    conditions.push('(originalMessageId = ? OR forwardedMessageId = ?)');
+    params.push(String(messageId), String(messageId));
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

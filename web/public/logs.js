@@ -7,6 +7,11 @@
   var statusFilter = document.getElementById('logs-status-filter');
   var refreshBtn = document.getElementById('logs-refresh');
   var deleteFailedBtn = document.getElementById('logs-delete-failed');
+  var messageSearchInput = document.getElementById('logs-message-search');
+  var searchBtn = document.getElementById('logs-search');
+  var clearSearchBtn = document.getElementById('logs-clear-search');
+  var retrySourceInput = document.getElementById('logs-retry-source-id');
+  var retrySourceBtn = document.getElementById('logs-retry-source');
   var loadMoreBtn = document.getElementById('logs-load-more');
 
   var nextBeforeId = null;
@@ -65,6 +70,11 @@
   function setLoadMoreVisible(visible) {
     if (!loadMoreBtn) return;
     loadMoreBtn.classList.toggle('is-hidden', !visible);
+  }
+
+  function getMessageSearchValue() {
+    if (!messageSearchInput) return '';
+    return String(messageSearchInput.value || '').trim();
   }
 
   function renderLogs(logs, append) {
@@ -136,9 +146,11 @@
       var params = [];
       var configId = configFilter.value;
       var status = statusFilter.value;
+      var messageId = getMessageSearchValue();
 
       if (configId) params.push('configId=' + encodeURIComponent(configId));
       if (status) params.push('status=' + encodeURIComponent(status));
+      if (messageId) params.push('messageId=' + encodeURIComponent(messageId));
       params.push('limit=50');
       if (append && nextBeforeId) params.push('beforeId=' + nextBeforeId);
 
@@ -197,6 +209,12 @@
     deleteFailedBtn.textContent = isBusy ? 'Deleting...' : 'Delete Failed Logs';
   }
 
+  function setRetryBusy(isBusy) {
+    if (!retrySourceBtn) return;
+    retrySourceBtn.disabled = isBusy;
+    retrySourceBtn.textContent = isBusy ? 'Retrying...' : 'Retry Source Message';
+  }
+
   async function deleteFailedLogs() {
     var configId = configFilter.value;
     var scopeText = configId
@@ -234,6 +252,37 @@
     }
   }
 
+  async function retrySourceMessage() {
+    var sourceMessageId = String(retrySourceInput ? retrySourceInput.value : '').trim();
+    if (!/^\d+$/.test(sourceMessageId)) {
+      AdminApp.setStatus('Enter a valid numeric source message ID to retry.', true);
+      return;
+    }
+
+    try {
+      setRetryBusy(true);
+      AdminApp.setStatus('Retrying source message ' + sourceMessageId + '...');
+      var result = await AdminApp.fetchJson('/api/forwards/retry', {
+        method: 'POST',
+        body: JSON.stringify({ sourceMessageId: sourceMessageId })
+      });
+
+      var successCount = Number(result.successCount || 0);
+      var failedCount = Number(result.failedCount || 0);
+      var processed = Number(result.processed || 0);
+
+      AdminApp.setStatus(
+        'Retry complete for source ' + sourceMessageId + ': ' +
+        successCount + ' success, ' + failedCount + ' failed (' + processed + ' config' + pluralize(processed, '', 's') + ').'
+      );
+      await loadLogs(false);
+    } catch (error) {
+      AdminApp.setStatus('Retry failed: ' + error.message, true);
+    } finally {
+      setRetryBusy(false);
+    }
+  }
+
   // Events
   refreshBtn.addEventListener('click', function () {
     loadLogs(false);
@@ -243,6 +292,43 @@
     deleteFailedBtn.textContent = 'Delete Failed Logs';
     deleteFailedBtn.addEventListener('click', function () {
       deleteFailedLogs();
+    });
+  }
+
+  if (searchBtn) {
+    searchBtn.addEventListener('click', function () {
+      loadLogs(false);
+    });
+  }
+
+  if (clearSearchBtn) {
+    clearSearchBtn.addEventListener('click', function () {
+      if (messageSearchInput) messageSearchInput.value = '';
+      loadLogs(false);
+    });
+  }
+
+  if (messageSearchInput) {
+    messageSearchInput.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        loadLogs(false);
+      }
+    });
+  }
+
+  if (retrySourceBtn) {
+    retrySourceBtn.addEventListener('click', function () {
+      retrySourceMessage();
+    });
+  }
+
+  if (retrySourceInput) {
+    retrySourceInput.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        retrySourceMessage();
+      }
     });
   }
 
