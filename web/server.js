@@ -4,6 +4,8 @@ const express = require('express');
 const session = require('express-session');
 const axios = require('axios');
 const { PermissionFlagsBits } = require('discord.js');
+const { getWebAdminConfig, validateWebAdminConfig } = require('./lib/config');
+const { evaluateLocalBypassRequest } = require('./lib/localBypass');
 const {
   loadForwardConfigs,
   getForwardConfigById,
@@ -13,108 +15,6 @@ const {
   removeForwardConfig
 } = require('../utils/configManager');
 const { logInfo, logSuccess, logError } = require('../utils/logger');
-
-function parseBoolean(value, fallback = false) {
-  if (typeof value === 'boolean') return value;
-  if (typeof value === 'string') return value.toLowerCase() === 'true';
-  return fallback;
-}
-
-function parseNumber(value, fallback) {
-  const parsed = parseInt(value, 10);
-  if (Number.isNaN(parsed)) return fallback;
-  return parsed;
-}
-
-function parseCsv(value) {
-  if (!value || typeof value !== 'string') return [];
-  return value
-    .split(',')
-    .map(entry => entry.trim())
-    .filter(Boolean);
-}
-
-function normalizeBaseUrl(baseUrl) {
-  if (!baseUrl || typeof baseUrl !== 'string') return '';
-  return baseUrl.replace(/\/+$/, '');
-}
-
-function getWebAdminConfig(config) {
-  const configWebAdmin = config.webAdmin || {};
-  const commandUiAllowedRoleIds = Array.isArray(config.commandUi?.allowedRoleIds)
-    ? config.commandUi.allowedRoleIds
-    : [];
-
-  const enabled = parseBoolean(
-    configWebAdmin.enabled,
-    parseBoolean(process.env.WEB_ADMIN_ENABLED, false)
-  );
-  const baseUrl = normalizeBaseUrl(configWebAdmin.baseUrl || process.env.WEB_ADMIN_BASE_URL || '');
-  const port = parseNumber(configWebAdmin.port || process.env.WEB_ADMIN_PORT, 3001);
-  const sessionTtlHours = parseNumber(
-    configWebAdmin.sessionTtlHours || process.env.WEB_ADMIN_SESSION_TTL_HOURS,
-    24
-  );
-  const trustProxy = parseBoolean(
-    configWebAdmin.trustProxy,
-    parseBoolean(process.env.WEB_ADMIN_TRUST_PROXY, false)
-  );
-  const sessionSecret = configWebAdmin.sessionSecret || process.env.WEB_ADMIN_SESSION_SECRET || '';
-  const oauthClientId = configWebAdmin.oauthClientId || process.env.WEB_ADMIN_DISCORD_CLIENT_ID || '';
-  const oauthClientSecret = configWebAdmin.oauthClientSecret || process.env.WEB_ADMIN_DISCORD_CLIENT_SECRET || '';
-  const oauthRedirectUri = configWebAdmin.oauthRedirectUri || process.env.WEB_ADMIN_DISCORD_REDIRECT_URI || '';
-  const oauthScopes = configWebAdmin.oauthScopes || process.env.WEB_ADMIN_DISCORD_SCOPES || 'identify guilds';
-  const localBypassAuth = parseBoolean(
-    configWebAdmin.localBypassAuth,
-    parseBoolean(process.env.WEB_ADMIN_LOCAL_BYPASS_AUTH, false)
-  );
-  const localBypassAllowedIps = Array.isArray(configWebAdmin.localBypassAllowedIps)
-    ? configWebAdmin.localBypassAllowedIps.map(ip => String(ip).trim()).filter(Boolean)
-    : parseCsv(
-      process.env.WEB_ADMIN_LOCAL_BYPASS_ALLOWED_IPS ||
-      '127.0.0.1,::1,::ffff:127.0.0.1,172.17.0.1,::ffff:172.17.0.1'
-    );
-  const allowedRoleIds = Array.isArray(configWebAdmin.allowedRoleIds) && configWebAdmin.allowedRoleIds.length > 0
-    ? configWebAdmin.allowedRoleIds
-    : parseCsv(process.env.WEB_ADMIN_ALLOWED_ROLE_IDS || '');
-  const finalAllowedRoleIds = allowedRoleIds.length > 0 ? allowedRoleIds : commandUiAllowedRoleIds;
-
-  return {
-    enabled,
-    baseUrl,
-    port,
-    sessionTtlHours,
-    trustProxy,
-    sessionSecret,
-    oauthClientId,
-    oauthClientSecret,
-    oauthRedirectUri,
-    oauthScopes,
-    localBypassAuth,
-    localBypassAllowedIps,
-    allowedRoleIds: finalAllowedRoleIds
-  };
-}
-
-function validateWebAdminConfig(webAdminConfig) {
-  const required = [
-    ['WEB_ADMIN_SESSION_SECRET', webAdminConfig.sessionSecret]
-  ];
-
-  if (!webAdminConfig.localBypassAuth) {
-    required.push(
-      ['WEB_ADMIN_DISCORD_CLIENT_ID', webAdminConfig.oauthClientId],
-      ['WEB_ADMIN_DISCORD_CLIENT_SECRET', webAdminConfig.oauthClientSecret],
-      ['WEB_ADMIN_DISCORD_REDIRECT_URI', webAdminConfig.oauthRedirectUri]
-    );
-  }
-
-  const missing = required.filter(([, value]) => !value).map(([name]) => name);
-  return {
-    valid: missing.length === 0,
-    missing
-  };
-}
 
 function buildDiscordAuthorizeUrl(webAdminConfig, state) {
   const params = new URLSearchParams({
@@ -576,35 +476,15 @@ function getAuthFromSession(req) {
   return req.session && req.session.webAdminAuth ? req.session.webAdminAuth : null;
 }
 
-function normalizeIp(ip) {
-  if (!ip || typeof ip !== 'string') return '';
-  return ip.trim().toLowerCase();
-}
-
-function normalizeHost(hostHeader) {
-  if (!hostHeader || typeof hostHeader !== 'string') return '';
-  const host = hostHeader.trim().toLowerCase();
-  if (host.startsWith('[')) {
-    const closingBracket = host.indexOf(']');
-    if (closingBracket > 1) {
-      const inner = host.slice(1, closingBracket);
-      return inner;
-    }
-  }
-  return host.split(':')[0];
-}
-
 function isLocalBypassRequestAllowed(req, webAdminConfig) {
-  if (!webAdminConfig.localBypassAuth) return false;
-  if (webAdminConfig.trustProxy) return false;
-
-  const host = normalizeHost(req.get('host') || '');
-  const localHosts = new Set(['localhost', '127.0.0.1', '::1']);
-  if (!localHosts.has(host)) return false;
-
-  const remoteIp = normalizeIp(req.socket?.remoteAddress || req.ip || '');
-  const allowedIps = new Set((webAdminConfig.localBypassAllowedIps || []).map(normalizeIp));
-  return allowedIps.has(remoteIp);
+  const decision = evaluateLocalBypassRequest(req, webAdminConfig);
+  if (webAdminConfig.debug) {
+    logInfo(
+      `[WebAdmin Debug] Local bypass ${decision.allowed ? 'allowed' : 'denied'}: ` +
+      `${decision.reason}; host=${decision.host || '(empty)'}; remoteIp=${decision.remoteIp || '(empty)'}`
+    );
+  }
+  return decision.allowed;
 }
 
 function buildLocalBypassAuth(client) {
@@ -1204,6 +1084,15 @@ function startWebAdminServer(client, config) {
 
   if (webAdminConfig.localBypassAuth) {
     logInfo('Web admin local bypass auth is enabled (localhost-only checks active)');
+  }
+  if (webAdminConfig.debug) {
+    logInfo(
+      `[WebAdmin Debug] trustProxy=${webAdminConfig.trustProxy}; ` +
+      `baseUrl=${webAdminConfig.baseUrl || '(not set)'}; ` +
+      `localBypassAuth=${webAdminConfig.localBypassAuth}; ` +
+      `allowedHosts=${(webAdminConfig.localBypassAllowedHosts || []).join(',') || '(none)'}; ` +
+      `allowedIps=${(webAdminConfig.localBypassAllowedIps || []).join(',') || '(none)'}`
+    );
   }
 
   const validation = validateWebAdminConfig(webAdminConfig);

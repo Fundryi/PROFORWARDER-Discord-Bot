@@ -10,6 +10,8 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - Web admin remains feature-flagged by `WEB_ADMIN_ENABLED`.
   - OAuth/session/login + read/write config management now implemented in web admin.
   - Localhost test bypass mode available via env flags (for local-only dev access without OAuth).
+  - Web admin config loading consolidated to `config.webAdmin` (no direct env fallback in `web/server.js`).
+  - Local bypass now supports explicit host allowlist and debug logging to diagnose denied requests.
 - Completed implementation commits:
   - `991e4ba` phase 0: add web admin config flags and env placeholders
   - `5f56674` phase 1: add feature-flagged web admin OAuth auth and session shell
@@ -183,9 +185,13 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
     - OAuth client ID/secret/redirect URI/scopes
     - Session secret
     - Allowed role IDs (CSV)
+    - Debug toggle:
+      - `WEB_ADMIN_DEBUG`
     - Local bypass controls:
       - `WEB_ADMIN_LOCAL_BYPASS_AUTH`
+      - `WEB_ADMIN_LOCAL_BYPASS_ALLOWED_HOSTS`
       - `WEB_ADMIN_LOCAL_BYPASS_ALLOWED_IPS`
+  - Refactored web config parsing into `web/lib/config.js` and local bypass checks into `web/lib/localBypass.js` to reduce risk in `web/server.js` and keep behavior testable.
 
 ### Phase 2: Read-Only Dashboard
 - Guild selector and config list.
