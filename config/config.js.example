@@ -67,7 +67,8 @@ module.exports = {
       },
       // Google Translate (fallback)
       google: {
-        apiKey: process.env.GOOGLE_TRANSLATE_API_KEY
+        apiKey: process.env.GOOGLE_TRANSLATE_API_KEY,
+        projectId: process.env.GOOGLE_PROJECT_ID
       }
     },
 

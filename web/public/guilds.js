@@ -176,9 +176,14 @@
 
         // Owner
         var ownerCell = document.createElement('td');
-        ownerCell.className = 'mono';
         ownerCell.style.fontSize = '12px';
-        ownerCell.textContent = guild.ownerId || '--';
+        if (guild.owner) {
+          ownerCell.textContent = guild.owner;
+          ownerCell.title = guild.ownerId || '';
+        } else {
+          ownerCell.className = 'mono';
+          ownerCell.textContent = guild.ownerId || '--';
+        }
         row.appendChild(ownerCell);
 
         // Joined

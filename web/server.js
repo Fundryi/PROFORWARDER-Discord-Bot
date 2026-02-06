@@ -1279,14 +1279,22 @@ function createWebAdminApp(client, config) {
 
   // --- Guild Management API ---
   function mapGuilds(guildCache) {
-    const guilds = Array.from(guildCache.values()).map(guild => ({
-      id: guild.id,
-      name: guild.name,
-      memberCount: guild.memberCount,
-      joinedAt: guild.joinedAt ? guild.joinedAt.toISOString() : null,
-      icon: guild.iconURL({ size: 64 }) || null,
-      ownerId: guild.ownerId || null
-    }));
+    const guilds = Array.from(guildCache.values()).map(guild => {
+      let ownerName = null;
+      if (guild.ownerId) {
+        const ownerMember = guild.members.cache.get(guild.ownerId);
+        if (ownerMember) ownerName = ownerMember.user.username;
+      }
+      return {
+        id: guild.id,
+        name: guild.name,
+        memberCount: guild.memberCount,
+        joinedAt: guild.joinedAt ? guild.joinedAt.toISOString() : null,
+        icon: guild.iconURL({ size: 64 }) || null,
+        owner: ownerName,
+        ownerId: guild.ownerId || null
+      };
+    });
     guilds.sort((a, b) => a.name.localeCompare(b.name));
     return guilds;
   }
