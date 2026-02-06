@@ -29,6 +29,9 @@ Move day-to-day management from slash commands to web admin without losing criti
 ### Log maintenance hardening
 - [x] Startup orphan cleanup now deletes only when source-message absence is verifiable.
 - [x] This avoids accidental log loss after restart when channels/messages are temporarily unverifiable.
+- [x] Reader-bot source logs are now protected from false orphan cleanup when only main-bot verification is available.
+- [x] Verification logic now treats unknown channel/guild/access as inconclusive (keep DB row), and only treats unknown message as verifiable-missing.
+- [x] Startup maintenance now runs after reader-bot initialization, and receives reader client context for verification when available.
 
 ## Command Phase Progress
 ### Phase A
@@ -92,6 +95,18 @@ Move day-to-day management from slash commands to web admin without losing criti
 - `ce37a72` web admin: split config layout, logs search, logs retry.
 - `938ada9` fixes: Telegram discovery cache invalidation + safer orphan log cleanup.
 - `331869a` phase D: `/proforward retry` disabled and tracker updated.
+- `current patch` logs hardening: DB-first-safe verification for startup maintenance + reader-client-aware source checks.
+
+## Latest Incident Note (Logs Not Showing)
+- Symptom reported: Web Logs appeared empty after restart while forwards were being used.
+- Direct DB check result at investigation time: `message_logs` table had `0` rows.
+- Root cause: startup orphan cleanup could remove rows when source messages were not verifiable from main-bot context (notably reader-bot source guild scenarios).
+- Fix approach:
+  1. Keep database rows unless source-message absence is conclusively verifiable.
+  2. Treat unknown channel/guild/missing-access as inconclusive (no delete).
+  3. Only treat unknown message as verifiable missing.
+  4. Pass reader bot client into maintenance checks and run maintenance after reader initialization.
+- Result: historical logs are preserved by default when verification is ambiguous; DB remains source of truth.
 
 ## Known Limitations / Accepted Tradeoffs
 - Telegram Bot API does not provide a direct "list all chats bot is in" endpoint; discovery remains best-effort.

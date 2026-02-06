@@ -62,6 +62,7 @@ const exec = (sql) => {
 
 let messageLogsChainColumnsReady = false;
 let messageLogsChainColumnsCheckPromise = null;
+let readerBotClientForMaintenance = null;
 
 const close = () => {
   return new Promise((resolve, reject) => {
@@ -88,18 +89,105 @@ function getStartupLogMaintenanceOptions(overrides = {}) {
   };
 }
 
-function isDiscordMissingResourceError(error) {
+function isDiscordUnknownMessageError(error) {
   if (!error) return false;
 
   const code = Number(error.code);
-  if (code === 10008 || code === 10003 || code === 10004) {
+  if (code === 10008) {
     return true;
   }
 
   const message = String(error.message || '').toLowerCase();
-  return message.includes('unknown message')
-    || message.includes('unknown channel')
-    || message.includes('unknown guild');
+  return message.includes('unknown message');
+}
+
+function setMaintenanceReaderBotClient(client) {
+  readerBotClientForMaintenance = client || null;
+}
+
+function getReaderBotClientSafe() {
+  return readerBotClientForMaintenance;
+}
+
+function getSourceVerificationClients(mainClient) {
+  const clients = [mainClient];
+  const readerClient = getReaderBotClientSafe();
+  if (readerClient && readerClient !== mainClient) {
+    clients.push(readerClient);
+  }
+  return clients;
+}
+
+function getClientIdentity(client) {
+  return String(client?.user?.id || client?.token || 'client');
+}
+
+async function resolveChannelForClient(client, serverId, channelId, channelCache) {
+  if (!client || !channelId) return null;
+  const cacheKey = `${getClientIdentity(client)}:${String(serverId || '')}:${String(channelId)}`;
+  if (channelCache && channelCache.has(cacheKey)) {
+    return channelCache.get(cacheKey);
+  }
+
+  let channel = null;
+
+  if (serverId && client.guilds?.cache) {
+    const guild = client.guilds.cache.get(String(serverId));
+    if (guild) {
+      channel = guild.channels.cache.get(String(channelId));
+      if (!channel && typeof guild.channels.fetch === 'function') {
+        channel = await guild.channels.fetch(String(channelId)).catch(() => null);
+      }
+    }
+  } else if (client.guilds?.cache) {
+    const guild = client.guilds.cache.find(g =>
+      g && g.channels && g.channels.cache && g.channels.cache.has(String(channelId))
+    );
+    if (guild) {
+      channel = guild.channels.cache.get(String(channelId)) || null;
+    }
+  }
+
+  if (!channel && client.channels && typeof client.channels.fetch === 'function') {
+    channel = await client.channels.fetch(String(channelId)).catch(() => null);
+  }
+
+  const validChannel = channel && channel.messages && typeof channel.messages.fetch === 'function'
+    ? channel
+    : null;
+
+  if (channelCache) {
+    channelCache.set(cacheKey, validChannel);
+  }
+
+  return validChannel;
+}
+
+async function checkDiscordMessageAcrossClients(clients, serverId, channelId, messageId, channelCache) {
+  let verifiableMissing = false;
+
+  for (const client of clients) {
+    const channel = await resolveChannelForClient(client, serverId, channelId, channelCache);
+    if (!channel) continue;
+
+    try {
+      await channel.messages.fetch(String(messageId));
+      return { exists: true, checked: true };
+    } catch (error) {
+      if (isDiscordUnknownMessageError(error)) {
+        verifiableMissing = true;
+        continue;
+      }
+      // Any other error (missing access, unknown channel/guild, transient network)
+      // is treated as inconclusive to avoid destructive cleanup.
+      continue;
+    }
+  }
+
+  if (verifiableMissing) {
+    return { exists: false, checked: true };
+  }
+  return { exists: false, checked: false };
 }
 
 async function getMessageLogsPage({ limit, beforeForwardedAt = null, beforeId = null, cutoffForwardedAt = null }) {
@@ -528,10 +616,13 @@ async function validateRecentMessageLogs(client, optionsOrLimit = 20) {
 
     let validCount = 0;
     let invalidCount = 0;
+    let skippedUnverifiableCount = 0;
     let processedCount = 0;
     let beforeForwardedAt = null;
     let beforeId = null;
     const startTime = Date.now();
+    const sourceVerificationClients = getSourceVerificationClients(client);
+    const channelLookupCache = new Map();
 
     while (true) {
       if (Date.now() - startTime > maintenance.maxRuntimeMs) {
@@ -569,77 +660,46 @@ async function validateRecentMessageLogs(client, optionsOrLimit = 20) {
           continue;
         }
         
-        // Try to find the original message
-        let originalExists = false;
-        try {
-          let sourceChannel;
-          
-          if (log.originalServerId) {
-            const sourceGuild = client.guilds.cache.get(log.originalServerId);
-            if (sourceGuild) {
-              sourceChannel = sourceGuild.channels.cache.get(log.originalChannelId);
-            }
-          } else {
-            // Find guild that has this channel
-            const sourceGuild = client.guilds.cache.find(guild =>
-              guild.channels.cache.has(log.originalChannelId)
-            );
-            if (sourceGuild) {
-              sourceChannel = sourceGuild.channels.cache.get(log.originalChannelId);
-            }
-          }
-          
-          if (sourceChannel) {
-            const originalMessage = await sourceChannel.messages.fetch(log.originalMessageId);
-            if (originalMessage) {
-              originalExists = true;
-              if (maintenance.debugMode) {
-                logInfo(`  ✅ Original message ${log.originalMessageId} exists`);
-              }
-            }
-          }
-        } catch (error) {
-          if (maintenance.debugMode) {
-            logInfo(`  ❌ Original message ${log.originalMessageId} not found: ${error.message}`);
-          }
-        }
-        
-        // Try to find the forwarded message
+        const originalCheck = await checkDiscordMessageAcrossClients(
+          sourceVerificationClients,
+          log.originalServerId,
+          log.originalChannelId,
+          log.originalMessageId,
+          channelLookupCache
+        );
+        const originalExists = originalCheck.exists;
+        const originalChecked = originalCheck.checked;
+
         let forwardedExists = false;
-        try {
-          let targetChannel;
-          
-          if (log.forwardedServerId) {
-            const targetGuild = client.guilds.cache.get(log.forwardedServerId);
-            if (targetGuild) {
-              targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
-            }
-          } else {
-            // Find guild that has this channel
-            const targetGuild = client.guilds.cache.find(guild =>
-              guild.channels.cache.has(log.forwardedChannelId)
-            );
-            if (targetGuild) {
-              targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
-            }
-          }
-          
-          if (targetChannel) {
-            const forwardedMessage = await targetChannel.messages.fetch(log.forwardedMessageId);
-            if (forwardedMessage) {
-              forwardedExists = true;
-              if (maintenance.debugMode) {
-                logInfo(`  ✅ Forwarded message ${log.forwardedMessageId} exists`);
-              }
-            }
-          }
-        } catch (error) {
-          if (maintenance.debugMode) {
-            logInfo(`  ❌ Forwarded message ${log.forwardedMessageId} not found: ${error.message}`);
-          }
+        let forwardedChecked = false;
+        const isTelegramTarget = !log.forwardedServerId
+          && String(log.forwardedChannelId || '').trim().startsWith('-');
+
+        if (isTelegramTarget) {
+          // Telegram message existence is not reliably verifiable from Discord APIs.
+          forwardedExists = true;
+          forwardedChecked = false;
+        } else {
+          const forwardedCheck = await checkDiscordMessageAcrossClients(
+            [client],
+            log.forwardedServerId,
+            log.forwardedChannelId,
+            log.forwardedMessageId,
+            channelLookupCache
+          );
+          forwardedExists = forwardedCheck.exists;
+          forwardedChecked = forwardedCheck.checked;
         }
-        
-        if (originalExists && forwardedExists) {
+
+        if (!originalChecked) {
+          skippedUnverifiableCount++;
+          if (maintenance.debugMode) {
+            logInfo(`  ⏭️ Skipping log ${log.id} (source not verifiable with current bot access)`);
+          }
+          continue;
+        }
+
+        if (originalExists && (forwardedExists || !forwardedChecked)) {
           validCount++;
           if (maintenance.debugMode) {
             logInfo(`  ✅ Log ${log.id} is valid - both messages exist`);
@@ -669,12 +729,20 @@ async function validateRecentMessageLogs(client, optionsOrLimit = 20) {
       }
     }
     
-    logSuccess(`Message log validation complete: ${validCount} valid, ${invalidCount} invalid out of ${processedCount} logs`);
-    return { valid: validCount, invalid: invalidCount, total: processedCount };
+    logSuccess(
+      `Message log validation complete: ${validCount} valid, ${invalidCount} invalid, ` +
+      `${skippedUnverifiableCount} skipped (unverifiable) out of ${processedCount} logs`
+    );
+    return {
+      valid: validCount,
+      invalid: invalidCount,
+      skipped: skippedUnverifiableCount,
+      total: processedCount
+    };
     
   } catch (error) {
     logError('Error validating message logs:', error);
-    return { valid: 0, invalid: 0, total: 0 };
+    return { valid: 0, invalid: 0, skipped: 0, total: 0 };
   }
 }
 
@@ -721,6 +789,8 @@ async function cleanupOrphanedLogs(client, optionsOrLimit = 50) {
     let beforeForwardedAt = null;
     let beforeId = null;
     const startTime = Date.now();
+    const sourceVerificationClients = getSourceVerificationClients(client);
+    const channelLookupCache = new Map();
     
     while (true) {
       if (Date.now() - startTime > maintenance.maxRuntimeMs) {
@@ -747,45 +817,15 @@ async function cleanupOrphanedLogs(client, optionsOrLimit = 50) {
       
       try {
         // Check if original message still exists
-        let originalExists = false;
-        let originalChecked = false;
-        try {
-          let sourceChannel;
-          
-          if (log.originalServerId) {
-            const sourceGuild = client.guilds.cache.get(log.originalServerId);
-            if (sourceGuild) {
-              sourceChannel = sourceGuild.channels.cache.get(log.originalChannelId);
-            }
-          } else {
-            const sourceGuild = client.guilds.cache.find(guild =>
-              guild.channels.cache.has(log.originalChannelId)
-            );
-            if (sourceGuild) {
-              sourceChannel = sourceGuild.channels.cache.get(log.originalChannelId);
-            }
-          }
-
-          if (!sourceChannel && log.originalChannelId) {
-            try {
-              sourceChannel = await client.channels.fetch(log.originalChannelId);
-            } catch (_fetchError) {
-              sourceChannel = null;
-            }
-          }
-          
-          if (sourceChannel && sourceChannel.messages && typeof sourceChannel.messages.fetch === 'function') {
-            originalChecked = true;
-            await sourceChannel.messages.fetch(log.originalMessageId);
-            originalExists = true;
-          }
-        } catch (error) {
-          if (isDiscordMissingResourceError(error)) {
-            originalChecked = true;
-          } else if (maintenance.debugMode) {
-            logInfo(`Skipping strict orphan check for log ${log.id}: cannot verify source message (${error.message})`);
-          }
-        }
+        const originalCheck = await checkDiscordMessageAcrossClients(
+          sourceVerificationClients,
+          log.originalServerId,
+          log.originalChannelId,
+          log.originalMessageId,
+          channelLookupCache
+        );
+        const originalExists = originalCheck.exists;
+        const originalChecked = originalCheck.checked;
 
         if (!originalChecked) {
           if (maintenance.debugMode) {
@@ -801,34 +841,31 @@ async function cleanupOrphanedLogs(client, optionsOrLimit = 50) {
         try {
           if (log.forwardedServerId) {
             // Discord target
-            const targetGuild = client.guilds.cache.get(log.forwardedServerId);
-            if (targetGuild) {
-              const targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
-              if (targetChannel) {
-                await targetChannel.messages.fetch(log.forwardedMessageId);
-                forwardedExists = true;
-              }
-            }
+            const forwardedCheck = await checkDiscordMessageAcrossClients(
+              [client],
+              log.forwardedServerId,
+              log.forwardedChannelId,
+              log.forwardedMessageId,
+              channelLookupCache
+            );
+            forwardedExists = forwardedCheck.exists;
           } else {
             // No server ID - could be Telegram or Discord target with missing serverId
             // First, try to find as Discord channel
-            const targetGuild = client.guilds.cache.find(guild =>
-              guild.channels.cache.has(log.forwardedChannelId)
-            );
-            if (targetGuild) {
-              // Found as Discord channel
-              const targetChannel = targetGuild.channels.cache.get(log.forwardedChannelId);
-              if (targetChannel) {
-                await targetChannel.messages.fetch(log.forwardedMessageId);
-                forwardedExists = true;
-              }
-            } else {
+            if (String(log.forwardedChannelId || '').trim().startsWith('-')) {
               // Not found in Discord. Only treat as Telegram when chat ID format matches groups/channels.
-              if (String(log.forwardedChannelId || '').trim().startsWith('-')) {
-                isTelegramTarget = true;
-                // For Telegram, we'll assume the message exists unless we can verify it doesn't.
-                forwardedExists = true;
-              }
+              isTelegramTarget = true;
+              // For Telegram, we'll assume the message exists unless we can verify it doesn't.
+              forwardedExists = true;
+            } else {
+              const forwardedCheck = await checkDiscordMessageAcrossClients(
+                [client],
+                null,
+                log.forwardedChannelId,
+                log.forwardedMessageId,
+                channelLookupCache
+              );
+              forwardedExists = forwardedCheck.exists;
             }
           }
         } catch (error) {
@@ -1044,6 +1081,7 @@ module.exports = {
   validateRecentMessageLogs,
   cleanupDeletedMessage,
   cleanupOrphanedLogs,
+  setMaintenanceReaderBotClient,
   // Translation threads operations
   logTranslationThread,
   getTranslationThreads,

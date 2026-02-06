@@ -19,7 +19,7 @@ require('dotenv').config({ path: './config/.env' });
 require("./errorHandlers");
 
 const { Client, GatewayIntentBits } = require("discord.js");
-const { exec, close } = require('./utils/database');
+const { exec, close, setMaintenanceReaderBotClient } = require('./utils/database');
 const { logInfo, logSuccess, logError } = require('./utils/logger');
 const config = require('./config/config');
 const {
@@ -113,23 +113,6 @@ client.on("clientReady", async () => {
     logError('Error initializing database:', error);
   }
 
-  // Validate/cleanup logs on startup (run in background so bot is responsive immediately)
-  const { validateRecentMessageLogs, cleanupOrphanedLogs, cleanupOrphanedThreads } = require('./utils/database');
-  const maintenanceOptions = config.startupLogMaintenance || {};
-  if (maintenanceOptions.enabled !== false) {
-    setTimeout(async () => {
-      try {
-        await validateRecentMessageLogs(client, maintenanceOptions);
-        await cleanupOrphanedLogs(client, maintenanceOptions);
-        await cleanupOrphanedThreads(client, 50);
-      } catch (error) {
-        logError('Startup log maintenance failed:', error);
-      }
-    }, 0);
-  } else {
-    logInfo('Startup log maintenance disabled');
-  }
-  
   // Initialize Discord invite manager for source headers
   logInfo('Initializing Discord invite manager...');
   try {
@@ -148,13 +131,36 @@ client.on("clientReady", async () => {
       module.exports.readerBot = readerBot; // Update exports so importers see the live value
       const success = await readerBot.initialize();
       if (success) {
+        setMaintenanceReaderBotClient(readerBot.client);
         logSuccess('Reader Bot initialized successfully');
       } else {
+        setMaintenanceReaderBotClient(null);
         logInfo('Reader Bot initialization failed or disabled');
       }
     } catch (error) {
+      setMaintenanceReaderBotClient(null);
       logError('Error initializing Reader Bot:', error);
     }
+  } else {
+    setMaintenanceReaderBotClient(null);
+  }
+
+  // Validate/cleanup logs on startup (run in background so bot is responsive immediately)
+  // This runs after reader bot initialization so source verification can use reader access when available.
+  const { validateRecentMessageLogs, cleanupOrphanedLogs, cleanupOrphanedThreads } = require('./utils/database');
+  const maintenanceOptions = config.startupLogMaintenance || {};
+  if (maintenanceOptions.enabled !== false) {
+    setTimeout(async () => {
+      try {
+        await validateRecentMessageLogs(client, maintenanceOptions);
+        await cleanupOrphanedLogs(client, maintenanceOptions);
+        await cleanupOrphanedThreads(client, 50);
+      } catch (error) {
+        logError('Startup log maintenance failed:', error);
+      }
+    }, 0);
+  } else {
+    logInfo('Startup log maintenance disabled');
   }
 
   // Initialize Web Admin if enabled
