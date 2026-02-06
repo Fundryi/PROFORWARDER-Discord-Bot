@@ -12,8 +12,19 @@ const {
   addForwardConfig,
   enableForwardConfig,
   disableForwardConfig,
-  removeForwardConfig
+  removeForwardConfig,
+  getConfigStats
 } = require('../utils/configManager');
+const {
+  getMessageLogs,
+  getMessageLogsFiltered,
+  getFailedMessages,
+  getAllBotSettings,
+  getBotSetting,
+  setBotSetting,
+  get: dbGet,
+  run: dbRun
+} = require('../utils/database');
 const { logInfo, logSuccess, logError } = require('../utils/logger');
 
 function buildDiscordAuthorizeUrl(webAdminConfig, state) {
@@ -113,30 +124,7 @@ function renderLoginPage(webAdminConfig, errorMessage = '', localBypassAvailable
 </html>`;
 }
 
-function renderAuthenticatedShell(auth) {
-  const tag = auth.user.global_name || auth.user.username || auth.user.id;
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>ProForwarder Admin</title>
-  <link rel="stylesheet" href="/admin/static/styles.css">
-</head>
-<body>
-  <main class="layout">
-    <section class="card">
-      <h1>ProForwarder Admin</h1>
-      <p>Authenticated as <strong>${tag}</strong></p>
-      <p>Phase 1 is active. Phase 2 dashboard routes are enabled next.</p>
-      <div class="row">
-        <a class="button secondary" href="/admin/logout">Logout</a>
-      </div>
-    </section>
-  </main>
-</body>
-</html>`;
-}
+// renderAuthenticatedShell removed -- superseded by the tabbed dashboard
 
 function escapeHtml(value) {
   if (value === null || value === undefined) return '';
@@ -161,319 +149,178 @@ function renderDashboardPage(auth) {
 <body>
   <main class="layout">
     <section class="card">
-      <h1>ProForwarder Admin</h1>
-      <p>Signed in as <strong>${tag}</strong></p>
-      <div class="row">
-        <span class="badge">Phase 3: Safe mutations enabled</span>
-        <a class="button secondary" href="/admin/logout">Logout</a>
+      <div class="header-bar">
+        <h1>ProForwarder Admin</h1>
+        <div class="row">
+          <span class="badge" data-user-tag>${tag}</span>
+          <a class="button secondary sm" href="/admin/logout">Logout</a>
+        </div>
       </div>
-    </section>
-
-    <section class="card">
-      <h2>Status</h2>
       <p id="status-message" class="muted-text">Ready.</p>
     </section>
 
-    <section class="card">
-      <h2>Guild</h2>
-      <select id="guild-select" class="input">
-        <option value="">Loading guilds...</option>
-      </select>
-      <p id="guild-help" class="muted-text"></p>
-    </section>
+    <nav class="tab-nav">
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="configs">Configs</button>
+      <button data-tab="guilds">Guilds</button>
+      <button data-tab="logs">Logs</button>
+      <button data-tab="settings">Settings</button>
+    </nav>
 
-    <section class="card">
-      <h2>Forward Configurations</h2>
-      <div id="table-wrapper" class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Name</th>
-              <th>Source</th>
-              <th>Target</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody id="configs-body">
-            <tr><td colspan="6" class="muted-text">Loading...</td></tr>
-          </tbody>
-        </table>
+    <!-- Dashboard Tab -->
+    <section id="tab-dashboard" class="tab-panel active">
+      <div class="card">
+        <h2>Bot Status</h2>
+        <div id="dashboard-stats" class="stat-grid">
+          <div class="stat-card"><div class="stat-value">--</div><div class="stat-label">Status</div></div>
+        </div>
       </div>
     </section>
 
-    <section class="card">
-      <h2>Create Discord Forward</h2>
-      <form id="create-discord-form" class="form-grid">
-        <label>Source Channel ID<input id="discord-source-channel" class="input" required></label>
-        <label>Target Channel ID<input id="discord-target-channel" class="input" required></label>
-        <label>Target Server ID (optional)<input id="discord-target-server" class="input"></label>
-        <label>Name (optional)<input id="discord-name" class="input"></label>
-        <button type="submit" class="button">Create Discord Forward</button>
-      </form>
+    <!-- Configs Tab -->
+    <section id="tab-configs" class="tab-panel">
+      <div class="card">
+        <h2>Guild</h2>
+        <select id="guild-select" class="input">
+          <option value="">Loading guilds...</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <h2>Forward Configurations</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>Source</th>
+                <th>Target</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="configs-body">
+              <tr><td colspan="6" class="muted-text">Select a guild first.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Create Discord Forward</h2>
+        <form id="create-discord-form" class="form-grid">
+          <label>Source Channel ID<input id="discord-source-channel" class="input" required></label>
+          <label>Target Channel ID<input id="discord-target-channel" class="input" required></label>
+          <label>Target Server ID (optional)<input id="discord-target-server" class="input"></label>
+          <label>Name (optional)<input id="discord-name" class="input"></label>
+          <button type="submit" class="button">Create Discord Forward</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Create Telegram Forward</h2>
+        <form id="create-telegram-form" class="form-grid">
+          <label>Source Channel ID<input id="telegram-source-channel" class="input" required></label>
+          <label>Telegram Chat ID<input id="telegram-chat-id" class="input" required></label>
+          <label>Name (optional)<input id="telegram-name" class="input"></label>
+          <button type="submit" class="button">Create Telegram Forward</button>
+        </form>
+      </div>
     </section>
 
-    <section class="card">
-      <h2>Create Telegram Forward</h2>
-      <form id="create-telegram-form" class="form-grid">
-        <label>Source Channel ID<input id="telegram-source-channel" class="input" required></label>
-        <label>Telegram Chat ID<input id="telegram-chat-id" class="input" required></label>
-        <label>Name (optional)<input id="telegram-name" class="input"></label>
-        <button type="submit" class="button">Create Telegram Forward</button>
-      </form>
+    <!-- Guilds Tab -->
+    <section id="tab-guilds" class="tab-panel">
+      <div class="card">
+        <h2>Bot Guilds</h2>
+        <p class="muted-text">All servers the bot is currently in. You can leave unwanted guilds.</p>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>ID</th>
+                <th>Members</th>
+                <th>Joined</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="guilds-body">
+              <tr><td colspan="5" class="muted-text">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Logs Tab -->
+    <section id="tab-logs" class="tab-panel">
+      <div class="card">
+        <h2>Message Logs</h2>
+        <div class="filter-bar">
+          <select id="logs-config-filter">
+            <option value="">All Configs</option>
+          </select>
+          <select id="logs-status-filter">
+            <option value="">All Statuses</option>
+            <option value="success">Success</option>
+            <option value="failed">Failed</option>
+            <option value="retry">Retry</option>
+          </select>
+          <button id="logs-refresh" class="button secondary sm">Refresh</button>
+        </div>
+        <div class="table-wrapper">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Config</th>
+                <th>Original</th>
+                <th>Forwarded</th>
+                <th>Status</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody id="logs-body">
+              <tr><td colspan="6" class="muted-text">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination">
+          <button id="logs-load-more" class="button secondary sm" style="display:none">Load More</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings Tab -->
+    <section id="tab-settings" class="tab-panel">
+      <div class="card">
+        <h2>Runtime Configuration</h2>
+        <p class="muted-text">Read-only values from env.js. Edit the config file to change these.</p>
+        <div id="runtime-config" class="runtime-grid"></div>
+      </div>
+      <div class="card">
+        <h2>Bot Settings</h2>
+        <p class="muted-text">Key-value settings stored in the database. These can be edited live.</p>
+        <div id="bot-settings" class="settings-section"></div>
+        <div style="margin-top:14px">
+          <h3 style="margin:0 0 8px;font-size:14px;color:var(--text-muted)">Add Setting</h3>
+          <form id="add-setting-form" class="add-setting-form">
+            <label>Key<input id="new-setting-key" class="input" required></label>
+            <label>Value<input id="new-setting-value" class="input" required></label>
+            <button type="submit" class="button sm">Add</button>
+          </form>
+        </div>
+      </div>
     </section>
   </main>
 
-  <script>
-    const guildSelect = document.getElementById('guild-select');
-    const guildHelp = document.getElementById('guild-help');
-    const configsBody = document.getElementById('configs-body');
-    const statusMessage = document.getElementById('status-message');
-    const createDiscordForm = document.getElementById('create-discord-form');
-    const createTelegramForm = document.getElementById('create-telegram-form');
-    let currentGuildId = '';
-
-    function setStatus(message, isError = false) {
-      statusMessage.textContent = message;
-      statusMessage.className = isError ? 'error-text' : 'muted-text';
-    }
-
-    async function fetchJson(url, options = {}) {
-      const response = await fetch(url, {
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        ...options
-      });
-      if (!response.ok) {
-        let message = 'Request failed';
-        try {
-          const payload = await response.json();
-          message = payload.error || message;
-        } catch (jsonError) {
-          const text = await response.text();
-          if (text) message = text;
-        }
-        throw new Error(message);
-      }
-      return response.json();
-    }
-
-    function setConfigsMessage(message) {
-      configsBody.innerHTML = '';
-      const row = document.createElement('tr');
-      const cell = document.createElement('td');
-      cell.colSpan = 6;
-      cell.className = 'muted-text';
-      cell.textContent = message;
-      row.appendChild(cell);
-      configsBody.appendChild(row);
-    }
-
-    function targetText(config) {
-      if (config.targetType === 'telegram') {
-        return 'Telegram ' + config.targetChatId;
-      }
-      if (config.targetServerId && config.targetChannelId) {
-        return 'Discord ' + config.targetServerId + ':' + config.targetChannelId;
-      }
-      if (config.targetChannelId) {
-        return 'Discord ' + config.targetChannelId;
-      }
-      return '-';
-    }
-
-    function createCell(text) {
-      const cell = document.createElement('td');
-      cell.textContent = text;
-      return cell;
-    }
-
-    function renderConfigs(configs) {
-      configsBody.innerHTML = '';
-      if (!configs.length) {
-        setConfigsMessage('No configurations found for this guild.');
-        return;
-      }
-      for (const config of configs) {
-        const row = document.createElement('tr');
-        row.appendChild(createCell(String(config.id)));
-        row.appendChild(createCell(config.name || 'Unnamed'));
-        row.appendChild(createCell(config.sourceChannelId || '-'));
-        row.appendChild(createCell(targetText(config)));
-        row.appendChild(createCell(config.enabled !== false ? 'Enabled' : 'Disabled'));
-
-        const actionsCell = document.createElement('td');
-        const toggleButton = document.createElement('button');
-        toggleButton.className = 'button secondary';
-        toggleButton.textContent = config.enabled !== false ? 'Disable' : 'Enable';
-        toggleButton.addEventListener('click', async () => {
-          try {
-            setStatus('Updating config ' + config.id + '...');
-            await fetchJson('/api/configs/' + config.id, {
-              method: 'PATCH',
-              body: JSON.stringify({ enabled: !(config.enabled !== false) })
-            });
-            setStatus('Config ' + config.id + ' updated.');
-            await loadConfigs(currentGuildId);
-          } catch (error) {
-            setStatus('Update failed: ' + error.message, true);
-          }
-        });
-        actionsCell.appendChild(toggleButton);
-
-        const removeButton = document.createElement('button');
-        removeButton.className = 'button secondary danger';
-        removeButton.textContent = 'Remove';
-        removeButton.addEventListener('click', async () => {
-          const confirmed = confirm('Remove config ' + config.id + '?');
-          if (!confirmed) return;
-          try {
-            setStatus('Removing config ' + config.id + '...');
-            await fetchJson('/api/configs/' + config.id, { method: 'DELETE' });
-            setStatus('Config ' + config.id + ' removed.');
-            await loadConfigs(currentGuildId);
-          } catch (error) {
-            setStatus('Remove failed: ' + error.message, true);
-          }
-        });
-        actionsCell.appendChild(removeButton);
-
-        if (config.targetType === 'telegram') {
-          const testButton = document.createElement('button');
-          testButton.className = 'button secondary';
-          testButton.textContent = 'Test Telegram';
-          testButton.addEventListener('click', async () => {
-            try {
-              setStatus('Testing Telegram for config ' + config.id + '...');
-              const result = await fetchJson('/api/configs/' + config.id + '/test-telegram', { method: 'POST' });
-              setStatus('Telegram test success. Message ID: ' + (result.messageId || '-'));
-            } catch (error) {
-              setStatus('Telegram test failed: ' + error.message, true);
-            }
-          });
-          actionsCell.appendChild(testButton);
-        }
-
-        row.appendChild(actionsCell);
-        configsBody.appendChild(row);
-      }
-    }
-
-    async function loadConfigs(guildId) {
-      if (!guildId) {
-        currentGuildId = '';
-        setConfigsMessage('Select a guild to view configurations.');
-        return;
-      }
-      currentGuildId = guildId;
-      setConfigsMessage('Loading...');
-      try {
-        const payload = await fetchJson('/api/configs?guildId=' + encodeURIComponent(guildId));
-        renderConfigs(payload.configs || []);
-      } catch (error) {
-        setConfigsMessage('Failed to load configurations.');
-      }
-    }
-
-    async function loadMe() {
-      try {
-        const payload = await fetchJson('/api/me');
-        const guilds = payload.guilds || [];
-
-        guildSelect.innerHTML = '';
-        if (!guilds.length) {
-          const option = document.createElement('option');
-          option.value = '';
-          option.textContent = 'No authorized guilds found';
-          guildSelect.appendChild(option);
-          guildHelp.textContent = 'Your account is logged in but has no admin/role access in bot guilds.';
-          setConfigsMessage('No authorized guilds available.');
-          return;
-        }
-
-        for (const guild of guilds) {
-          const option = document.createElement('option');
-          option.value = guild.id;
-          option.textContent = guild.name + ' (' + guild.id + ')';
-          guildSelect.appendChild(option);
-        }
-
-        guildHelp.textContent = 'You can now create, enable/disable, remove, and test configs.';
-        await loadConfigs(guildSelect.value);
-      } catch (error) {
-        guildHelp.textContent = 'Failed to load user context.';
-        setConfigsMessage('Failed to load dashboard.');
-      }
-    }
-
-    guildSelect.addEventListener('change', () => {
-      loadConfigs(guildSelect.value);
-    });
-
-    createDiscordForm.addEventListener('submit', async event => {
-      event.preventDefault();
-      if (!currentGuildId) {
-        setStatus('Select a guild first.', true);
-        return;
-      }
-
-      const payload = {
-        guildId: currentGuildId,
-        targetType: 'discord',
-        sourceChannelId: document.getElementById('discord-source-channel').value.trim(),
-        targetChannelId: document.getElementById('discord-target-channel').value.trim(),
-        targetServerId: document.getElementById('discord-target-server').value.trim(),
-        name: document.getElementById('discord-name').value.trim()
-      };
-
-      try {
-        setStatus('Creating Discord forward...');
-        await fetchJson('/api/configs', {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-        createDiscordForm.reset();
-        setStatus('Discord forward created.');
-        await loadConfigs(currentGuildId);
-      } catch (error) {
-        setStatus('Create failed: ' + error.message, true);
-      }
-    });
-
-    createTelegramForm.addEventListener('submit', async event => {
-      event.preventDefault();
-      if (!currentGuildId) {
-        setStatus('Select a guild first.', true);
-        return;
-      }
-
-      const payload = {
-        guildId: currentGuildId,
-        targetType: 'telegram',
-        sourceChannelId: document.getElementById('telegram-source-channel').value.trim(),
-        targetChatId: document.getElementById('telegram-chat-id').value.trim(),
-        name: document.getElementById('telegram-name').value.trim()
-      };
-
-      try {
-        setStatus('Creating Telegram forward...');
-        await fetchJson('/api/configs', {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-        createTelegramForm.reset();
-        setStatus('Telegram forward created.');
-        await loadConfigs(currentGuildId);
-      } catch (error) {
-        setStatus('Create failed: ' + error.message, true);
-      }
-    });
-
-    loadMe();
-  </script>
+  <script src="/admin/static/app.js"></script>
+  <script src="/admin/static/dashboard.js"></script>
+  <script src="/admin/static/configs.js"></script>
+  <script src="/admin/static/guilds.js"></script>
+  <script src="/admin/static/logs.js"></script>
+  <script src="/admin/static/settings.js"></script>
 </body>
 </html>`;
 }
@@ -646,6 +493,8 @@ function createWebAdminApp(client, config) {
     }
   }));
 
+  app.get('/', (req, res) => res.redirect('/admin'));
+
   app.get('/admin/login', (req, res) => {
     if (webAdminConfig.authMode === 'local') {
       if (isLocalBypassRequestAllowed(req, webAdminConfig)) {
@@ -766,13 +615,7 @@ function createWebAdminApp(client, config) {
   });
 
   app.get('/admin/shell', (req, res) => {
-    const auth = getEffectiveAuth(req, client, webAdminConfig);
-    if (!auth) {
-      const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
-      res.status(401).send(renderLoginPage(webAdminConfig, 'Not authenticated.', localBypassAvailable));
-      return;
-    }
-    res.status(200).send(renderAuthenticatedShell(auth));
+    res.redirect('/admin');
   });
 
   app.get('/api/me', async (req, res) => {
@@ -1109,6 +952,224 @@ function createWebAdminApp(client, config) {
       loggedIn: Boolean(auth),
       botReady: Boolean(client && client.isReady && client.isReady())
     });
+  });
+
+  // --- Dashboard API ---
+  app.get('/api/dashboard', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const configStatsData = await getConfigStats();
+      const recentLogs = await getMessageLogs(null, 10);
+      const failedMessages = await getFailedMessages(10);
+
+      res.json({
+        bot: {
+          ready: client.isReady(),
+          uptime: client.uptime,
+          readyAt: client.readyAt ? client.readyAt.toISOString() : null,
+          guildCount: client.guilds.cache.size,
+          username: client.user ? client.user.username : null
+        },
+        configs: configStatsData,
+        recentActivity: {
+          recent: recentLogs.length,
+          failed: failedMessages.length,
+          lastForwardedAt: recentLogs[0] ? recentLogs[0].forwardedAt : null
+        }
+      });
+    } catch (error) {
+      logError(`Web admin /api/dashboard failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load dashboard data' });
+    }
+  });
+
+  // --- Message Logs API ---
+  app.get('/api/logs', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const configId = req.query.configId ? parseInt(req.query.configId, 10) : null;
+      const status = ['success', 'failed', 'retry'].includes(req.query.status) ? req.query.status : null;
+      const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+      const beforeId = req.query.beforeId ? parseInt(req.query.beforeId, 10) : null;
+
+      const logs = await getMessageLogsFiltered({ configId, status, limit, beforeId });
+
+      res.json({
+        logs,
+        hasMore: logs.length === limit,
+        nextBeforeId: logs.length > 0 ? logs[logs.length - 1].id : null
+      });
+    } catch (error) {
+      logError(`Web admin /api/logs failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load message logs' });
+    }
+  });
+
+  app.get('/api/logs/stats', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const total = await dbGet('SELECT COUNT(*) as count FROM message_logs');
+      const failed = await dbGet("SELECT COUNT(*) as count FROM message_logs WHERE status = 'failed'");
+      const today = await dbGet(
+        'SELECT COUNT(*) as count FROM message_logs WHERE forwardedAt >= ?',
+        [Date.now() - 24 * 60 * 60 * 1000]
+      );
+
+      res.json({
+        total: total.count,
+        failed: failed.count,
+        today: today.count
+      });
+    } catch (error) {
+      logError(`Web admin /api/logs/stats failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load log stats' });
+    }
+  });
+
+  // --- Settings API ---
+  app.get('/api/settings', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const settings = await getAllBotSettings();
+
+      const configPath = require.resolve('../config/env');
+      delete require.cache[configPath];
+      const runtimeConfig = require('../config/env');
+
+      res.json({
+        settings,
+        runtime: {
+          debugMode: runtimeConfig.debugMode || false,
+          forwardBotMessages: runtimeConfig.forwardBotMessages || false,
+          useSliceFormatConverter: runtimeConfig.useSliceFormatConverter || false,
+          telegramEnabled: (runtimeConfig.telegram && runtimeConfig.telegram.enabled) || false,
+          readerBotEnabled: (runtimeConfig.readerBot && runtimeConfig.readerBot.enabled) || false,
+          webAdminAuthMode: webAdminConfig.authMode
+        }
+      });
+    } catch (error) {
+      logError(`Web admin /api/settings failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load settings' });
+    }
+  });
+
+  app.put('/api/settings/:key', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const key = req.params.key;
+    const value = req.body.value;
+
+    if (typeof key !== 'string' || !key.trim()) {
+      res.status(400).json({ error: 'Key is required' });
+      return;
+    }
+    if (value === undefined || value === null) {
+      res.status(400).json({ error: 'Value is required' });
+      return;
+    }
+
+    try {
+      await setBotSetting(key.trim(), String(value));
+      res.json({ success: true, key: key.trim(), value: String(value) });
+    } catch (error) {
+      logError(`Web admin PUT /api/settings/${key} failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to save setting' });
+    }
+  });
+
+  app.delete('/api/settings/:key', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      await dbRun('DELETE FROM bot_settings WHERE key = ?', [req.params.key]);
+      res.json({ success: true });
+    } catch (error) {
+      logError(`Web admin DELETE /api/settings/${req.params.key} failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to delete setting' });
+    }
+  });
+
+  // --- Guild Management API ---
+  app.get('/api/guilds', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const guilds = Array.from(client.guilds.cache.values()).map(guild => ({
+        id: guild.id,
+        name: guild.name,
+        memberCount: guild.memberCount,
+        joinedAt: guild.joinedAt ? guild.joinedAt.toISOString() : null,
+        icon: guild.iconURL({ size: 64 }) || null
+      }));
+
+      guilds.sort((a, b) => a.name.localeCompare(b.name));
+      res.json({ guilds });
+    } catch (error) {
+      logError(`Web admin /api/guilds failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load guilds' });
+    }
+  });
+
+  app.post('/api/guilds/:id/leave', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const guildId = req.params.id;
+    if (!isDiscordId(guildId)) {
+      res.status(400).json({ error: 'Invalid guild ID' });
+      return;
+    }
+
+    try {
+      const guild = client.guilds.cache.get(guildId);
+      if (!guild) {
+        res.status(404).json({ error: 'Guild not found in bot cache' });
+        return;
+      }
+
+      const guildName = guild.name;
+      await guild.leave();
+      logInfo(`Web admin: Bot left guild "${guildName}" (${guildId}) - requested by ${auth.user.username || auth.user.id}`);
+      res.json({ success: true, guildName });
+    } catch (error) {
+      logError(`Web admin leave guild ${guildId} failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to leave guild' });
+    }
   });
 
   return { app, webAdminConfig };

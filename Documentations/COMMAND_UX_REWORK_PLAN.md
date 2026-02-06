@@ -4,7 +4,7 @@ Date: 2026-02-06
 Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 
 ## Current Progress Snapshot
-- Latest completed phase: Phase 3 (safe mutations).
+- Latest completed phase: Phase 3.5 (tabbed dashboard + guild management).
 - Current state:
   - Bot runtime stable and unchanged for forwarding logic.
   - Web admin remains feature-flagged by `WEB_ADMIN_ENABLED`.
@@ -13,6 +13,12 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - OAuth stays available behind `WEB_ADMIN_AUTH_MODE=oauth` for later domain rollout.
   - Web admin config loading consolidated to `config.webAdmin` (no direct env fallback in `web/server.js`).
   - Local auth supports explicit host allowlist and optional IP allowlist with debug logging.
+  - Tabbed SPA dashboard with 6 tabs: Dashboard, Configs, Guilds, Logs, Settings.
+  - Root URL `/` redirects to `/admin` (no more "Cannot GET /").
+  - Guild management: view all bot guilds, leave unwanted guilds from web UI.
+  - Message logs viewer with pagination, config/status filters.
+  - Bot settings editor (DB-stored key-value pairs) and read-only runtime config display.
+  - Frontend is vanilla HTML/CSS/JS served as static files from `web/public/`.
 - Completed implementation commits:
   - `991e4ba` phase 0: add web admin config flags and env placeholders
   - `5f56674` phase 1: add feature-flagged web admin OAuth auth and session shell
@@ -226,6 +232,33 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - Updated `utils/configManager.js`:
     - Added `enableForwardConfig` export and shared `setForwardConfigEnabled` path.
     - Replaced fragile toggle logic with object-range based updates inside `forwardConfigs`.
+
+### Phase 3.5: Tabbed Dashboard, Logs, Settings, and Guild Management
+- Refactored monolithic inline-JS dashboard into tabbed SPA with external JS files.
+- Root URL `/` now redirects to `/admin`.
+- Status: done.
+- Implementation notes:
+  - Replaced `renderDashboardPage()` inline HTML+JS (330 lines) with a clean HTML shell loading external scripts.
+  - Removed deprecated `renderAuthenticatedShell()` and `/admin/shell` route.
+  - Added 6 tabs: Dashboard, Configs, Guilds, Logs, Settings.
+  - New frontend files in `web/public/`:
+    - `app.js` - shared utilities (fetchJson, tab switching, guild selector, shared state via `AdminApp`)
+    - `dashboard.js` - bot status overview with stat cards, 30s auto-refresh
+    - `configs.js` - extracted config CRUD from old inline script
+    - `guilds.js` - list all bot guilds, leave unwanted guilds
+    - `logs.js` - paginated message log viewer with config/status filters
+    - `settings.js` - editable bot_settings (DB) + read-only runtime config (env.js)
+  - New API endpoints in `web/server.js`:
+    - `GET /api/dashboard` - bot status, uptime, guild count, config stats
+    - `GET /api/guilds` - list all guilds bot is in
+    - `POST /api/guilds/:id/leave` - make bot leave a guild
+    - `GET /api/logs` - paginated message logs with filters
+    - `GET /api/logs/stats` - aggregate log counts (total, failed, today)
+    - `GET /api/settings` - bot settings + runtime config
+    - `PUT /api/settings/:key` - upsert bot setting
+    - `DELETE /api/settings/:key` - remove bot setting
+  - Added `getMessageLogsFiltered()` to `utils/database.js` for flexible log querying.
+  - Extended `web/public/styles.css` with tab nav, stat cards, status badges, filter bar, settings form styles.
 
 ### Phase 4: Operational Hardening
 - Add CSRF, rate limits, audit logs.
