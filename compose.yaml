@@ -16,8 +16,8 @@ services:
           echo "    .env already exists"
         fi
         if [ ! -f /config/config.js ]; then
-          cp /app/config/config.js.example /config/config.js
-          echo "    Created config.js from example"
+          cp /app/config/config.js /config/config.js
+          echo "    Created config.js from default"
         else
           echo "    config.js already exists"
         fi
