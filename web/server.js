@@ -392,6 +392,8 @@ function renderDashboardPage(auth) {
           </select>
           <button id="logs-refresh" class="button secondary sm">Refresh</button>
           <button id="logs-delete-failed" class="button secondary sm danger">Delete Failed</button>
+          <input id="logs-delete-failed-days" class="input compact-number" type="number" min="1" step="1" value="30" placeholder="Days">
+          <button id="logs-delete-failed-old" class="button secondary sm danger">Delete Failed Older</button>
         </div>
         <div class="table-wrapper">
           <table class="logs-table">
@@ -1243,9 +1245,13 @@ function createWebAdminApp(client, config) {
     try {
       const status = ['success', 'failed', 'retry'].includes(req.query.status) ? req.query.status : null;
       const configIdRaw = req.query.configId;
+      const olderThanDaysRaw = req.query.olderThanDays;
       const configId = configIdRaw === undefined || configIdRaw === null || configIdRaw === ''
         ? null
         : parseInt(configIdRaw, 10);
+      const olderThanDays = olderThanDaysRaw === undefined || olderThanDaysRaw === null || olderThanDaysRaw === ''
+        ? null
+        : parseInt(olderThanDaysRaw, 10);
 
       if (!status) {
         res.status(400).json({ error: 'status query is required (success|failed|retry)' });
@@ -1255,9 +1261,19 @@ function createWebAdminApp(client, config) {
         res.status(400).json({ error: 'configId must be a valid integer' });
         return;
       }
+      if (olderThanDaysRaw !== undefined && olderThanDaysRaw !== null && olderThanDaysRaw !== '') {
+        if (Number.isNaN(olderThanDays) || olderThanDays <= 0) {
+          res.status(400).json({ error: 'olderThanDays must be a positive integer' });
+          return;
+        }
+      }
 
-      const deleted = await deleteMessageLogsFiltered({ status, configId });
-      res.json({ success: true, deleted, status, configId });
+      const olderThanForwardedAt = olderThanDays === null
+        ? null
+        : Date.now() - (olderThanDays * 24 * 60 * 60 * 1000);
+
+      const deleted = await deleteMessageLogsFiltered({ status, configId, olderThanForwardedAt });
+      res.json({ success: true, deleted, status, configId, olderThanDays });
     } catch (error) {
       logError(`Web admin DELETE /api/logs failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to delete logs' });
