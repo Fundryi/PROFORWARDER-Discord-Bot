@@ -21,10 +21,13 @@ Move day-to-day management from slash commands to web admin without losing criti
 - [x] Phase C complete: covered `/proforward` subcommands are disabled at runtime and now redirect to Web Admin.
 - [x] Config tab create forms were redesigned into side-by-side Source/Target boxes for denser layout.
 - [x] Phase D progress: web Logs tab now supports message-ID search and source-message retry action.
+- [x] Telegram chat discovery now invalidates cache on config create/remove, so deleted Telegram configs disappear immediately from dropdown options.
+- [x] Telegram discovery list now excludes private chats and keeps group/supergroup/channel targets only (plus configured negative chat IDs).
+- [x] Startup orphan-log cleanup now only deletes when source-message absence is verifiable (prevents log wipe from unverifiable channels after restart).
+- [x] Phase D progress: `/proforward retry` is now web-managed/disabled and hidden from slash registration.
 
 ### Still To Do
 - [ ] Phase D: disable remaining commands after web parity for remaining gaps.
-- [ ] Decide whether to disable `/proforward retry` now that web retry exists.
 - [ ] Add reader-bot diagnostics panel equivalent to `reader-status`.
 - [ ] Add Telegram username/link discovery option beyond update-history discovery.
 - [ ] Decide whether per-emoji remove should also delete the actual Discord application emoji asset (current behavior removes the stored name entry).
@@ -53,17 +56,14 @@ These can be marked deprecated now (warning in command response), then disabled 
 - `/proforward test`
 
 ## Keep Enabled For Now
-- `/proforward retry`
 - `/proforward telegram-discover`
 - `/proforward reader-status`
 - `/debug database`
 - `/debug search`
 
 ## Web Gaps To Implement Before Full Command Shutdown
-1. Add web action to retry/force-forward by source message ID.
-2. Add web logs search by original/forwarded message ID.
-3. Add reader-bot diagnostics panel equivalent to `reader-status` details.
-4. Add Telegram username/link discovery option beyond update-history discovery.
+1. Add reader-bot diagnostics panel equivalent to `reader-status` details.
+2. Add Telegram username/link discovery option beyond update-history discovery.
 
 ## Bot Settings UI Status
 - [x] Focused UI on practical operations.
