@@ -552,7 +552,7 @@ function renderDashboardPage(auth) {
       </div>
       <div class="card">
         <h2>Bot Settings</h2>
-        <p class="muted-text">Existing key-value settings stored in SQLite. Creating new settings from web admin is disabled.</p>
+        <p class="muted-text">Manage existing settings stored in SQLite. New setting creation is disabled in web admin.</p>
         <div class="settings-help">
           <div class="settings-help-item">
             <strong>Existing keys only</strong>
@@ -561,10 +561,6 @@ function renderDashboardPage(auth) {
           <div class="settings-help-item">
             <strong>Emoji behavior</strong>
             <p class="muted-text"><code>uploaded_emoji_names</code> is managed automatically. Add/edit is disabled; remove entries individually.</p>
-          </div>
-          <div class="settings-help-item">
-            <strong>Safe operations</strong>
-            <p class="muted-text">Use Save/Delete for regular existing keys. Use per-emoji Remove for emoji names.</p>
           </div>
         </div>
         <div id="bot-settings" class="settings-section"></div>
@@ -960,7 +956,7 @@ async function collectTelegramChatOptions() {
       if (cfg.targetType !== 'telegram' || !cfg.targetChatId) continue;
       upsertTelegramChat(chatMap, {
         id: cfg.targetChatId,
-        title: `Configured Chat ${cfg.targetChatId}`,
+        title: 'Configured Chat',
         type: 'configured'
       }, 'configured');
     }

@@ -693,7 +693,7 @@ td .button {
 .emoji-preview-grid {
   margin-top: 8px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 8px;
 }
 
@@ -713,6 +713,7 @@ td .button {
   align-items: center;
   gap: 7px;
   min-width: 0;
+  flex: 1;
 }
 
 .emoji-preview-item.missing {
@@ -739,11 +740,13 @@ td .button {
 }
 
 .emoji-preview-name {
-  font-size: 0.73rem;
+  font-size: 0.79rem;
   color: #c8ddf6;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  word-break: break-word;
+  line-height: 1.25;
 }
 
 .setting-actions {
