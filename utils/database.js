@@ -60,6 +60,9 @@ const exec = (sql) => {
   });
 };
 
+let messageLogsChainColumnsReady = false;
+let messageLogsChainColumnsCheckPromise = null;
+
 const close = () => {
   return new Promise((resolve, reject) => {
     db.close((err) => {
@@ -115,6 +118,39 @@ async function deleteOldMessageLogs(cutoffForwardedAt) {
   return result.changes || 0;
 }
 
+async function ensureMessageLogsChainColumns() {
+  if (messageLogsChainColumnsReady) return;
+  if (messageLogsChainColumnsCheckPromise) {
+    await messageLogsChainColumnsCheckPromise;
+    return;
+  }
+
+  messageLogsChainColumnsCheckPromise = (async () => {
+    const tableInfo = await all('PRAGMA table_info(message_logs)');
+    const existingColumns = new Set((tableInfo || []).map(column => column.name));
+
+    const requiredColumns = [
+      { name: 'messageChain', ddl: 'TEXT' },
+      { name: 'chainPosition', ddl: 'INTEGER DEFAULT 0' },
+      { name: 'chainParentId', ddl: 'INTEGER' }
+    ];
+
+    for (const column of requiredColumns) {
+      if (existingColumns.has(column.name)) continue;
+      await run(`ALTER TABLE message_logs ADD COLUMN ${column.name} ${column.ddl}`);
+      logInfo(`Added ${column.name} column to message_logs table`);
+    }
+
+    messageLogsChainColumnsReady = true;
+  })();
+
+  try {
+    await messageLogsChainColumnsCheckPromise;
+  } finally {
+    messageLogsChainColumnsCheckPromise = null;
+  }
+}
+
 // Initialize database tables
 async function initializeDatabase() {
   try {
@@ -166,27 +202,7 @@ async function initializeDatabase() {
     await run('CREATE INDEX IF NOT EXISTS idx_translation_threads_message ON translation_threads(forwardedMessageId)');
     await run('CREATE INDEX IF NOT EXISTS idx_translation_threads_thread ON translation_threads(threadId)');
 
-    // Add messageChain columns if they don't exist (migration for existing databases)
-    try {
-      await run('ALTER TABLE message_logs ADD COLUMN messageChain TEXT');
-      logInfo('Added messageChain column to message_logs table');
-    } catch (error) {
-      // Column already exists, ignore
-    }
-    
-    try {
-      await run('ALTER TABLE message_logs ADD COLUMN chainPosition INTEGER DEFAULT 0');
-      logInfo('Added chainPosition column to message_logs table');
-    } catch (error) {
-      // Column already exists, ignore
-    }
-    
-    try {
-      await run('ALTER TABLE message_logs ADD COLUMN chainParentId INTEGER');
-      logInfo('Added chainParentId column to message_logs table');
-    } catch (error) {
-      // Column already exists, ignore
-    }
+    await ensureMessageLogsChainColumns();
 
     logSuccess('Database tables ready (forward configs now in config.js)');
   } catch (error) {
@@ -245,6 +261,11 @@ async function logForwardedMessage(originalMessageId, originalChannelId, origina
 // Enhanced message chain logging for split messages (Telegram caption splitting)
 async function logMessageChain(originalMessageId, originalChannelId, originalServerId, messageChain, forwardedChannelId, forwardedServerId, configId, status = 'success', errorMessage = null) {
   try {
+    if (!Array.isArray(messageChain) || messageChain.length === 0) {
+      throw new Error('messageChain must be a non-empty array');
+    }
+
+    await ensureMessageLogsChainColumns();
     const timestamp = Date.now();
     const messageChainJson = JSON.stringify(messageChain);
     
@@ -269,6 +290,29 @@ async function logMessageChain(originalMessageId, originalChannelId, originalSer
     logInfo(`📎 Logged message chain: ${messageChain.length} messages for original ${originalMessageId}`);
     return primaryLogId;
   } catch (error) {
+    const errorMessageText = String(error && error.message ? error.message : '');
+    const missingChainColumn = /no column named (messageChain|chainPosition|chainParentId)/i.test(errorMessageText);
+
+    if (missingChainColumn) {
+      logError(`Message chain columns missing during chain log, using single-log fallback: ${errorMessageText}`);
+
+      for (const forwardedMessageId of messageChain) {
+        await logForwardedMessage(
+          originalMessageId,
+          originalChannelId,
+          originalServerId,
+          String(forwardedMessageId),
+          forwardedChannelId,
+          forwardedServerId,
+          configId,
+          status,
+          errorMessage
+        );
+      }
+
+      return null;
+    }
+
     logError('Error logging message chain:', error);
     throw error;
   }
