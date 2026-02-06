@@ -25,6 +25,7 @@ const config = require('./config/env');
 const { proforwardCommand, handleProforwardCommand } = require('./commands/proforwardCommand');
 const { debugCommand, handleDebugCommand } = require('./commands/debugCommands');
 const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
+const { startWebAdminServer, stopWebAdminServer } = require('./web/server');
 
 // Reader Bot import
 const ReaderBot = require('./readerBot');
@@ -42,6 +43,7 @@ const client = new Client({
 
 // Reader Bot instance
 let readerBot = null;
+let webAdminServer = null;
 
 // Event Handlers
 client.on("messageCreate", async (message) => {
@@ -145,6 +147,11 @@ client.on("clientReady", async () => {
     }
   }
 
+  // Initialize Web Admin if enabled
+  if (!webAdminServer) {
+    webAdminServer = startWebAdminServer(client, config);
+  }
+
   logSuccess(`Successfully logged in as ${client.user.tag}`);
   logInfo('ProForwarder bot is ready to forward messages!');
 });
@@ -157,6 +164,11 @@ process.on('SIGINT', async () => {
   
   if (readerBot) {
     await readerBot.shutdown();
+  }
+
+  if (webAdminServer) {
+    logInfo('Shutting down web admin server...');
+    await stopWebAdminServer(webAdminServer);
   }
   
   logInfo('Closing database connection...');

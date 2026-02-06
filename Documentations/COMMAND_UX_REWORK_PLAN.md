@@ -146,12 +146,30 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - `webAdmin.allowedRoleIds`
 - Add `webAdmin.trustProxy` flag for reverse proxy deployments.
 - Keep all slash commands unchanged.
+- Status: done.
+- Implementation notes:
+  - Added `webAdmin` foundation flags in `config/env.js.example`.
+  - Added `WEB_ADMIN_*` placeholders in `config/.env.example`.
 
 ### Phase 1: Auth + Session
 - Implement OAuth login, callback, logout.
 - Implement session store and permission middleware.
 - Build `GET /admin` shell page.
 - Add `Caddy` service and minimal `Caddyfile` with HTTPS + reverse proxy to bot web port.
+- Status: done (app-side implementation complete; Caddy compose wiring deferred to proxy phase).
+- Implementation notes:
+  - Added `web/server.js` with:
+    - Discord OAuth routes: `/admin/login`, `/admin/callback`, `/admin/logout`
+    - Session handling via `express-session`
+    - Feature-flagged startup config parsing from `.env`
+    - `GET /admin` authenticated shell page
+  - Added `web/public/styles.css` for centralized theme styling.
+  - Integrated startup/shutdown in `index.js` via `startWebAdminServer` and `stopWebAdminServer`.
+  - Added dependencies in `package.json`: `express`, `express-session`.
+  - Moved more web settings into `.env` via `config/.env.example` and `config/env.js.example`:
+    - OAuth client ID/secret/redirect URI/scopes
+    - Session secret
+    - Allowed role IDs (CSV)
 
 ### Phase 2: Read-Only Dashboard
 - Guild selector and config list.

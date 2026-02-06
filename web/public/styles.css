@@ -1,0 +1,94 @@
+:root {
+  --bg: #0f141a;
+  --surface: #1a222d;
+  --surface-muted: #151c25;
+  --text: #e7edf3;
+  --text-muted: #95a3b3;
+  --accent: #4ea5ff;
+  --error-bg: #3a1d22;
+  --error-border: #aa3f4d;
+  --border: #2b3642;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.layout {
+  width: min(900px, 92vw);
+  margin: 40px auto;
+  display: grid;
+  gap: 14px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+}
+
+.card.muted {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.card.error {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+h1,
+h2 {
+  margin: 0 0 8px;
+}
+
+p {
+  margin: 8px 0;
+  color: var(--text-muted);
+}
+
+.button {
+  display: inline-block;
+  background: var(--accent);
+  color: #041321;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 0;
+}
+
+.button.secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.muted-text {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.badge {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
