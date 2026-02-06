@@ -5,6 +5,9 @@ licenses/*
 redeemed_licenses/*
 config/env.js
 config/.env
+config/forwardConfigs.json
+config/autoPublish.json
+config/cachedInvites.json
 data/proforwarder.db
 data/proforwarder.db-shm
 data/proforwarder.db-wal
