@@ -18,6 +18,7 @@ const {
 const {
   getMessageLogs,
   getMessageLogsFiltered,
+  deleteMessageLogsFiltered,
   getFailedMessages,
   getAllBotSettings,
   getBotSetting,
@@ -390,6 +391,7 @@ function renderDashboardPage(auth) {
             <option value="retry">Retry</option>
           </select>
           <button id="logs-refresh" class="button secondary sm">Refresh</button>
+          <button id="logs-delete-failed" class="button secondary sm danger">Delete Failed</button>
         </div>
         <div class="table-wrapper">
           <table class="logs-table">
@@ -1228,6 +1230,37 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin /api/logs failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to load message logs' });
+    }
+  });
+
+  app.delete('/api/logs', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const status = ['success', 'failed', 'retry'].includes(req.query.status) ? req.query.status : null;
+      const configIdRaw = req.query.configId;
+      const configId = configIdRaw === undefined || configIdRaw === null || configIdRaw === ''
+        ? null
+        : parseInt(configIdRaw, 10);
+
+      if (!status) {
+        res.status(400).json({ error: 'status query is required (success|failed|retry)' });
+        return;
+      }
+      if (configIdRaw !== undefined && configIdRaw !== null && configIdRaw !== '' && Number.isNaN(configId)) {
+        res.status(400).json({ error: 'configId must be a valid integer' });
+        return;
+      }
+
+      const deleted = await deleteMessageLogsFiltered({ status, configId });
+      res.json({ success: true, deleted, status, configId });
+    } catch (error) {
+      logError(`Web admin DELETE /api/logs failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to delete logs' });
     }
   });
 

@@ -6,6 +6,7 @@
   var configFilter = document.getElementById('logs-config-filter');
   var statusFilter = document.getElementById('logs-status-filter');
   var refreshBtn = document.getElementById('logs-refresh');
+  var deleteFailedBtn = document.getElementById('logs-delete-failed');
   var loadMoreBtn = document.getElementById('logs-load-more');
 
   var nextBeforeId = null;
@@ -163,10 +164,50 @@
     }
   }
 
+  function pluralize(count, singular, plural) {
+    return count === 1 ? singular : plural;
+  }
+
+  async function deleteFailedLogs() {
+    var configId = configFilter.value;
+    var scopeText = configId
+      ? 'for config ' + configId
+      : 'for all configs';
+    var warning = 'Delete FAILED log entries ' + scopeText + '? This cannot be undone.';
+
+    if (statusFilter.value && statusFilter.value !== 'failed') {
+      warning += '\n\nNote: current status filter "' + statusFilter.value + '" does not change this action.';
+    }
+
+    if (!confirm(warning)) return;
+
+    try {
+      AdminApp.setStatus('Deleting failed logs...');
+      var params = ['status=failed'];
+      if (configId) params.push('configId=' + encodeURIComponent(configId));
+
+      var result = await AdminApp.fetchJson('/api/logs?' + params.join('&'), {
+        method: 'DELETE'
+      });
+
+      var deleted = Number(result.deleted || 0);
+      AdminApp.setStatus('Deleted ' + deleted + ' failed log ' + pluralize(deleted, 'entry', 'entries') + '.');
+      await loadLogs(false);
+    } catch (error) {
+      AdminApp.setStatus('Failed to delete logs: ' + error.message, true);
+    }
+  }
+
   // Events
   refreshBtn.addEventListener('click', function () {
     loadLogs(false);
   });
+
+  if (deleteFailedBtn) {
+    deleteFailedBtn.addEventListener('click', function () {
+      deleteFailedLogs();
+    });
+  }
 
   loadMoreBtn.addEventListener('click', function () {
     loadLogs(true);
