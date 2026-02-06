@@ -111,7 +111,7 @@ All previously tracked issues from both files are implemented in current code.
 
 17. `AI provider config mismatch`  
     Status: `Done`  
-    Evidence: `config/env.js.example` aligns provider docs with implemented providers.
+    Evidence: `config/config.js.example` aligns provider docs with implemented providers.
 
 18. `AI edit flow uses original message ID for thread lookup`  
     Status: `Done`  

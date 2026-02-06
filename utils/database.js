@@ -70,7 +70,7 @@ const close = () => {
 };
 
 function getStartupLogMaintenanceOptions(overrides = {}) {
-  const envConfig = require('../config/env');
+  const envConfig = require('../config/config');
   const config = envConfig.startupLogMaintenance || {};
 
   return {
@@ -137,7 +137,7 @@ async function initializeDatabase() {
         forwardedMessageId TEXT,
         forwardedChannelId TEXT,
         forwardedServerId TEXT,
-        configId INTEGER NOT NULL, -- References config ID from env.js
+        configId INTEGER NOT NULL, -- References config ID from config.js
         forwardedAt INTEGER NOT NULL,
         status TEXT DEFAULT 'success', -- 'success', 'failed', 'retry'
         errorMessage TEXT,
@@ -188,7 +188,7 @@ async function initializeDatabase() {
       // Column already exists, ignore
     }
 
-    logSuccess('Database tables ready (forward configs now in env.js)');
+    logSuccess('Database tables ready (forward configs now in config.js)');
   } catch (error) {
     logError('Error initializing database', error);
   }

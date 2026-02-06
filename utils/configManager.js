@@ -371,11 +371,11 @@ async function isChannelAutoPublishEnabled(serverId, channelId) {
   }
 }
 
-// ─── Migration: extract dynamic data from env.js to JSON files ───
+// ─── Migration: extract dynamic data from config.js to JSON files ───
 
 async function migrateToJsonConfigs() {
   try {
-    // Check if already migrated (forwardConfigs.json exists and is non-empty or env.js has no forwardConfigs)
+    // Check if already migrated (forwardConfigs.json exists and is non-empty or config.js has no forwardConfigs)
     let alreadyMigrated = false;
     try {
       await fs.access(FORWARD_CONFIGS_PATH);
@@ -388,12 +388,12 @@ async function migrateToJsonConfigs() {
       return; // Already migrated, nothing to do
     }
 
-    logInfo('Migrating dynamic config data from env.js to JSON files...');
+    logInfo('Migrating dynamic config data from config.js to JSON files...');
 
-    // Load current env.js
-    const configPath = require.resolve('../config/env');
+    // Load current config.js
+    const configPath = require.resolve('../config/config');
     delete require.cache[configPath];
-    const config = require('../config/env');
+    const config = require('../config/config');
 
     // Migrate forwardConfigs
     const forwardConfigs = Array.isArray(config.forwardConfigs) ? config.forwardConfigs : [];
@@ -414,7 +414,7 @@ async function migrateToJsonConfigs() {
     await writeJsonFile(CACHED_INVITES_PATH, cachedInvites);
     logSuccess(`Migrated cached invites to cachedInvites.json`);
 
-    logSuccess('Config migration complete. You can now remove forwardConfigs, autoPublishChannels, and discord.cachedInvites from config/env.js.');
+    logSuccess('Config migration complete. You can now remove forwardConfigs, autoPublishChannels, and discord.cachedInvites from config/config.js.');
   } catch (error) {
     logError('Config migration failed:', error.message);
     logError('The bot will still work — forwardConfigs.json will be created on first use.');

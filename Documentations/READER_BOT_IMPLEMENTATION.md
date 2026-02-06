@@ -65,7 +65,7 @@ READER_BOT_ENABLED=false
 READER_BOT_TOKEN=your_reader_bot_token_here
 ```
 
-Add to [`config/env.js`](config/env.js):
+Add to [`config/config.js`](config/config.js):
 ```javascript
 module.exports = {
   // ... existing configuration
@@ -93,7 +93,7 @@ require("./errorHandlers");
 
 const { Client, GatewayIntentBits } = require("discord.js");
 const { logInfo, logSuccess, logError } = require('./utils/logger');
-const config = require('./config/env');
+const config = require('./config/config');
 
 class ReaderBot {
   constructor(mainBotInstance) {

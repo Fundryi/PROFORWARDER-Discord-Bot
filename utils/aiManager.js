@@ -18,7 +18,7 @@ class AIManager {
    */
   async initialize() {
     try {
-      this.config = require('../config/env');
+      this.config = require('../config/config');
       
       if (!this.config.ai?.enabled) {
         logInfo('AI features disabled in configuration');

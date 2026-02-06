@@ -3,7 +3,7 @@ node_modules/
 data/userPoints.json
 licenses/*
 redeemed_licenses/*
-config/env.js
+config/config.js
 config/.env
 config/forwardConfigs.json
 config/autoPublish.json

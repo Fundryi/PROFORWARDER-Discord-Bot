@@ -16,7 +16,7 @@ class TelegramConverter {
    * Convert Discord message to Telegram format
    */
   async convertDiscordMessage(discordMessage, config = {}) {
-    const envConfig = require('../../config/env');
+    const envConfig = require('../../config/config');
     const isDebugMode = envConfig.debugMode;
     
     let text = '';
@@ -249,7 +249,7 @@ class TelegramConverter {
    */
   async buildSourceHeader(discordMessage, config = {}) {
     try {
-      const envConfig = require('../../config/env');
+      const envConfig = require('../../config/config');
       const isDebugMode = envConfig.debugMode;
       
       // Skip header if disabled in config

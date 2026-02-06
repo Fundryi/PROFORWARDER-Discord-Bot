@@ -16,7 +16,7 @@ class SliceFormatConverter {
   static async discordToTelegramMarkdownV2WithSlices(text, message = null) {
     if (!text) return '';
     
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (envConfig.debugMode) {
       logInfo('🔪 Starting slice-based format conversion for:', text);
     }
@@ -198,7 +198,7 @@ class SliceFormatConverter {
    * @returns {string} Converted slice content
    */
   static async convertSlice(slice, message = null) {
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     
     switch (slice.type) {
       case 'plain_text':
@@ -296,7 +296,7 @@ class SliceFormatConverter {
         if (message && message.mentions && message.mentions.users) {
           const user = message.mentions.users.get(userId);
           const userName = user ? (user.globalName || user.username || user.displayName) : `User${userId}`;
-          const envConfig = require('../config/env');
+          const envConfig = require('../config/config');
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved user mention: ${slice.content} -> ${userName}`);
           }
@@ -310,7 +310,7 @@ class SliceFormatConverter {
         if (message && message.mentions && message.mentions.roles) {
           const role = message.mentions.roles.get(roleId);
           const roleName = role ? role.name : `Role${roleId}`;
-          const envConfig = require('../config/env');
+          const envConfig = require('../config/config');
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved role mention: ${slice.content} -> ${roleName}`);
           }
@@ -327,7 +327,7 @@ class SliceFormatConverter {
             channel = message.guild.channels.cache.get(channelId);
           }
           const channelName = channel ? channel.name : `channel${channelId}`;
-          const envConfig = require('../config/env');
+          const envConfig = require('../config/config');
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved channel mention: ${slice.content} -> #${channelName}`);
           }
@@ -394,7 +394,7 @@ class SliceFormatConverter {
     // Then, process any custom emojis within the text
     processedText = processedText.replace(/<a?:(\w+):\d+>/g, (match, emojiName) => {
       const standardEmoji = this.convertCustomEmojiToStandard(emojiName);
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       if (standardEmoji) {
         if (envConfig.debugMode) {
           logInfo(`🔪 🔍 Converted custom emoji within formatting: ${match} -> ${standardEmoji}`);
@@ -565,7 +565,7 @@ class SliceFormatConverter {
     
     // Try exact match first
     if (emojiMap[name]) {
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       if (envConfig.debugMode) {
         logInfo(`🔪 🔍 Converted custom emoji: <:${emojiName}:*> -> ${emojiMap[name]}`);
       }
@@ -580,7 +580,7 @@ class SliceFormatConverter {
       // 2. Our key is at least 4 characters (avoid false matches like "no" in "unknown")
       // 3. Exact word boundaries (e.g., "heart_red" contains "heart")
       if (key.length >= 4 && (name.startsWith(key) || name.includes('_' + key) || name.includes(key + '_'))) {
-        const envConfig = require('../config/env');
+        const envConfig = require('../config/config');
         if (envConfig.debugMode) {
           logInfo(`🔪 🔍 Converted custom emoji (partial match): <:${emojiName}:*> -> ${emoji} (matched "${key}")`);
         }
@@ -589,7 +589,7 @@ class SliceFormatConverter {
     }
     
     // If no match found, remove the emoji cleanly
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (envConfig.debugMode) {
       logInfo(`🔪 🔍 Removed unsupported custom emoji: <:${emojiName}:*> (no match found)`);
     }

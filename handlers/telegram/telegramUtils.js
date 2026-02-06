@@ -90,7 +90,7 @@ class TelegramUtils {
    */
   async editMessageChain(chatId, messageChain, newFullText, hasMedia, disableWebPagePreview = false) {
     try {
-      const envConfig = require('../../config/env');
+      const envConfig = require('../../config/config');
       const isDebugMode = envConfig.debugMode;
       const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
       const textLengthLimit = envConfig.telegram?.textLengthLimit || 4000;

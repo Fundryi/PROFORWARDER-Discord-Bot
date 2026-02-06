@@ -17,7 +17,7 @@ class TelegramAPI {
    */
   async initialize() {
     try {
-      const config = require('../../config/env');
+      const config = require('../../config/config');
       
       if (!config.telegram?.enabled) {
         logInfo('Telegram integration disabled in config');

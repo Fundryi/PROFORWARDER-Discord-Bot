@@ -64,7 +64,7 @@ class ForwardHandler {
       }
 
       // Check if bot message forwarding is enabled
-      const config = require('../config/env');
+      const config = require('../config/config');
       if (message.author.bot && !config.forwardBotMessages) {
         return; // Skip bot messages if disabled in config
       }

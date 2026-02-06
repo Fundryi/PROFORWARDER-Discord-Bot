@@ -19,7 +19,7 @@ class TelegramMessageSender {
    */
   async sendMediaWithCaption(chatId, media, caption) {
     try {
-      const envConfig = require('../../config/env');
+      const envConfig = require('../../config/config');
       const isDebugMode = envConfig.debugMode;
       
       // Get caption length limit from config (default to 900 for safety)
@@ -106,7 +106,7 @@ class TelegramMessageSender {
    */
   async sendMediaWithLongCaption(chatId, media, fullCaption) {
     try {
-      const envConfig = require('../../config/env');
+      const envConfig = require('../../config/config');
       const isDebugMode = envConfig.debugMode;
       const captionLengthLimit = envConfig.telegram?.captionLengthLimit || 900;
       const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
@@ -251,7 +251,7 @@ class TelegramMessageSender {
    */
   async sendLongTextMessage(chatId, fullText, disableWebPagePreview = false) {
     try {
-      const envConfig = require('../../config/env');
+      const envConfig = require('../../config/config');
       const isDebugMode = envConfig.debugMode;
       const textLengthLimit = 4000; // Safe limit for text messages
       const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
@@ -321,7 +321,7 @@ class TelegramMessageSender {
    */
   async sendMediaSeparately(chatId, media, fullContent) {
     try {
-      const envConfig = require('../../config/env');
+      const envConfig = require('../../config/config');
       const isDebugMode = envConfig.debugMode;
       
       if (isDebugMode) {

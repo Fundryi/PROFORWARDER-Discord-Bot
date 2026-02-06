@@ -153,7 +153,7 @@ utils/
 
 ### Enhanced Configuration Structure
 ```javascript
-// config/env.js - With AI features
+// config/config.js - With AI features
 module.exports = {
   botToken: process.env.BOT_TOKEN,
   debugMode: true,

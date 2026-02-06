@@ -57,7 +57,7 @@ class TelegramHandler {
       // Convert Discord message to Telegram format
       const telegramMessage = await this.converter.convertDiscordMessage(message, config);
       
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       const isDebugMode = envConfig.debugMode;
       
       // If we have media, send it with the text as caption

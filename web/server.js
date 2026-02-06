@@ -239,21 +239,46 @@ function renderDashboardPage(auth) {
       </div>
 
       <div class="card">
-        <h2>Bot Guilds</h2>
-        <p class="muted-text">All servers the bot is currently in. You can leave unwanted guilds.</p>
+        <h2>Main Bot Guilds</h2>
+        <p class="muted-text">Servers the main bot is currently in.</p>
         <div class="table-wrapper">
           <table>
             <thead>
               <tr>
+                <th style="width:32px"></th>
                 <th>Name</th>
                 <th>ID</th>
                 <th>Members</th>
+                <th>Owner</th>
                 <th>Joined</th>
                 <th>Actions</th>
               </tr>
             </thead>
-            <tbody id="guilds-body">
-              <tr><td colspan="5" class="muted-text">Loading...</td></tr>
+            <tbody id="main-guilds-body">
+              <tr><td colspan="7" class="muted-text">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Reader Bot Guilds</h2>
+        <p class="muted-text" id="reader-guilds-status">Servers the reader bot is currently in.</p>
+        <div class="table-wrapper" id="reader-guilds-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:32px"></th>
+                <th>Name</th>
+                <th>ID</th>
+                <th>Members</th>
+                <th>Owner</th>
+                <th>Joined</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="reader-guilds-body">
+              <tr><td colspan="7" class="muted-text">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -303,7 +328,7 @@ function renderDashboardPage(auth) {
     <section id="tab-settings" class="tab-panel">
       <div class="card">
         <h2>Runtime Configuration</h2>
-        <p class="muted-text">Read-only values from env.js. Edit the config file to change these.</p>
+        <p class="muted-text">Read-only values from config.js. Edit the config file to change these.</p>
         <div id="runtime-config" class="runtime-grid"></div>
       </div>
       <div class="card">
@@ -926,7 +951,7 @@ function createWebAdminApp(client, config) {
         return;
       }
 
-      const runtimeConfig = require('../config/env');
+      const runtimeConfig = require('../config/config');
       if (!runtimeConfig.telegram || runtimeConfig.telegram.enabled !== true) {
         res.status(400).json({ error: 'Telegram integration is disabled' });
         return;
@@ -1131,9 +1156,9 @@ function createWebAdminApp(client, config) {
     try {
       const settings = await getAllBotSettings();
 
-      const configPath = require.resolve('../config/env');
+      const configPath = require.resolve('../config/config');
       delete require.cache[configPath];
-      const runtimeConfig = require('../config/env');
+      const runtimeConfig = require('../config/config');
 
       res.json({
         settings,
@@ -1228,7 +1253,7 @@ function createWebAdminApp(client, config) {
 
       try {
         const { readerBot } = require('../index');
-        const runtimeConfig = require('../config/env');
+        const runtimeConfig = require('../config/config');
 
         if (runtimeConfig.readerBot && runtimeConfig.readerBot.enabled) {
           result.readerBot.enabled = true;
@@ -1253,6 +1278,19 @@ function createWebAdminApp(client, config) {
   });
 
   // --- Guild Management API ---
+  function mapGuilds(guildCache) {
+    const guilds = Array.from(guildCache.values()).map(guild => ({
+      id: guild.id,
+      name: guild.name,
+      memberCount: guild.memberCount,
+      joinedAt: guild.joinedAt ? guild.joinedAt.toISOString() : null,
+      icon: guild.iconURL({ size: 64 }) || null,
+      ownerId: guild.ownerId || null
+    }));
+    guilds.sort((a, b) => a.name.localeCompare(b.name));
+    return guilds;
+  }
+
   app.get('/api/guilds', async (req, res) => {
     const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
@@ -1261,16 +1299,26 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const guilds = Array.from(client.guilds.cache.values()).map(guild => ({
-        id: guild.id,
-        name: guild.name,
-        memberCount: guild.memberCount,
-        joinedAt: guild.joinedAt ? guild.joinedAt.toISOString() : null,
-        icon: guild.iconURL({ size: 64 }) || null
-      }));
+      const result = {
+        mainBot: { guilds: mapGuilds(client.guilds.cache) },
+        readerBot: { enabled: false, online: false, guilds: [] }
+      };
 
-      guilds.sort((a, b) => a.name.localeCompare(b.name));
-      res.json({ guilds });
+      try {
+        const { readerBot } = require('../index');
+        const runtimeConfig = require('../config/config');
+        if (runtimeConfig.readerBot && runtimeConfig.readerBot.enabled) {
+          result.readerBot.enabled = true;
+          if (readerBot && readerBot.isReady && readerBot.client) {
+            result.readerBot.online = true;
+            result.readerBot.guilds = mapGuilds(readerBot.client.guilds.cache);
+          }
+        }
+      } catch (_e) {
+        // reader bot module not available
+      }
+
+      res.json(result);
     } catch (error) {
       logError(`Web admin /api/guilds failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to load guilds' });
@@ -1290,8 +1338,25 @@ function createWebAdminApp(client, config) {
       return;
     }
 
+    const botType = req.query.bot || 'main';
+
     try {
-      const guild = client.guilds.cache.get(guildId);
+      let guild;
+      let botLabel;
+
+      if (botType === 'reader') {
+        const { readerBot } = require('../index');
+        if (!readerBot || !readerBot.isReady || !readerBot.client) {
+          res.status(400).json({ error: 'Reader bot is not available' });
+          return;
+        }
+        guild = readerBot.client.guilds.cache.get(guildId);
+        botLabel = 'Reader bot';
+      } else {
+        guild = client.guilds.cache.get(guildId);
+        botLabel = 'Main bot';
+      }
+
       if (!guild) {
         res.status(404).json({ error: 'Guild not found in bot cache' });
         return;
@@ -1299,7 +1364,7 @@ function createWebAdminApp(client, config) {
 
       const guildName = guild.name;
       await guild.leave();
-      logInfo(`Web admin: Bot left guild "${guildName}" (${guildId}) - requested by ${auth.user.username || auth.user.id}`);
+      logInfo(`Web admin: ${botLabel} left guild "${guildName}" (${guildId}) - requested by ${auth.user.username || auth.user.id}`);
       res.json({ success: true, guildName });
     } catch (error) {
       logError(`Web admin leave guild ${guildId} failed: ${error.message}`);

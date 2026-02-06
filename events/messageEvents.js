@@ -123,7 +123,7 @@ async function handleMessageUpdate(oldMessage, newMessage, client) {
       const { getMessageLogsByOriginalMessage } = require('../utils/database');
       const forwardedVersions = await getMessageLogsByOriginalMessage(newMessage.id);
 
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       if (envConfig.debugMode) {
         logInfo(`🔍 EDIT DEBUG: Looking for forwarded versions of edited message ${newMessage.id}`);
         logInfo(`✅ EDIT DEBUG: Found ${forwardedVersions.length} forwarded versions`);
@@ -345,7 +345,7 @@ async function handleMessageDelete(message, client) {
     const { getMessageLogsByOriginalMessage } = require('../utils/database');
     const forwardedVersions = await getMessageLogsByOriginalMessage(message.id);
 
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (envConfig.debugMode) {
       logInfo(`🔍 DELETE DEBUG: Looking for forwarded versions of deleted message ${message.id}`);
       logInfo(`✅ DELETE DEBUG: Found ${forwardedVersions.length} forwarded versions`);
@@ -506,7 +506,7 @@ async function updateTelegramForwardedMessage(newMessage, logEntry, client) {
     const messageChain = await getMessageChain(logEntry.originalMessageId, logEntry.configId);
     const isChain = messageChain.length > 1;
 
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (isChain && envConfig.debugMode) {
       logInfo(`🔗 CHAIN EDIT: Detected message chain with ${messageChain.length} parts (config ${logEntry.configId})`);
       messageChain.forEach((chainEntry, index) => {
@@ -664,7 +664,7 @@ async function updateSingleTelegramMessage(newMessage, logEntry, client, telegra
                              (originalMessage.embeds && originalMessage.embeds.some(embed => embed.image || embed.thumbnail))) :
                             false;
 
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (envConfig.debugMode) {
       logInfo(`🔍 SMART EDIT DEBUG: Original had media: ${originalHasMedia}, New has media: ${newHasMedia}`);
       logInfo(`🔍 SMART EDIT DEBUG: Media items in new message: ${telegramMessage.media ? telegramMessage.media.length : 0}`);
@@ -896,7 +896,7 @@ async function editTelegramMessageMedia(telegramHandler, logEntry, telegramMessa
       throw new Error('No media found in message for editMessageMedia');
     }
 
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (envConfig.debugMode) {
       logInfo(`🔍 EDIT MEDIA DEBUG: Editing media for message ${logEntry.forwardedMessageId}`);
       logInfo(`🔍 EDIT MEDIA DEBUG: New media count: ${telegramMessage.media.length}`);
@@ -1017,7 +1017,7 @@ async function deleteTelegramForwardedMessage(logEntry, client) {
     const messageChain = await getMessageChain(logEntry.originalMessageId, logEntry.configId);
     const isChain = messageChain.length > 1;
 
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (isChain && envConfig.debugMode) {
       logInfo(`🔗 CHAIN DELETE: Detected message chain with ${messageChain.length} parts for deletion (config ${logEntry.configId})`);
     }

@@ -67,7 +67,7 @@ npm install
 
 # Configure
 cp config/.env.example config/.env
-cp config/env.js.example config/env.js
+cp config/config.js.example config/config.js
 # Edit config/.env with your tokens
 
 # Run
@@ -151,7 +151,7 @@ READER_BOT_ENABLED=false
 READER_BOT_TOKEN=your_reader_bot_token
 ```
 
-### Application Config (`config/env.js`)
+### Application Config (`config/config.js`)
 
 Key settings:
 
@@ -226,7 +226,7 @@ services:
 
 All persistent data is stored at `/srv/docker-data/proforwarder/`:
 - `config/.env` - Secrets and tokens
-- `config/env.js` - Application config
+- `config/config.js` - Application config
 - `data/proforwarder.db` - SQLite database
 
 ---
@@ -237,7 +237,7 @@ All persistent data is stored at `/srv/docker-data/proforwarder/`:
 ProForwarder-Discord-Bot/
 ├── config/                  # Configuration files
 │   ├── .env                 # Environment variables (secrets)
-│   └── env.js               # Application configuration
+│   └── config.js               # Application configuration
 ├── commands/                # Slash command handlers
 │   ├── proforwardCommand.js # /proforward command (setup, telegram, list, etc.)
 │   └── debugCommands.js     # /debug command (database, search)
