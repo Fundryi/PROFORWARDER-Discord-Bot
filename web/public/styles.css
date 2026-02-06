@@ -488,9 +488,11 @@ td .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 78px;
   border-radius: 999px;
   border: 1px solid transparent;
   padding: 4px 9px;
+  white-space: nowrap;
   text-transform: uppercase;
   font-size: 0.67rem;
   font-weight: 700;
@@ -524,6 +526,10 @@ td .button {
 .logs-table td {
   font-size: 0.84rem;
   word-break: break-word;
+}
+
+.logs-table td:nth-child(5) {
+  min-width: 98px;
 }
 
 .logs-error {
@@ -567,7 +573,7 @@ td .button {
 }
 
 .runtime-item .val.false {
-  color: #a7b8cd;
+  color: var(--danger);
 }
 
 .settings-help {
