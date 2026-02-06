@@ -124,7 +124,23 @@
     }
   }
 
+  // -- Check for invite status from URL query params --
+  function handleInviteStatus() {
+    var urlParams = new URLSearchParams(window.location.search);
+    var inviteResult = urlParams.get('invite');
+    if (inviteResult === 'success') {
+      var guildId = urlParams.get('guild');
+      var msg = 'Bot successfully invited to server' + (guildId ? ' (' + guildId + ')' : '') + '.';
+      setStatus(msg, false);
+      history.replaceState(null, '', '/admin');
+    } else if (inviteResult === 'error') {
+      setStatus('Bot invite failed. Check that the redirect URI is registered in the Discord Developer Portal.', true);
+      history.replaceState(null, '', '/admin');
+    }
+  }
+
   // -- Init --
+  handleInviteStatus();
   loadMe().then(function () {
     // Activate the default tab (dashboard) after user context is loaded
     switchTab('dashboard');

@@ -38,13 +38,14 @@ function buildDiscordAuthorizeUrl(webAdminConfig, state) {
   return `https://discord.com/api/oauth2/authorize?${params.toString()}`;
 }
 
-async function exchangeCodeForToken(webAdminConfig, code) {
+async function exchangeCodeForToken(webAdminConfig, code, overrides) {
+  const opts = overrides || {};
   const body = new URLSearchParams({
-    client_id: webAdminConfig.oauthClientId,
-    client_secret: webAdminConfig.oauthClientSecret,
+    client_id: opts.clientId || webAdminConfig.oauthClientId,
+    client_secret: opts.clientSecret || webAdminConfig.oauthClientSecret,
     grant_type: 'authorization_code',
     code,
-    redirect_uri: webAdminConfig.oauthRedirectUri
+    redirect_uri: opts.redirectUri || webAdminConfig.oauthRedirectUri
   });
 
   const response = await axios.post(
@@ -948,6 +949,78 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin telegram test failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to test Telegram target' });
+    }
+  });
+
+  // --- Bot Invite (OAuth2 Code Grant) ---
+  app.get('/admin/bot-invite', (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.redirect('/admin');
+      return;
+    }
+
+    const botClientId = (client.user && client.user.id) || webAdminConfig.oauthClientId;
+    if (!botClientId || !webAdminConfig.oauthClientSecret) {
+      res.status(400).send(renderLoginPage(
+        webAdminConfig,
+        'Bot invite requires WEB_ADMIN_DISCORD_CLIENT_ID and WEB_ADMIN_DISCORD_CLIENT_SECRET to be set.',
+        false
+      ));
+      return;
+    }
+
+    const redirectUri = webAdminConfig.botInviteRedirectUri
+      || `http://localhost:${webAdminConfig.port}/admin/bot-invite/callback`;
+
+    const state = crypto.randomBytes(20).toString('hex');
+    req.session.botInviteState = state;
+
+    const params = new URLSearchParams({
+      client_id: botClientId,
+      permissions: '412317248576',
+      scope: 'bot applications.commands',
+      response_type: 'code',
+      redirect_uri: redirectUri,
+      state
+    });
+
+    res.redirect(`https://discord.com/oauth2/authorize?${params.toString()}`);
+  });
+
+  app.get('/admin/bot-invite/callback', async (req, res) => {
+    const { code, state, error, error_description: errorDescription, guild_id: guildId } = req.query;
+
+    if (error) {
+      logError(`Bot invite OAuth error: ${errorDescription || error}`);
+      res.redirect('/admin?invite=error');
+      return;
+    }
+
+    if (!code || !state || !req.session.botInviteState || state !== req.session.botInviteState) {
+      logError('Bot invite callback: invalid or missing state');
+      res.redirect('/admin?invite=error');
+      return;
+    }
+
+    delete req.session.botInviteState;
+
+    const botClientId = (client.user && client.user.id) || webAdminConfig.oauthClientId;
+    const redirectUri = webAdminConfig.botInviteRedirectUri
+      || `http://localhost:${webAdminConfig.port}/admin/bot-invite/callback`;
+
+    try {
+      await exchangeCodeForToken(webAdminConfig, code, {
+        clientId: botClientId,
+        redirectUri
+      });
+
+      const guildParam = guildId ? `&guild=${guildId}` : '';
+      logSuccess(`Bot invited to guild ${guildId || '(unknown)'} via web admin`);
+      res.redirect(`/admin?invite=success${guildParam}`);
+    } catch (exchangeError) {
+      logError(`Bot invite token exchange failed: ${exchangeError.message}`);
+      res.redirect('/admin?invite=error');
     }
   });
 

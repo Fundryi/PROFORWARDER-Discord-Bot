@@ -77,6 +77,7 @@ function getWebAdminConfig(config) {
     oauthClientSecret: configWebAdmin.oauthClientSecret || '',
     oauthRedirectUri: configWebAdmin.oauthRedirectUri || '',
     oauthScopes: configWebAdmin.oauthScopes || 'identify guilds',
+    botInviteRedirectUri: configWebAdmin.botInviteRedirectUri || '',
     localAllowedHosts,
     localAllowedIps,
     localBypassAuth: authMode === 'local',

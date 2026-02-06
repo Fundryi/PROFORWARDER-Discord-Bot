@@ -27,20 +27,12 @@
     mainId.textContent = botInfo.mainBot.id || '--';
     mainCard.appendChild(mainId);
 
-    if (botInfo.mainBot.inviteUrl) {
-      var mainBtn = document.createElement('a');
-      mainBtn.className = 'button sm';
-      mainBtn.href = botInfo.mainBot.inviteUrl;
-      mainBtn.target = '_blank';
-      mainBtn.rel = 'noopener noreferrer';
-      mainBtn.textContent = 'Invite Main Bot';
-      mainCard.appendChild(mainBtn);
-    } else {
-      var mainNA = document.createElement('span');
-      mainNA.className = 'muted-text';
-      mainNA.textContent = 'Bot not ready';
-      mainCard.appendChild(mainNA);
-    }
+    // Main bot uses OAuth2 code grant flow via /admin/bot-invite
+    var mainBtn = document.createElement('a');
+    mainBtn.className = 'button sm';
+    mainBtn.href = '/admin/bot-invite';
+    mainBtn.textContent = 'Invite Main Bot';
+    mainCard.appendChild(mainBtn);
 
     inviteCards.appendChild(mainCard);
 
