@@ -5,6 +5,27 @@ Date: 2026-02-06
 ## Goal
 Move day-to-day management from slash commands to web admin without losing critical capabilities.
 
+## Progress Tracker (Updated: 2026-02-06)
+### Completed
+- [x] Forward-create UX now clears inputs and shows explicit success feedback.
+- [x] Config deletion now also removes related `message_logs` entries.
+- [x] Logs tab now shows target context (`Discord` vs `Telegram`), improved failed-delete UX, and removed `Delete Failed Older`.
+- [x] Bot Settings web UI is now existing-keys-only (new setting creation from web is blocked).
+- [x] `uploaded_emoji_names` is shown as individual entries with per-emoji remove actions.
+- [x] Generic add-setting and manual emoji-add workflow was removed from web settings UI.
+- [x] Deleting the whole `uploaded_emoji_names` key via web API is blocked.
+
+### Still To Do
+- [ ] Phase A: mark covered commands as deprecated in slash command responses.
+- [ ] Phase B: hide covered commands from registration/help.
+- [ ] Phase C: disable covered commands after 1-2 release cycles.
+- [ ] Phase D: disable remaining commands after web parity for remaining gaps.
+- [ ] Add web action to retry/force-forward by source message ID.
+- [ ] Add web logs search by original/forwarded message ID.
+- [ ] Add reader-bot diagnostics panel equivalent to `reader-status`.
+- [ ] Add Telegram username/link discovery option beyond update-history discovery.
+- [ ] Decide whether per-emoji remove should also delete the actual Discord application emoji asset (current behavior removes the stored name entry).
+
 ## Coverage Matrix
 - `/proforward setup`: Covered by `Configs` tab -> `Create Discord Forward`.
 - `/proforward telegram`: Covered by `Configs` tab -> `Create Telegram Forward`.
@@ -41,12 +62,12 @@ These can be marked deprecated now (warning in command response), then disabled 
 3. Add reader-bot diagnostics panel equivalent to `reader-status` details.
 4. Add Telegram username/link discovery option beyond update-history discovery.
 
-## Bot Settings UI TODO
-1. Adjust Bot Settings web UI to focus on operations we actually need.
-2. Do not support manual emoji adds from web UI.
-3. Show `uploaded_emoji_names` as individual emoji entries (not only raw JSON).
-4. Provide per-emoji remove/delete actions for those entries.
-5. Remove/disable generic "Add Setting" and emoji-add workflows in web UI.
+## Bot Settings UI Status
+- [x] Focused UI on practical operations.
+- [x] No manual emoji add flow in web UI.
+- [x] `uploaded_emoji_names` rendered as individual entries.
+- [x] Per-emoji remove implemented.
+- [x] Generic `Add Setting` workflow removed from web UI.
 
 ## Suggested Rollout
 1. Phase A: mark covered commands as deprecated in responses.
