@@ -22,7 +22,11 @@ const { Client, GatewayIntentBits } = require("discord.js");
 const { exec, close } = require('./utils/database');
 const { logInfo, logSuccess, logError } = require('./utils/logger');
 const config = require('./config/config');
-const { proforwardCommand, handleProforwardCommand } = require('./commands/proforwardCommand');
+const {
+  handleProforwardCommand,
+  buildRegisteredProforwardCommandData,
+  webManagedDeprecatedSubcommands
+} = require('./commands/proforwardCommand');
 const { debugCommand, handleDebugCommand } = require('./commands/debugCommands');
 const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
 let startWebAdminServer = () => null;
@@ -82,19 +86,19 @@ client.on("clientReady", async () => {
   
   try {
     logInfo('Started refreshing application (/) commands...');
-    await client.application.commands.set([proforwardCommand, debugCommand]);
+    const registeredProforwardCommand = buildRegisteredProforwardCommandData({ hideDeprecated: true });
+    const registeredDebugCommand = typeof debugCommand.toJSON === 'function'
+      ? debugCommand.toJSON()
+      : debugCommand;
+    await client.application.commands.set([registeredProforwardCommand, registeredDebugCommand]);
+
+    const visibleSubcommands = Array.isArray(registeredProforwardCommand.options)
+      ? registeredProforwardCommand.options.map(option => option.name)
+      : [];
     logSuccess('Successfully registered ProForwarder commands:');
     logInfo(`- /proforward ${config.debugMode ? '(DEBUG MODE)' : '(production mode)'}`);
-    logInfo(`  ├─ setup (configure Discord forwarding)`);
-    logInfo(`  ├─ telegram (configure Telegram forwarding)`);
-    logInfo(`  ├─ auto-publish (configure auto-publishing for announcement channels)`);
-    logInfo(`  ├─ retry (retry/repost a forwarded message)`);
-    logInfo(`  ├─ list (show active configurations)`);
-    logInfo(`  ├─ remove (remove configuration)`);
-    logInfo(`  ├─ status (show bot status)`);
-    logInfo(`  ├─ test (test Telegram connection)`);
-    logInfo(`  ├─ telegram-discover (discover Telegram chats)`);
-    logInfo(`  └─ reader-status (check reader bot status)`);
+    logInfo(`  ├─ Visible subcommands: ${visibleSubcommands.join(', ') || '(none)'}`);
+    logInfo(`  └─ Hidden (web-managed): ${webManagedDeprecatedSubcommands.join(', ')}`);
     logInfo(`- /debug (admin-only debugging tools)`);
   } catch (error) {
     logError('Error registering commands:', error);

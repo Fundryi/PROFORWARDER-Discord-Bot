@@ -163,6 +163,19 @@ const proforwardCommand = new SlashCommandBuilder()
        .setDescription('Check reader bot status and generate invite link')
    );
 
+function buildRegisteredProforwardCommandData(options = {}) {
+  const opts = options || {};
+  const hideDeprecated = opts.hideDeprecated !== false;
+  const commandData = proforwardCommand.toJSON();
+
+  if (!hideDeprecated || !Array.isArray(commandData.options)) {
+    return commandData;
+  }
+
+  commandData.options = commandData.options.filter(option => !WEB_MANAGED_DEPRECATED_SUBCOMMANDS.has(option.name));
+  return commandData;
+}
+
 function getWebAdminUrl() {
   try {
     const runtimeConfig = require('../config/config');
@@ -669,8 +682,9 @@ async function handleList(interaction) {
   const configs = allConfigs.filter(config => config.sourceServerId === interaction.guild.id);
 
   if (configs.length === 0) {
+    const webAdminUrl = getWebAdminUrl();
     await interaction.reply({ 
-      content: '📋 No forward configurations found for this server.\n\nUse `/proforward setup` to create one!', 
+      content: `📋 No forward configurations found for this server.\n\nCreate/manage forwards in Web Admin: ${webAdminUrl}`, 
       ephemeral: true 
     });
     return;
@@ -707,7 +721,7 @@ async function handleList(interaction) {
     response += `Status: ${config.enabled !== false ? '✅ Active' : '❌ Disabled'}\n\n`;
   }
 
-  response += `*Use \`/proforward remove config_id:<ID>\` to remove a configuration*`;
+  response += `*Manage and remove configurations in Web Admin: ${getWebAdminUrl()}*`;
 
   await interaction.reply({ content: response, ephemeral: true });
 }
@@ -768,19 +782,12 @@ async function handleStatus(interaction) {
   }
   
   response += `\n**💡 Quick Tips:**\n`;
-  response += `• Same server: \`/proforward setup source:#from target_channel:#to\`\n`;
-  response += `• Cross server: \`/proforward setup source:#from target_channel:CHANNEL_ID target_server:SERVER_ID\`\n`;
-  if (config.readerBot?.enabled) {
-    response += `• Reader bot: \`/proforward setup source_server:SERVER_ID source_channel_id:CHANNEL_ID target_channel:CHANNEL_ID target_server:SERVER_ID\`\n`;
-  }
+  response += `• Create/manage forwards: Web Admin ${getWebAdminUrl()}\n`;
   if (config.telegram?.enabled) {
-    response += `• Telegram: \`/proforward telegram source:#from chat_id:CHAT_ID\`\n`;
-    if (config.readerBot?.enabled) {
-      response += `• Reader bot Telegram: \`/proforward telegram source_server:SERVER_ID source_channel_id:CHANNEL_ID chat_id:CHAT_ID\`\n`;
-    }
     response += `• Discover chats: \`/proforward telegram-discover\`\n`;
     response += `• Discover by username: \`/proforward telegram-discover username:@channelname\`\n`;
   }
+  response += `• Retry a message forward: \`/proforward retry source_message_id:MESSAGE_ID\`\n`;
   if (config.readerBot?.enabled) {
     response += `• Reader bot status: \`/proforward reader-status\`\n`;
   }
@@ -838,7 +845,7 @@ async function handleTest(interaction) {
     
     if (testResult.success) {
       await interaction.editReply({
-        content: `✅ **Telegram test successful!**\n\n**Chat ID:** \`${chatId}\`\n**Message ID:** ${testResult.messageId}\n\n🎉 **Your Telegram integration is working perfectly!**\n\nYou can now use \`/proforward telegram\` to set up message forwarding.`,
+        content: `✅ **Telegram test successful!**\n\n**Chat ID:** \`${chatId}\`\n**Message ID:** ${testResult.messageId}\n\n🎉 **Your Telegram integration is working perfectly!**\n\nSet up Telegram forwarding in Web Admin: ${getWebAdminUrl()}`,
       });
     } else {
       await interaction.editReply({
@@ -1012,13 +1019,13 @@ async function handleTelegramDiscover(interaction) {
       if (chat.username) {
         response += `   • Username: @${chat.username}\n`;
       }
-      response += `   • Command: \`/proforward telegram source:#channel chat_id:${chat.id}\`\n\n`;
+      response += `   • Configure in Web Admin: ${getWebAdminUrl()} (use chat ID \`${chat.id}\`)\n\n`;
     }
 
     response += `\n💡 **Usage Tips:**\n`;
-    response += `• Copy the chat ID from above for use in \`/proforward telegram\`\n`;
+    response += `• Copy the chat ID from above for use in Web Admin\n`;
     response += `• For channels without messages: Use \`username:@channelname\` or \`username:https://t.me/channelname\`\n`;
-    response += `• Use \`/proforward test chat_id:CHAT_ID\` to verify connectivity\n`;
+    response += `• Use Web Admin Telegram test (Config row action) to verify connectivity\n`;
 
     if (errors.length > 0) {
       response += `\n⚠️ **Warnings:**\n`;
@@ -1129,7 +1136,7 @@ async function handleRetry(interaction) {
     
     if (configs.length === 0) {
       await interaction.editReply({
-        content: `❌ **No active forward configurations found** for the source channel ${sourceChannel}.\n\n**Original message found:** \`${sourceMessageId}\`\n**Found ${existingLogs.length} existing forward log(s) from when forwarding was active.**\n\n**To retry forwarding:**\n1. Set up forwarding for ${sourceChannel} using \`/proforward setup\` or \`/proforward telegram\`\n2. Then use \`/proforward retry\` again`
+        content: `❌ **No active forward configurations found** for the source channel ${sourceChannel}.\n\n**Original message found:** \`${sourceMessageId}\`\n**Found ${existingLogs.length} existing forward log(s) from when forwarding was active.**\n\n**To retry forwarding:**\n1. Set up forwarding for ${sourceChannel} in Web Admin: ${getWebAdminUrl()}\n2. Then use \`/proforward retry\` again`
       });
       return;
     }
@@ -1450,5 +1457,7 @@ async function handleReaderStatus(interaction) {
 
 module.exports = {
   proforwardCommand,
-  handleProforwardCommand
+  handleProforwardCommand,
+  buildRegisteredProforwardCommandData,
+  webManagedDeprecatedSubcommands: Array.from(WEB_MANAGED_DEPRECATED_SUBCOMMANDS)
 };
