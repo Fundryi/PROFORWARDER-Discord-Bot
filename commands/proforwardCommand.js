@@ -188,10 +188,10 @@ function getWebAdminUrl() {
   }
 }
 
-async function sendWebDeprecationNotice(interaction, subcommand) {
+async function sendWebManagedDisabledNotice(interaction, subcommand) {
   if (!WEB_MANAGED_DEPRECATED_SUBCOMMANDS.has(subcommand)) return;
 
-  const notice = `⚠️ \`/proforward ${subcommand}\` is deprecated and will be removed in a later rollout. Use Web Admin: ${getWebAdminUrl()}`;
+  const notice = `⛔ \`/proforward ${subcommand}\` is disabled. Manage this in Web Admin: ${getWebAdminUrl()}`;
 
   try {
     if (interaction.replied || interaction.deferred) {
@@ -208,39 +208,20 @@ async function handleProforwardCommand(interaction) {
   const subcommand = interaction.options.getSubcommand();
 
   try {
+    if (WEB_MANAGED_DEPRECATED_SUBCOMMANDS.has(subcommand)) {
+      await sendWebManagedDisabledNotice(interaction, subcommand);
+      return;
+    }
+
     switch (subcommand) {
-      case 'setup':
-        await handleSetup(interaction);
-        await sendWebDeprecationNotice(interaction, subcommand);
-        break;
-      case 'telegram':
-        await handleTelegram(interaction);
-        await sendWebDeprecationNotice(interaction, subcommand);
-        break;
-      case 'list':
-        await handleList(interaction);
-        await sendWebDeprecationNotice(interaction, subcommand);
-        break;
-      case 'remove':
-        await handleRemove(interaction);
-        await sendWebDeprecationNotice(interaction, subcommand);
-        break;
       case 'status':
         await handleStatus(interaction);
-        break;
-      case 'test':
-        await handleTest(interaction);
-        await sendWebDeprecationNotice(interaction, subcommand);
         break;
       case 'telegram-discover':
         await handleTelegramDiscover(interaction);
         break;
       case 'retry':
         await handleRetry(interaction);
-        break;
-      case 'auto-publish':
-        await handleAutoPublish(interaction);
-        await sendWebDeprecationNotice(interaction, subcommand);
         break;
       case 'reader-status':
         await handleReaderStatus(interaction);
