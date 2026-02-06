@@ -484,6 +484,11 @@ td .button {
   width: auto;
 }
 
+.filter-bar .compact-number {
+  min-width: 96px;
+  max-width: 120px;
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;

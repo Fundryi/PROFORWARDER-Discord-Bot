@@ -7,6 +7,8 @@
   var statusFilter = document.getElementById('logs-status-filter');
   var refreshBtn = document.getElementById('logs-refresh');
   var deleteFailedBtn = document.getElementById('logs-delete-failed');
+  var deleteFailedOldBtn = document.getElementById('logs-delete-failed-old');
+  var deleteFailedDaysInput = document.getElementById('logs-delete-failed-days');
   var loadMoreBtn = document.getElementById('logs-load-more');
 
   var nextBeforeId = null;
@@ -168,6 +170,16 @@
     return count === 1 ? singular : plural;
   }
 
+  function getCleanupDays() {
+    if (!deleteFailedDaysInput) return null;
+    var raw = String(deleteFailedDaysInput.value || '').trim();
+    if (!raw) return null;
+
+    var days = parseInt(raw, 10);
+    if (isNaN(days) || days <= 0) return null;
+    return days;
+  }
+
   async function deleteFailedLogs() {
     var configId = configFilter.value;
     var scopeText = configId
@@ -198,6 +210,40 @@
     }
   }
 
+  async function deleteFailedLogsOlderThanDays() {
+    var days = getCleanupDays();
+    if (!days) {
+      AdminApp.setStatus('Enter a valid positive number of days.', true);
+      return;
+    }
+
+    var configId = configFilter.value;
+    var scopeText = configId
+      ? 'for config ' + configId
+      : 'for all configs';
+    var warning = 'Delete FAILED log entries older than ' + days + ' day' + pluralize(days, '', 's') + ' ' + scopeText + '? This cannot be undone.';
+    if (!confirm(warning)) return;
+
+    try {
+      AdminApp.setStatus('Deleting old failed logs...');
+      var params = ['status=failed', 'olderThanDays=' + encodeURIComponent(String(days))];
+      if (configId) params.push('configId=' + encodeURIComponent(configId));
+
+      var result = await AdminApp.fetchJson('/api/logs?' + params.join('&'), {
+        method: 'DELETE'
+      });
+
+      var deleted = Number(result.deleted || 0);
+      AdminApp.setStatus(
+        'Deleted ' + deleted + ' failed log ' + pluralize(deleted, 'entry', 'entries') +
+        ' older than ' + days + ' day' + pluralize(days, '', 's') + '.'
+      );
+      await loadLogs(false);
+    } catch (error) {
+      AdminApp.setStatus('Failed to delete old failed logs: ' + error.message, true);
+    }
+  }
+
   // Events
   refreshBtn.addEventListener('click', function () {
     loadLogs(false);
@@ -206,6 +252,12 @@
   if (deleteFailedBtn) {
     deleteFailedBtn.addEventListener('click', function () {
       deleteFailedLogs();
+    });
+  }
+
+  if (deleteFailedOldBtn) {
+    deleteFailedOldBtn.addEventListener('click', function () {
+      deleteFailedLogsOlderThanDays();
     });
   }
 
