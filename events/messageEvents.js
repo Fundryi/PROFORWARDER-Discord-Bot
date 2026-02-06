@@ -1082,7 +1082,8 @@ async function handleAutoPublish(message, client) {
     if (!isEnabled) return;
     
     // Check if bot has permission to manage messages
-    const permissions = message.channel.permissionsFor(client.user);
+    const actingUser = message.client && message.client.user ? message.client.user : client.user;
+    const permissions = message.channel.permissionsFor(actingUser);
     if (!permissions || !permissions.has(['ManageMessages'])) {
       logError(`Auto-publish: Bot lacks Manage Messages permission in ${message.channel.name} (${message.guild.name})`);
       return;

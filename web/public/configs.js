@@ -27,7 +27,8 @@
   var setupState = {
     loaded: false,
     loading: false,
-    guilds: [],
+    sourceGuilds: [],
+    targetGuilds: [],
     telegram: {
       enabled: false,
       chats: [],
@@ -158,9 +159,10 @@
     }
   }
 
-  function getGuildById(guildId) {
-    for (var i = 0; i < setupState.guilds.length; i++) {
-      if (setupState.guilds[i].id === guildId) return setupState.guilds[i];
+  function getGuildById(guilds, guildId) {
+    var list = Array.isArray(guilds) ? guilds : [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === guildId) return list[i];
     }
     return null;
   }
@@ -219,7 +221,7 @@
   }
 
   function refreshDiscordSourceGuildSelect() {
-    var filteredGuilds = filterOptions(setupState.guilds, discordSourceServerSearch ? discordSourceServerSearch.value : '', guildLabel);
+    var filteredGuilds = filterOptions(setupState.sourceGuilds, discordSourceServerSearch ? discordSourceServerSearch.value : '', guildLabel);
     setupState.discordSourceGuildId = setSelectOptions(
       discordSourceServerSelect,
       filteredGuilds,
@@ -231,7 +233,7 @@
   }
 
   function refreshDiscordSourceChannelSelect() {
-    var guild = getGuildById(setupState.discordSourceGuildId);
+    var guild = getGuildById(setupState.sourceGuilds, setupState.discordSourceGuildId);
     var channels = guild ? (guild.sourceChannels || []) : [];
     var filteredChannels = filterOptions(channels, discordSourceChannelSearch ? discordSourceChannelSearch.value : '', channelLabel);
     setSelectOptions(
@@ -244,7 +246,7 @@
   }
 
   function refreshDiscordTargetGuildSelect() {
-    var filteredGuilds = filterOptions(setupState.guilds, discordTargetServerSearch ? discordTargetServerSearch.value : '', guildLabel);
+    var filteredGuilds = filterOptions(setupState.targetGuilds, discordTargetServerSearch ? discordTargetServerSearch.value : '', guildLabel);
     setupState.discordTargetGuildId = setSelectOptions(
       discordTargetServerSelect,
       filteredGuilds,
@@ -256,7 +258,7 @@
   }
 
   function refreshDiscordTargetChannelSelect() {
-    var guild = getGuildById(setupState.discordTargetGuildId);
+    var guild = getGuildById(setupState.targetGuilds, setupState.discordTargetGuildId);
     var channels = guild ? (guild.targetChannels || []) : [];
     var filteredChannels = filterOptions(channels, discordTargetChannelSearch ? discordTargetChannelSearch.value : '', channelLabel);
     setSelectOptions(
@@ -269,7 +271,7 @@
   }
 
   function refreshTelegramSourceGuildSelect() {
-    var filteredGuilds = filterOptions(setupState.guilds, telegramSourceServerSearch ? telegramSourceServerSearch.value : '', guildLabel);
+    var filteredGuilds = filterOptions(setupState.sourceGuilds, telegramSourceServerSearch ? telegramSourceServerSearch.value : '', guildLabel);
     setupState.telegramSourceGuildId = setSelectOptions(
       telegramSourceServerSelect,
       filteredGuilds,
@@ -281,7 +283,7 @@
   }
 
   function refreshTelegramSourceChannelSelect() {
-    var guild = getGuildById(setupState.telegramSourceGuildId);
+    var guild = getGuildById(setupState.sourceGuilds, setupState.telegramSourceGuildId);
     var channels = guild ? (guild.sourceChannels || []) : [];
     var filteredChannels = filterOptions(channels, telegramSourceChannelSearch ? telegramSourceChannelSearch.value : '', channelLabel);
     setSelectOptions(
@@ -336,26 +338,47 @@
     setupState.loading = true;
     try {
       var payload = await AdminApp.fetchJson('/api/form-options');
-      setupState.guilds = Array.isArray(payload.guilds) ? payload.guilds : [];
+      setupState.sourceGuilds = Array.isArray(payload.sourceGuilds)
+        ? payload.sourceGuilds
+        : (Array.isArray(payload.guilds) ? payload.guilds : []);
+      setupState.targetGuilds = Array.isArray(payload.targetGuilds)
+        ? payload.targetGuilds
+        : setupState.sourceGuilds.filter(function (guild) {
+          return Array.isArray(guild.targetChannels) && guild.targetChannels.length > 0;
+        }).map(function (guild) {
+          return {
+            id: guild.id,
+            name: guild.name,
+            targetChannels: guild.targetChannels || []
+          };
+        });
       setupState.telegram = payload.telegram || { enabled: false, chats: [], warnings: [] };
 
       var preferredGuild = AdminApp.state.currentGuildId || '';
-      if (!preferredGuild && setupState.guilds.length) {
-        preferredGuild = setupState.guilds[0].id;
+      if (!preferredGuild && setupState.sourceGuilds.length) {
+        preferredGuild = setupState.sourceGuilds[0].id;
+      }
+      var preferredTargetGuild = AdminApp.state.currentGuildId || '';
+      if (!preferredTargetGuild && setupState.targetGuilds.length) {
+        preferredTargetGuild = setupState.targetGuilds[0].id;
       }
 
-      if (preferredGuild && getGuildById(preferredGuild)) {
+      if (preferredGuild && getGuildById(setupState.sourceGuilds, preferredGuild)) {
         setupState.discordSourceGuildId = preferredGuild;
-        setupState.discordTargetGuildId = preferredGuild;
         setupState.telegramSourceGuildId = preferredGuild;
-      } else if (setupState.guilds.length) {
-        setupState.discordSourceGuildId = setupState.guilds[0].id;
-        setupState.discordTargetGuildId = setupState.guilds[0].id;
-        setupState.telegramSourceGuildId = setupState.guilds[0].id;
+      } else if (setupState.sourceGuilds.length) {
+        setupState.discordSourceGuildId = setupState.sourceGuilds[0].id;
+        setupState.telegramSourceGuildId = setupState.sourceGuilds[0].id;
       } else {
         setupState.discordSourceGuildId = '';
-        setupState.discordTargetGuildId = '';
         setupState.telegramSourceGuildId = '';
+      }
+      if (preferredTargetGuild && getGuildById(setupState.targetGuilds, preferredTargetGuild)) {
+        setupState.discordTargetGuildId = preferredTargetGuild;
+      } else if (setupState.targetGuilds.length) {
+        setupState.discordTargetGuildId = setupState.targetGuilds[0].id;
+      } else {
+        setupState.discordTargetGuildId = '';
       }
 
       setupState.loaded = true;
@@ -369,11 +392,11 @@
 
   function syncSourceGuildToCurrentSelection(guildId) {
     if (!setupState.loaded || !guildId) return;
-    if (!getGuildById(guildId)) return;
+    if (!getGuildById(setupState.sourceGuilds, guildId)) return;
 
     setupState.discordSourceGuildId = guildId;
     setupState.telegramSourceGuildId = guildId;
-    if (!setupState.discordTargetGuildId) {
+    if (!setupState.discordTargetGuildId && getGuildById(setupState.targetGuilds, guildId)) {
       setupState.discordTargetGuildId = guildId;
     }
 

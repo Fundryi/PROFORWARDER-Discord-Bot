@@ -595,12 +595,41 @@ function getEffectiveAuth(req, client, webAdminConfig) {
   return null;
 }
 
+function getReaderBotClient() {
+  try {
+    const { readerBot } = require('../index');
+    if (!readerBot || !readerBot.client || !readerBot.client.user) return null;
+    return readerBot.client;
+  } catch (_error) {
+    return null;
+  }
+}
+
 function buildLocalBypassAuth(client) {
-  const oauthGuilds = Array.from(client.guilds.cache.values()).map(guild => ({
-    id: guild.id,
-    name: guild.name,
-    permissions: String(PermissionFlagsBits.Administrator)
-  }));
+  const guildMap = new Map();
+
+  for (const guild of client.guilds.cache.values()) {
+    guildMap.set(guild.id, {
+      id: guild.id,
+      name: guild.name,
+      permissions: String(PermissionFlagsBits.Administrator)
+    });
+  }
+
+  const readerClient = getReaderBotClient();
+  if (readerClient) {
+    for (const guild of readerClient.guilds.cache.values()) {
+      if (!guildMap.has(guild.id)) {
+        guildMap.set(guild.id, {
+          id: guild.id,
+          name: guild.name,
+          permissions: String(PermissionFlagsBits.Administrator)
+        });
+      }
+    }
+  }
+
+  const oauthGuilds = Array.from(guildMap.values());
 
   return {
     user: {
@@ -686,6 +715,38 @@ async function getManageableGuilds(client, auth, allowedRoleIds) {
   return checks.filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+async function getManageableSourceGuilds(mainClient, auth, allowedRoleIds) {
+  const combined = new Map();
+
+  const mainGuilds = await getManageableGuilds(mainClient, auth, allowedRoleIds);
+  for (const guild of mainGuilds) {
+    combined.set(guild.id, {
+      id: guild.id,
+      name: guild.name,
+      sourceBot: 'main'
+    });
+  }
+
+  const readerClient = getReaderBotClient();
+  if (readerClient) {
+    const readerGuilds = await getManageableGuilds(readerClient, auth, allowedRoleIds);
+    for (const guild of readerGuilds) {
+      const existing = combined.get(guild.id);
+      if (existing) {
+        existing.sourceBot = 'both';
+      } else {
+        combined.set(guild.id, {
+          id: guild.id,
+          name: guild.name,
+          sourceBot: 'reader'
+        });
+      }
+    }
+  }
+
+  return Array.from(combined.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function isTextOrAnnouncementChannel(channel) {
   if (!channel) return false;
   return channel.type === 0 || channel.type === 5;
@@ -706,8 +767,33 @@ function parseConfigId(value) {
 }
 
 async function getAuthorizedGuildSet(client, auth, allowedRoleIds) {
-  const guilds = await getManageableGuilds(client, auth, allowedRoleIds);
+  const guilds = await getManageableSourceGuilds(client, auth, allowedRoleIds);
   return new Set(guilds.map(guild => guild.id));
+}
+
+function getSourceGuildContext(mainClient, guildId) {
+  const mainGuild = mainClient.guilds.cache.get(guildId);
+  if (mainGuild) {
+    return {
+      guild: mainGuild,
+      botUser: mainClient.user,
+      botType: 'main'
+    };
+  }
+
+  const readerClient = getReaderBotClient();
+  if (readerClient) {
+    const readerGuild = readerClient.guilds.cache.get(guildId);
+    if (readerGuild) {
+      return {
+        guild: readerGuild,
+        botUser: readerClient.user,
+        botType: 'reader'
+      };
+    }
+  }
+
+  return null;
 }
 
 function sortGuildChannels(channels) {
@@ -1034,7 +1120,7 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const guilds = await getManageableGuilds(client, auth, webAdminConfig.allowedRoleIds);
+      const guilds = await getManageableSourceGuilds(client, auth, webAdminConfig.allowedRoleIds);
       res.json({
         user: auth.user,
         guilds
@@ -1053,25 +1139,39 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const manageableGuilds = await getManageableGuilds(client, auth, webAdminConfig.allowedRoleIds);
-      const guildOptions = [];
+      const manageableSourceGuilds = await getManageableSourceGuilds(client, auth, webAdminConfig.allowedRoleIds);
+      const manageableTargetGuilds = await getManageableGuilds(client, auth, webAdminConfig.allowedRoleIds);
+      const sourceGuilds = [];
+      const targetGuilds = [];
 
-      for (const manageableGuild of manageableGuilds) {
-        const guild = client.guilds.cache.get(manageableGuild.id);
-        if (!guild) continue;
+      for (const sourceMeta of manageableSourceGuilds) {
+        const sourceContext = getSourceGuildContext(client, sourceMeta.id);
+        if (!sourceContext || !sourceContext.guild) continue;
 
-        guildOptions.push({
-          id: guild.id,
-          name: guild.name,
-          sourceChannels: mapGuildChannels(guild, client.user),
-          targetChannels: mapGuildChannels(guild, client.user, { requireSendMessages: true })
+        sourceGuilds.push({
+          id: sourceContext.guild.id,
+          name: sourceContext.guild.name,
+          sourceBot: sourceMeta.sourceBot,
+          sourceChannels: mapGuildChannels(sourceContext.guild, sourceContext.botUser)
+        });
+      }
+
+      for (const targetMeta of manageableTargetGuilds) {
+        const targetGuild = client.guilds.cache.get(targetMeta.id);
+        if (!targetGuild) continue;
+
+        targetGuilds.push({
+          id: targetGuild.id,
+          name: targetGuild.name,
+          targetChannels: mapGuildChannels(targetGuild, client.user, { requireSendMessages: true })
         });
       }
 
       const telegram = await collectTelegramChatOptions();
 
       res.json({
-        guilds: guildOptions,
+        sourceGuilds,
+        targetGuilds,
         telegram
       });
     } catch (error) {
@@ -1094,7 +1194,7 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const guilds = await getManageableGuilds(client, auth, webAdminConfig.allowedRoleIds);
+      const guilds = await getManageableSourceGuilds(client, auth, webAdminConfig.allowedRoleIds);
       const canAccess = guilds.some(guild => guild.id === guildId);
       if (!canAccess) {
         res.status(403).json({ error: 'Forbidden for this guild' });
@@ -1151,11 +1251,13 @@ function createWebAdminApp(client, config) {
         return;
       }
 
-      const sourceGuild = client.guilds.cache.get(guildId);
-      if (!sourceGuild) {
+      const sourceContext = getSourceGuildContext(client, guildId);
+      if (!sourceContext || !sourceContext.guild) {
         res.status(400).json({ error: 'Source guild not found in bot cache' });
         return;
       }
+      const sourceGuild = sourceContext.guild;
+      const sourceBotUser = sourceContext.botUser;
 
       let sourceChannel = sourceGuild.channels.cache.get(sourceChannelId);
       if (!sourceChannel) {
@@ -1167,6 +1269,11 @@ function createWebAdminApp(client, config) {
       }
       if (!isTextOrAnnouncementChannel(sourceChannel)) {
         res.status(400).json({ error: 'Source channel must be a text or announcement channel' });
+        return;
+      }
+      const sourcePermissions = sourceChannel.permissionsFor(sourceBotUser);
+      if (!sourcePermissions || !sourcePermissions.has(PermissionFlagsBits.ViewChannel)) {
+        res.status(400).json({ error: 'Selected source channel is not readable by the source bot' });
         return;
       }
 
@@ -1691,17 +1798,18 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const manageableGuilds = await getManageableGuilds(client, auth, webAdminConfig.allowedRoleIds);
+      const manageableGuilds = await getManageableSourceGuilds(client, auth, webAdminConfig.allowedRoleIds);
       const autoPublishConfig = await getAutoPublishConfig();
       const guilds = [];
       const enabledChannels = [];
 
       for (const manageableGuild of manageableGuilds) {
-        const guild = client.guilds.cache.get(manageableGuild.id);
-        if (!guild) continue;
+        const sourceContext = getSourceGuildContext(client, manageableGuild.id);
+        if (!sourceContext || !sourceContext.guild) continue;
+        const guild = sourceContext.guild;
 
         const enabledSet = new Set(Array.isArray(autoPublishConfig[guild.id]) ? autoPublishConfig[guild.id] : []);
-        const announcementChannels = mapGuildChannels(guild, client.user, {
+        const announcementChannels = mapGuildChannels(guild, sourceContext.botUser, {
           announcementOnly: true,
           requireManageMessages: true
         }).map(channel => ({
@@ -1722,6 +1830,7 @@ function createWebAdminApp(client, config) {
         guilds.push({
           id: guild.id,
           name: guild.name,
+          sourceBot: sourceContext.botType,
           channels: announcementChannels
         });
       }
@@ -1763,11 +1872,12 @@ function createWebAdminApp(client, config) {
         return;
       }
 
-      const guild = client.guilds.cache.get(guildId);
-      if (!guild) {
-        res.status(404).json({ error: 'Guild not found in main bot cache' });
+      const sourceContext = getSourceGuildContext(client, guildId);
+      if (!sourceContext || !sourceContext.guild) {
+        res.status(404).json({ error: 'Guild not found in source bot cache' });
         return;
       }
+      const guild = sourceContext.guild;
 
       let channel = guild.channels.cache.get(channelId);
       if (!channel) {
@@ -1783,9 +1893,9 @@ function createWebAdminApp(client, config) {
         return;
       }
 
-      const permissions = channel.permissionsFor(client.user);
+      const permissions = channel.permissionsFor(sourceContext.botUser);
       if (!permissions || !permissions.has(PermissionFlagsBits.ManageMessages)) {
-        res.status(400).json({ error: 'Main bot requires Manage Messages permission in that channel' });
+        res.status(400).json({ error: 'Source bot requires Manage Messages permission in that channel' });
         return;
       }
 
