@@ -183,6 +183,9 @@
 
   function setSelectOptions(select, options, getLabel, emptyText, selectedId) {
     if (!select) return '';
+    if (typeof select.size === 'number' && select.size !== 1) {
+      select.size = 1;
+    }
     select.innerHTML = '';
 
     if (!options.length) {
@@ -228,9 +231,6 @@
     }
 
     var includesId = Boolean(id) && title.indexOf(id) >= 0;
-    if (title.length > 58) {
-      title = title.slice(0, 55) + '...';
-    }
 
     var parts = [type, title];
     if (id && !includesId) {
@@ -240,6 +240,37 @@
       parts.push('- ' + source);
     }
     return parts.join(' ');
+  }
+
+  function wireExpandableSelect(select, maxVisibleRows) {
+    if (!select) return;
+    var expanded = false;
+    var rowLimit = Math.max(2, Number(maxVisibleRows) || 8);
+
+    function collapse() {
+      if (!expanded) return;
+      expanded = false;
+      select.size = 1;
+      select.classList.remove('select-expanded');
+    }
+
+    function expand() {
+      if (expanded) return;
+      var optionCount = select.options ? select.options.length : 0;
+      if (optionCount <= 1) return;
+      expanded = true;
+      select.size = Math.min(rowLimit, optionCount);
+      select.classList.add('select-expanded');
+    }
+
+    select.addEventListener('focus', expand);
+    select.addEventListener('blur', collapse);
+    select.addEventListener('change', collapse);
+    select.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') {
+        collapse();
+      }
+    });
   }
 
   function refreshDiscordSourceGuildSelect() {
@@ -528,6 +559,7 @@
       telegramChatSearch.addEventListener('input', refreshTelegramChatSelect);
     }
     if (telegramChatSelect) {
+      wireExpandableSelect(telegramChatSelect, 8);
       telegramChatSelect.addEventListener('change', function () {
         if (!telegramChatIdInput) return;
         if (!telegramChatSelect.value) return;

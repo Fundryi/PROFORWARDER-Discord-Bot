@@ -349,11 +349,6 @@
         }
       });
       actions.appendChild(deleteBtn);
-    } else {
-      var emojiActionNote = document.createElement('span');
-      emojiActionNote.className = 'muted-text';
-      emojiActionNote.textContent = 'Per-emoji delete only';
-      actions.appendChild(emojiActionNote);
     }
 
     row.appendChild(actions);
