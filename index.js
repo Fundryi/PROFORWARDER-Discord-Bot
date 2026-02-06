@@ -25,7 +25,13 @@ const config = require('./config/env');
 const { proforwardCommand, handleProforwardCommand } = require('./commands/proforwardCommand');
 const { debugCommand, handleDebugCommand } = require('./commands/debugCommands');
 const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
-const { startWebAdminServer, stopWebAdminServer } = require('./web/server');
+let startWebAdminServer = () => null;
+let stopWebAdminServer = async () => {};
+try {
+  ({ startWebAdminServer, stopWebAdminServer } = require('./web/server'));
+} catch (error) {
+  logError(`Web admin module unavailable, continuing without web admin: ${error.message}`);
+}
 
 // Reader Bot import
 const ReaderBot = require('./readerBot');
