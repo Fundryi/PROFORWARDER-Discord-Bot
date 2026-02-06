@@ -281,6 +281,41 @@ textarea::placeholder {
   gap: 12px;
 }
 
+.config-builder-form {
+  gap: 14px;
+}
+
+.config-builder-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.config-box {
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(132, 170, 221, 0.26);
+  background: rgba(9, 15, 26, 0.56);
+  padding: 12px;
+}
+
+.config-box legend {
+  margin-left: 6px;
+  padding: 0 8px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.config-box .muted-text {
+  margin: 0;
+}
+
 .table-wrapper {
   margin-top: 12px;
   border-radius: 14px;
@@ -493,6 +528,10 @@ td .button {
 .filter-bar .compact-number {
   min-width: 96px;
   max-width: 120px;
+}
+
+.filter-bar .filter-wide-input {
+  min-width: 260px;
 }
 
 .autopublish-actions {
@@ -793,6 +832,10 @@ select {
   .layout {
     width: min(96vw, 1160px);
     margin-top: 22px;
+  }
+
+  .config-builder-grid {
+    grid-template-columns: 1fr;
   }
 
   .setting-row {
