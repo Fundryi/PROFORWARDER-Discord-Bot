@@ -113,8 +113,12 @@
           if (!confirm('Remove config ' + cfg.id + '?')) return;
           try {
             AdminApp.setStatus('Removing config ' + cfg.id + '...');
-            await AdminApp.fetchJson('/api/configs/' + cfg.id, { method: 'DELETE' });
-            AdminApp.setStatus('Config ' + cfg.id + ' removed.');
+            var result = await AdminApp.fetchJson('/api/configs/' + cfg.id, { method: 'DELETE' });
+            var deletedLogs = Number(result.deletedLogs || 0);
+            AdminApp.setStatus(
+              'Config ' + cfg.id + ' removed. Cleaned ' + deletedLogs + ' related log entr' +
+              (deletedLogs === 1 ? 'y' : 'ies') + '.'
+            );
             await loadConfigs(AdminApp.state.currentGuildId);
           } catch (error) {
             AdminApp.setStatus('Remove failed: ' + error.message, true);
@@ -403,6 +407,58 @@
     renderSetupSelectors();
   }
 
+  function getFirstId(items) {
+    if (!Array.isArray(items) || !items.length) return '';
+    return String(items[0].id || '');
+  }
+
+  function setActiveGuild(guildId) {
+    var nextGuildId = String(guildId || '').trim();
+    if (!nextGuildId) return;
+
+    var guildSelect = document.getElementById('guild-select');
+    if (!guildSelect) {
+      loadConfigs(nextGuildId);
+      return;
+    }
+
+    if (guildSelect.value !== nextGuildId) {
+      guildSelect.value = nextGuildId;
+      guildSelect.dispatchEvent(new Event('change'));
+      return;
+    }
+
+    loadConfigs(nextGuildId);
+  }
+
+  function resetDiscordCreateForm() {
+    if (discordSourceServerSearch) discordSourceServerSearch.value = '';
+    if (discordSourceChannelSearch) discordSourceChannelSearch.value = '';
+    if (discordTargetServerSearch) discordTargetServerSearch.value = '';
+    if (discordTargetChannelSearch) discordTargetChannelSearch.value = '';
+
+    setupState.discordSourceGuildId = getFirstId(setupState.sourceGuilds);
+    setupState.discordTargetGuildId = getFirstId(setupState.targetGuilds);
+    renderSetupSelectors();
+
+    var discordNameInput = document.getElementById('discord-name');
+    if (discordNameInput) discordNameInput.value = '';
+  }
+
+  function resetTelegramCreateForm() {
+    if (telegramSourceServerSearch) telegramSourceServerSearch.value = '';
+    if (telegramSourceChannelSearch) telegramSourceChannelSearch.value = '';
+    if (telegramChatSearch) telegramChatSearch.value = '';
+    if (telegramChatSelect) telegramChatSelect.value = '';
+    if (telegramChatIdInput) telegramChatIdInput.value = '';
+
+    setupState.telegramSourceGuildId = getFirstId(setupState.sourceGuilds);
+    renderSetupSelectors();
+
+    var telegramNameInput = document.getElementById('telegram-name');
+    if (telegramNameInput) telegramNameInput.value = '';
+  }
+
   function isDiscordId(value) {
     return /^\d+$/.test(String(value || '').trim());
   }
@@ -488,13 +544,14 @@
 
       try {
         AdminApp.setStatus('Creating Discord forward...');
-        await AdminApp.fetchJson('/api/configs', {
+        var createdDiscord = await AdminApp.fetchJson('/api/configs', {
           method: 'POST',
           body: JSON.stringify(payload)
         });
-        document.getElementById('discord-name').value = '';
-        AdminApp.setStatus('Discord forward created.');
-        await loadConfigs(AdminApp.state.currentGuildId);
+        resetDiscordCreateForm();
+        var discordConfigId = createdDiscord && createdDiscord.config ? createdDiscord.config.id : '?';
+        AdminApp.setStatus('Discord forward created successfully (Config ' + discordConfigId + ').');
+        setActiveGuild(sourceGuildId);
       } catch (error) {
         AdminApp.setStatus('Create failed: ' + error.message, true);
       }
@@ -531,13 +588,14 @@
 
       try {
         AdminApp.setStatus('Creating Telegram forward...');
-        await AdminApp.fetchJson('/api/configs', {
+        var createdTelegram = await AdminApp.fetchJson('/api/configs', {
           method: 'POST',
           body: JSON.stringify(payload)
         });
-        document.getElementById('telegram-name').value = '';
-        AdminApp.setStatus('Telegram forward created.');
-        await loadConfigs(AdminApp.state.currentGuildId);
+        resetTelegramCreateForm();
+        var telegramConfigId = createdTelegram && createdTelegram.config ? createdTelegram.config.id : '?';
+        AdminApp.setStatus('Telegram forward created successfully (Config ' + telegramConfigId + ').');
+        setActiveGuild(sourceGuildId);
       } catch (error) {
         AdminApp.setStatus('Create failed: ' + error.message, true);
       }

@@ -485,9 +485,7 @@ function renderDashboardPage(auth) {
             <option value="retry">Retry</option>
           </select>
           <button id="logs-refresh" class="button secondary sm">Refresh</button>
-          <button id="logs-delete-failed" class="button secondary sm danger">Delete Failed</button>
-          <input id="logs-delete-failed-days" class="input compact-number" type="number" min="1" step="1" value="30" placeholder="Days">
-          <button id="logs-delete-failed-old" class="button secondary sm danger">Delete Failed Older</button>
+          <button id="logs-delete-failed" class="button secondary sm danger">Delete Failed Logs</button>
         </div>
         <div class="table-wrapper">
           <table class="logs-table">
@@ -497,12 +495,13 @@ function renderDashboardPage(auth) {
                 <th>Config</th>
                 <th>Original</th>
                 <th>Forwarded</th>
+                <th>Target</th>
                 <th>Status</th>
                 <th>Error</th>
               </tr>
             </thead>
             <tbody id="logs-body">
-              <tr><td colspan="6" class="muted-text">Loading...</td></tr>
+              <tr><td colspan="7" class="muted-text">Loading...</td></tr>
             </tbody>
           </table>
         </div>
@@ -764,6 +763,56 @@ function parseConfigId(value) {
   const parsed = parseInt(value, 10);
   if (Number.isNaN(parsed)) return null;
   return parsed;
+}
+
+function inferLogTargetType(log, configItem) {
+  if (configItem && typeof configItem.targetType === 'string') {
+    const normalized = configItem.targetType.trim().toLowerCase();
+    if (normalized === 'discord' || normalized === 'telegram') {
+      return normalized;
+    }
+  }
+
+  if (!log) return 'unknown';
+  const forwardedServerId = String(log.forwardedServerId || '').trim();
+  const forwardedChannelId = String(log.forwardedChannelId || '').trim();
+  if (!forwardedServerId && forwardedChannelId) {
+    return 'telegram';
+  }
+  if (forwardedServerId || forwardedChannelId) {
+    return 'discord';
+  }
+  return 'unknown';
+}
+
+function buildLogTargetLabel(log, targetType, configItem) {
+  if (targetType === 'telegram') {
+    const chatId = String(
+      (configItem && configItem.targetChatId)
+      || log.forwardedChannelId
+      || '-'
+    );
+    return `Telegram ${chatId}`;
+  }
+
+  if (targetType === 'discord') {
+    const serverId = String(
+      (configItem && configItem.targetServerId)
+      || log.forwardedServerId
+      || ''
+    ).trim();
+    const channelId = String(
+      (configItem && configItem.targetChannelId)
+      || log.forwardedChannelId
+      || ''
+    ).trim();
+
+    if (serverId && channelId) return `Discord ${serverId}:${channelId}`;
+    if (channelId) return `Discord ${channelId}`;
+    return 'Discord -';
+  }
+
+  return 'Unknown';
 }
 
 async function getAuthorizedGuildSet(client, auth, allowedRoleIds) {
@@ -1431,7 +1480,15 @@ function createWebAdminApp(client, config) {
       }
 
       await removeForwardConfig(configId);
-      res.json({ success: true, removedConfigId: configId });
+
+      let deletedLogs = 0;
+      try {
+        deletedLogs = await deleteMessageLogsFiltered({ configId });
+      } catch (cleanupError) {
+        logError(`Web admin remove config log cleanup failed for config ${configId}: ${cleanupError.message}`);
+      }
+
+      res.json({ success: true, removedConfigId: configId, deletedLogs });
     } catch (error) {
       logError(`Web admin remove config failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to remove config' });
@@ -1625,11 +1682,25 @@ function createWebAdminApp(client, config) {
       const beforeId = req.query.beforeId ? parseInt(req.query.beforeId, 10) : null;
 
       const logs = await getMessageLogsFiltered({ configId, status, limit, beforeId });
+      const forwardConfigs = await loadForwardConfigs();
+      const configMap = new Map(
+        (forwardConfigs || []).map(item => [Number(item.id), item])
+      );
+
+      const logsWithTargets = logs.map(log => {
+        const configItem = configMap.get(Number(log.configId));
+        const targetType = inferLogTargetType(log, configItem);
+        return {
+          ...log,
+          targetType,
+          targetLabel: buildLogTargetLabel(log, targetType, configItem)
+        };
+      });
 
       res.json({
-        logs,
-        hasMore: logs.length === limit,
-        nextBeforeId: logs.length > 0 ? logs[logs.length - 1].id : null
+        logs: logsWithTargets,
+        hasMore: logsWithTargets.length === limit,
+        nextBeforeId: logsWithTargets.length > 0 ? logsWithTargets[logsWithTargets.length - 1].id : null
       });
     } catch (error) {
       logError(`Web admin /api/logs failed: ${error.message}`);
@@ -1647,13 +1718,9 @@ function createWebAdminApp(client, config) {
     try {
       const status = ['success', 'failed', 'retry'].includes(req.query.status) ? req.query.status : null;
       const configIdRaw = req.query.configId;
-      const olderThanDaysRaw = req.query.olderThanDays;
       const configId = configIdRaw === undefined || configIdRaw === null || configIdRaw === ''
         ? null
         : parseInt(configIdRaw, 10);
-      const olderThanDays = olderThanDaysRaw === undefined || olderThanDaysRaw === null || olderThanDaysRaw === ''
-        ? null
-        : parseInt(olderThanDaysRaw, 10);
 
       if (!status) {
         res.status(400).json({ error: 'status query is required (success|failed|retry)' });
@@ -1663,19 +1730,8 @@ function createWebAdminApp(client, config) {
         res.status(400).json({ error: 'configId must be a valid integer' });
         return;
       }
-      if (olderThanDaysRaw !== undefined && olderThanDaysRaw !== null && olderThanDaysRaw !== '') {
-        if (Number.isNaN(olderThanDays) || olderThanDays <= 0) {
-          res.status(400).json({ error: 'olderThanDays must be a positive integer' });
-          return;
-        }
-      }
-
-      const olderThanForwardedAt = olderThanDays === null
-        ? null
-        : Date.now() - (olderThanDays * 24 * 60 * 60 * 1000);
-
-      const deleted = await deleteMessageLogsFiltered({ status, configId, olderThanForwardedAt });
-      res.json({ success: true, deleted, status, configId, olderThanDays });
+      const deleted = await deleteMessageLogsFiltered({ status, configId });
+      res.json({ success: true, deleted, status, configId });
     } catch (error) {
       logError(`Web admin DELETE /api/logs failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to delete logs' });

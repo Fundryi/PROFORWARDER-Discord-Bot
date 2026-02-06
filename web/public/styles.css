@@ -504,7 +504,7 @@ td .button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 78px;
+  min-width: 96px;
   border-radius: 999px;
   border: 1px solid transparent;
   padding: 4px 9px;
@@ -544,8 +544,12 @@ td .button {
   word-break: break-word;
 }
 
-.logs-table td:nth-child(5) {
-  min-width: 98px;
+.logs-table td:nth-child(6) {
+  min-width: 112px;
+}
+
+.log-target {
+  font-size: 0.78rem;
 }
 
 .logs-error {
