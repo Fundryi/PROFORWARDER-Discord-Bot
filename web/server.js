@@ -310,9 +310,30 @@ function renderDashboardPage(auth) {
       <div class="card">
         <h2>Create Discord Forward</h2>
         <form id="create-discord-form" class="form-grid">
-          <label>Source Channel ID<input id="discord-source-channel" class="input" required></label>
-          <label>Target Channel ID<input id="discord-target-channel" class="input" required></label>
-          <label>Target Server ID (optional)<input id="discord-target-server" class="input"></label>
+          <label>Source Server
+            <input id="discord-source-server-search" class="input select-search" placeholder="Search source servers">
+            <select id="discord-source-server" class="input" required>
+              <option value="">Loading source servers...</option>
+            </select>
+          </label>
+          <label>Source Channel
+            <input id="discord-source-channel-search" class="input select-search" placeholder="Search source channels">
+            <select id="discord-source-channel" class="input" required>
+              <option value="">Select source server first</option>
+            </select>
+          </label>
+          <label>Target Server (Main Bot)
+            <input id="discord-target-server-search" class="input select-search" placeholder="Search target servers">
+            <select id="discord-target-server" class="input" required>
+              <option value="">Loading target servers...</option>
+            </select>
+          </label>
+          <label>Target Channel (Main Bot)
+            <input id="discord-target-channel-search" class="input select-search" placeholder="Search target channels">
+            <select id="discord-target-channel" class="input" required>
+              <option value="">Select target server first</option>
+            </select>
+          </label>
           <label>Name (optional)<input id="discord-name" class="input"></label>
           <button type="submit" class="button">Create Discord Forward</button>
         </form>
@@ -321,8 +342,26 @@ function renderDashboardPage(auth) {
       <div class="card">
         <h2>Create Telegram Forward</h2>
         <form id="create-telegram-form" class="form-grid">
-          <label>Source Channel ID<input id="telegram-source-channel" class="input" required></label>
-          <label>Telegram Chat ID<input id="telegram-chat-id" class="input" required></label>
+          <label>Source Server
+            <input id="telegram-source-server-search" class="input select-search" placeholder="Search source servers">
+            <select id="telegram-source-server" class="input" required>
+              <option value="">Loading source servers...</option>
+            </select>
+          </label>
+          <label>Source Channel
+            <input id="telegram-source-channel-search" class="input select-search" placeholder="Search source channels">
+            <select id="telegram-source-channel" class="input" required>
+              <option value="">Select source server first</option>
+            </select>
+          </label>
+          <label>Telegram Chat (discovered)
+            <input id="telegram-chat-search" class="input select-search" placeholder="Search discovered chats">
+            <select id="telegram-chat-select" class="input">
+              <option value="">Select discovered chat (optional)</option>
+            </select>
+          </label>
+          <label>Telegram Chat ID (manual or selected)<input id="telegram-chat-id" class="input" required></label>
+          <p id="telegram-chat-hint" class="muted-text">Chat list uses best-effort discovery from bot updates and existing configs.</p>
           <label>Name (optional)<input id="telegram-name" class="input"></label>
           <button type="submit" class="button">Create Telegram Forward</button>
         </form>

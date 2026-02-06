@@ -270,6 +270,12 @@ textarea::placeholder {
   line-height: 1.45;
 }
 
+.select-search {
+  margin-top: 0;
+  margin-bottom: 6px;
+  font-size: 0.84rem;
+}
+
 .form-grid {
   display: grid;
   gap: 12px;
