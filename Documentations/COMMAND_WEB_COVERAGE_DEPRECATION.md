@@ -17,9 +17,9 @@ Move day-to-day management from slash commands to web admin without losing criti
 - [x] Settings UI cleanup: removed outdated helper copy and improved emoji-name visibility layout.
 - [x] Telegram chat dropdown labels shortened to avoid clipped/truncated option rendering.
 - [x] Phase A complete: covered `/proforward` subcommands now show deprecation notice pointing to Web Admin.
+- [x] Phase B complete: web-managed `/proforward` subcommands are hidden from slash command registration/help surface.
 
 ### Still To Do
-- [ ] Phase B: hide covered commands from registration/help.
 - [ ] Phase C: disable covered commands after 1-2 release cycles.
 - [ ] Phase D: disable remaining commands after web parity for remaining gaps.
 - [ ] Add web action to retry/force-forward by source message ID.
