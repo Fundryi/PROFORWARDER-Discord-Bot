@@ -13,7 +13,9 @@ const {
   enableForwardConfig,
   disableForwardConfig,
   removeForwardConfig,
-  getConfigStats
+  getConfigStats,
+  getAutoPublishConfig,
+  setAutoPublishChannelEnabled
 } = require('../utils/configManager');
 const {
   getMessageLogs,
@@ -27,6 +29,12 @@ const {
   run: dbRun
 } = require('../utils/database');
 const { logInfo, logSuccess, logError } = require('../utils/logger');
+
+const TELEGRAM_DISCOVERY_CACHE_TTL_MS = 60 * 1000;
+let telegramDiscoveryCache = {
+  loadedAt: 0,
+  payload: null
+};
 
 function buildDiscordAuthorizeUrl(webAdminConfig, state) {
   const params = new URLSearchParams({
@@ -615,6 +623,171 @@ async function getAuthorizedGuildSet(client, auth, allowedRoleIds) {
   return new Set(guilds.map(guild => guild.id));
 }
 
+function sortGuildChannels(channels) {
+  return channels.sort((a, b) => {
+    const aPos = typeof a.rawPosition === 'number' ? a.rawPosition : Number.MAX_SAFE_INTEGER;
+    const bPos = typeof b.rawPosition === 'number' ? b.rawPosition : Number.MAX_SAFE_INTEGER;
+    if (aPos !== bPos) return aPos - bPos;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+}
+
+function mapGuildChannels(guild, botUser, options = {}) {
+  const {
+    requireSendMessages = false,
+    requireManageMessages = false,
+    announcementOnly = false
+  } = options;
+
+  const channels = Array.from(guild.channels.cache.values()).filter(channel => {
+    if (!channel) return false;
+    if (!isTextOrAnnouncementChannel(channel)) return false;
+    if (announcementOnly && channel.type !== 5) return false;
+
+    const perms = channel.permissionsFor(botUser);
+    if (!perms || !perms.has(PermissionFlagsBits.ViewChannel)) return false;
+    if (requireSendMessages && !perms.has(PermissionFlagsBits.SendMessages)) return false;
+    if (requireManageMessages && !perms.has(PermissionFlagsBits.ManageMessages)) return false;
+    return true;
+  });
+
+  return sortGuildChannels(channels).map(channel => ({
+    id: channel.id,
+    name: channel.name,
+    type: channel.type === 5 ? 'announcement' : 'text'
+  }));
+}
+
+function parseUpdateChat(update) {
+  if (!update || typeof update !== 'object') return null;
+  return update.message?.chat
+    || update.edited_message?.chat
+    || update.channel_post?.chat
+    || update.edited_channel_post?.chat
+    || null;
+}
+
+function normalizeTelegramChat(chat) {
+  if (!chat || (chat.id === undefined || chat.id === null)) return null;
+  const id = String(chat.id);
+  const type = chat.type || 'unknown';
+  const title = chat.title
+    || `${chat.first_name || ''} ${chat.last_name || ''}`.trim()
+    || `Chat ${id}`;
+  return {
+    id,
+    title,
+    type,
+    username: chat.username || null
+  };
+}
+
+function upsertTelegramChat(chatMap, chat, source) {
+  const normalized = normalizeTelegramChat(chat);
+  if (!normalized) return;
+
+  const existing = chatMap.get(normalized.id);
+  if (!existing) {
+    chatMap.set(normalized.id, { ...normalized, source });
+    return;
+  }
+
+  chatMap.set(normalized.id, {
+    ...existing,
+    title: normalized.title || existing.title,
+    type: normalized.type || existing.type,
+    username: normalized.username || existing.username,
+    source: existing.source === 'updates' ? 'updates' : source
+  });
+}
+
+async function collectTelegramChatOptions() {
+  const now = Date.now();
+  if (
+    telegramDiscoveryCache.payload &&
+    (now - telegramDiscoveryCache.loadedAt) < TELEGRAM_DISCOVERY_CACHE_TTL_MS
+  ) {
+    return telegramDiscoveryCache.payload;
+  }
+
+  const runtimeConfig = require('../config/config');
+  const telegramEnabled = Boolean(runtimeConfig.telegram && runtimeConfig.telegram.enabled);
+  const chatMap = new Map();
+  const warnings = [];
+
+  // Always include chat IDs already used in existing Telegram forward configs.
+  try {
+    const configs = await loadForwardConfigs();
+    for (const cfg of configs) {
+      if (cfg.targetType !== 'telegram' || !cfg.targetChatId) continue;
+      upsertTelegramChat(chatMap, {
+        id: cfg.targetChatId,
+        title: `Configured Chat ${cfg.targetChatId}`,
+        type: 'configured'
+      }, 'configured');
+    }
+  } catch (error) {
+    warnings.push(`Failed to read configured Telegram chats: ${error.message}`);
+  }
+
+  if (telegramEnabled) {
+    try {
+      const TelegramHandler = require('../handlers/telegramHandler');
+      const telegramHandler = new TelegramHandler();
+      const initialized = await telegramHandler.initialize();
+      if (!initialized) {
+        warnings.push('Telegram handler failed to initialize.');
+      } else {
+        const updates = await telegramHandler.callTelegramAPI('getUpdates', {
+          limit: 100,
+          timeout: 0
+        });
+
+        if (updates && updates.ok && Array.isArray(updates.result)) {
+          for (const update of updates.result) {
+            const chat = parseUpdateChat(update);
+            if (chat) {
+              upsertTelegramChat(chatMap, chat, 'updates');
+            }
+          }
+        } else {
+          warnings.push('Telegram chat discovery from updates did not return usable data.');
+        }
+      }
+    } catch (error) {
+      warnings.push(`Telegram chat discovery failed: ${error.message}`);
+    }
+  }
+
+  const typeRank = {
+    channel: 1,
+    supergroup: 2,
+    group: 3,
+    private: 4,
+    configured: 5,
+    unknown: 6
+  };
+
+  const chats = Array.from(chatMap.values()).sort((a, b) => {
+    const rankDiff = (typeRank[a.type] || 99) - (typeRank[b.type] || 99);
+    if (rankDiff !== 0) return rankDiff;
+    return a.title.localeCompare(b.title);
+  });
+
+  const payload = {
+    enabled: telegramEnabled,
+    chats,
+    warnings
+  };
+
+  telegramDiscoveryCache = {
+    loadedAt: Date.now(),
+    payload
+  };
+
+  return payload;
+}
+
 function createWebAdminApp(client, config) {
   const webAdminConfig = getWebAdminConfig(config);
   const app = express();
@@ -782,6 +955,41 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin /api/me failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to load user context' });
+    }
+  });
+
+  app.get('/api/form-options', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const manageableGuilds = await getManageableGuilds(client, auth, webAdminConfig.allowedRoleIds);
+      const guildOptions = [];
+
+      for (const manageableGuild of manageableGuilds) {
+        const guild = client.guilds.cache.get(manageableGuild.id);
+        if (!guild) continue;
+
+        guildOptions.push({
+          id: guild.id,
+          name: guild.name,
+          sourceChannels: mapGuildChannels(guild, client.user),
+          targetChannels: mapGuildChannels(guild, client.user, { requireSendMessages: true })
+        });
+      }
+
+      const telegram = await collectTelegramChatOptions();
+
+      res.json({
+        guilds: guildOptions,
+        telegram
+      });
+    } catch (error) {
+      logError(`Web admin /api/form-options failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load setup form options' });
     }
   });
 
@@ -1384,6 +1592,126 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin DELETE /api/settings/${req.params.key} failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to delete setting' });
+    }
+  });
+
+  // --- Auto Publish API ---
+  app.get('/api/auto-publish', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const manageableGuilds = await getManageableGuilds(client, auth, webAdminConfig.allowedRoleIds);
+      const autoPublishConfig = await getAutoPublishConfig();
+      const guilds = [];
+      const enabledChannels = [];
+
+      for (const manageableGuild of manageableGuilds) {
+        const guild = client.guilds.cache.get(manageableGuild.id);
+        if (!guild) continue;
+
+        const enabledSet = new Set(Array.isArray(autoPublishConfig[guild.id]) ? autoPublishConfig[guild.id] : []);
+        const announcementChannels = mapGuildChannels(guild, client.user, {
+          announcementOnly: true,
+          requireManageMessages: true
+        }).map(channel => ({
+          ...channel,
+          enabled: enabledSet.has(channel.id)
+        }));
+
+        for (const channel of announcementChannels) {
+          if (!channel.enabled) continue;
+          enabledChannels.push({
+            guildId: guild.id,
+            guildName: guild.name,
+            channelId: channel.id,
+            channelName: channel.name
+          });
+        }
+
+        guilds.push({
+          id: guild.id,
+          name: guild.name,
+          channels: announcementChannels
+        });
+      }
+
+      res.json({
+        guilds,
+        enabledChannels
+      });
+    } catch (error) {
+      logError(`Web admin /api/auto-publish failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load auto-publish data' });
+    }
+  });
+
+  app.put('/api/auto-publish', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const guildId = typeof req.body.guildId === 'string' ? req.body.guildId.trim() : '';
+    const channelId = typeof req.body.channelId === 'string' ? req.body.channelId.trim() : '';
+    const enabled = req.body.enabled;
+
+    if (!isDiscordId(guildId) || !isDiscordId(channelId)) {
+      res.status(400).json({ error: 'guildId and channelId must be numeric Discord IDs' });
+      return;
+    }
+    if (typeof enabled !== 'boolean') {
+      res.status(400).json({ error: 'enabled must be boolean' });
+      return;
+    }
+
+    try {
+      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      if (!allowedGuilds.has(guildId)) {
+        res.status(403).json({ error: 'Forbidden for this guild' });
+        return;
+      }
+
+      const guild = client.guilds.cache.get(guildId);
+      if (!guild) {
+        res.status(404).json({ error: 'Guild not found in main bot cache' });
+        return;
+      }
+
+      let channel = guild.channels.cache.get(channelId);
+      if (!channel) {
+        try {
+          channel = await guild.channels.fetch(channelId);
+        } catch (_error) {
+          channel = null;
+        }
+      }
+
+      if (!channel || channel.type !== 5) {
+        res.status(400).json({ error: 'Channel must be an announcement channel' });
+        return;
+      }
+
+      const permissions = channel.permissionsFor(client.user);
+      if (!permissions || !permissions.has(PermissionFlagsBits.ManageMessages)) {
+        res.status(400).json({ error: 'Main bot requires Manage Messages permission in that channel' });
+        return;
+      }
+
+      await setAutoPublishChannelEnabled(guildId, channelId, enabled);
+      res.json({
+        success: true,
+        guildId,
+        channelId,
+        enabled
+      });
+    } catch (error) {
+      logError(`Web admin PUT /api/auto-publish failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to update auto-publish setting' });
     }
   });
 

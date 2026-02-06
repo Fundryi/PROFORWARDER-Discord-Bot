@@ -326,6 +326,12 @@ async function getAutoPublishConfig() {
 }
 
 async function toggleAutoPublishChannel(serverId, channelId) {
+  const currentConfig = await getAutoPublishConfig();
+  const isCurrentlyEnabled = currentConfig[serverId]?.includes(channelId) || false;
+  return setAutoPublishChannelEnabled(serverId, channelId, !isCurrentlyEnabled);
+}
+
+async function setAutoPublishChannelEnabled(serverId, channelId, enabled) {
   await acquireWriteLock();
   try {
     const currentConfig = await readJsonFile(AUTO_PUBLISH_PATH, {});
@@ -335,17 +341,19 @@ async function toggleAutoPublishChannel(serverId, channelId) {
     }
 
     const channelIndex = currentConfig[serverId].indexOf(channelId);
-    let isEnabled;
+    let isEnabled = enabled === true;
 
-    if (channelIndex === -1) {
-      currentConfig[serverId].push(channelId);
-      isEnabled = true;
+    if (enabled === true) {
+      if (channelIndex === -1) {
+        currentConfig[serverId].push(channelId);
+      }
     } else {
-      currentConfig[serverId].splice(channelIndex, 1);
+      if (channelIndex !== -1) {
+        currentConfig[serverId].splice(channelIndex, 1);
+      }
       if (currentConfig[serverId].length === 0) {
         delete currentConfig[serverId];
       }
-      isEnabled = false;
     }
 
     await writeJsonFile(AUTO_PUBLISH_PATH, currentConfig);
@@ -432,6 +440,7 @@ module.exports = {
   removeForwardConfig,
   getConfigStats,
   getAutoPublishConfig,
+  setAutoPublishChannelEnabled,
   toggleAutoPublishChannel,
   isChannelAutoPublishEnabled,
   migrateToJsonConfigs,
