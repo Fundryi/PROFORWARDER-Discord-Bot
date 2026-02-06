@@ -9,6 +9,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - Bot runtime stable and unchanged for forwarding logic.
   - Web admin remains feature-flagged by `WEB_ADMIN_ENABLED`.
   - OAuth/session/login + read/write config management now implemented in web admin.
+  - Localhost test bypass mode available via env flags (for local-only dev access without OAuth).
 - Completed implementation commits:
   - `991e4ba` phase 0: add web admin config flags and env placeholders
   - `5f56674` phase 1: add feature-flagged web admin OAuth auth and session shell
@@ -182,6 +183,9 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
     - OAuth client ID/secret/redirect URI/scopes
     - Session secret
     - Allowed role IDs (CSV)
+    - Local bypass controls:
+      - `WEB_ADMIN_LOCAL_BYPASS_AUTH`
+      - `WEB_ADMIN_LOCAL_BYPASS_ALLOWED_IPS`
 
 ### Phase 2: Read-Only Dashboard
 - Guild selector and config list.
