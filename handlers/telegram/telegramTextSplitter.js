@@ -159,7 +159,7 @@ class TelegramTextSplitter {
    * Calculate optimal split strategy based on content
    */
   determineSplitStrategy(text, mediaCount, hasEmbedMedia = false) {
-    const envConfig = require('../../config/env');
+    const envConfig = require('../../config/config');
     const configStrategy = envConfig.telegram?.captionSplitStrategy || 'smart';
     
     // Override strategy for embed media to avoid WEBPAGE_MEDIA_EMPTY
@@ -180,7 +180,7 @@ class TelegramTextSplitter {
    * Get text and caption length limits from config
    */
   getLimits() {
-    const envConfig = require('../../config/env');
+    const envConfig = require('../../config/config');
     return {
       textLimit: this.TEXT_LIMIT,
       captionLimit: envConfig.telegram?.captionLengthLimit || this.CAPTION_LIMIT

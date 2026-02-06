@@ -135,7 +135,7 @@ class TelegramMediaHandler {
    * Determine media sending strategy based on media characteristics
    */
   determineMediaStrategy(media, caption = '') {
-    const envConfig = require('../../config/env');
+    const envConfig = require('../../config/config');
     const isDebugMode = envConfig.debugMode;
     
     // No media - text only

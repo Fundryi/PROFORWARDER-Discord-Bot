@@ -83,7 +83,7 @@ findOptimalSplitPoint(text, maxLength)
 ### Configuration Options:
 
 ```javascript
-// In config/env.js
+// In config/config.js
 telegram: {
   captionLengthLimit: 900, // Safe limit
   captionSplitStrategy: 'smart', // 'smart', 'separate', 'truncate'
@@ -124,7 +124,7 @@ telegram: {
 ## Files to Modify
 
 1. [`handlers/telegramHandler.js`](handlers/telegramHandler.js) - Main implementation
-2. [`config/env.js.example`](config/env.js.example) - Configuration options
+2. [`config/config.js.example`](config/config.js.example) - Configuration options
 3. [`README.md`](README.md) - Documentation update
 
 ## Critical Integration Requirements
@@ -295,7 +295,7 @@ if (caption.length > captionLengthLimit) {
    - Chain-aware deletion handling
    - Dynamic single ↔ chain conversion
 
-5. **Configuration Options** (`config/env.js.example`)
+5. **Configuration Options** (`config/config.js.example`)
    - `captionLengthLimit: 900` (safe buffer)
    - `splitIndicator: '...(continued)'`
    - `captionSplitStrategy: 'smart'`

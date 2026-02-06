@@ -2,7 +2,10 @@
 (function () {
   'use strict';
 
-  var guildsBody = document.getElementById('guilds-body');
+  var mainGuildsBody = document.getElementById('main-guilds-body');
+  var readerGuildsBody = document.getElementById('reader-guilds-body');
+  var readerGuildsStatus = document.getElementById('reader-guilds-status');
+  var readerGuildsWrapper = document.getElementById('reader-guilds-wrapper');
   var inviteCards = document.getElementById('invite-cards');
 
   // -- Invite cards --
@@ -90,16 +93,16 @@
     }
   }
 
-  // -- Guild table --
-  function setGuildsMessage(message) {
-    guildsBody.innerHTML = '';
+  // -- Guild table helpers --
+  function setTableMessage(tbody, message) {
+    tbody.innerHTML = '';
     var row = document.createElement('tr');
     var cell = document.createElement('td');
-    cell.colSpan = 5;
+    cell.colSpan = 7;
     cell.className = 'muted-text';
     cell.textContent = message;
     row.appendChild(cell);
-    guildsBody.appendChild(row);
+    tbody.appendChild(row);
   }
 
   function formatDate(iso) {
@@ -108,17 +111,50 @@
     return d.toLocaleDateString();
   }
 
-  function renderGuilds(guilds) {
-    guildsBody.innerHTML = '';
+  /**
+   * Render a guild table for either bot.
+   * @param {Array} guilds - Array of guild objects
+   * @param {HTMLElement} tbody - Target tbody element
+   * @param {string} botType - 'main' or 'reader'
+   */
+  function renderGuildTable(guilds, tbody, botType) {
+    tbody.innerHTML = '';
 
     if (!guilds.length) {
-      setGuildsMessage('Bot is not in any guilds.');
+      setTableMessage(tbody, botType === 'main'
+        ? 'Main bot is not in any guilds.'
+        : 'Reader bot is not in any guilds.');
       return;
     }
 
     for (var i = 0; i < guilds.length; i++) {
       (function (guild) {
         var row = document.createElement('tr');
+
+        // Icon
+        var iconCell = document.createElement('td');
+        iconCell.style.width = '32px';
+        iconCell.style.padding = '4px 8px';
+        if (guild.icon) {
+          var img = document.createElement('img');
+          img.src = guild.icon;
+          img.alt = '';
+          img.style.width = '24px';
+          img.style.height = '24px';
+          img.style.borderRadius = '50%';
+          img.style.verticalAlign = 'middle';
+          iconCell.appendChild(img);
+        } else {
+          var placeholder = document.createElement('div');
+          placeholder.style.width = '24px';
+          placeholder.style.height = '24px';
+          placeholder.style.borderRadius = '50%';
+          placeholder.style.background = 'var(--surface, #2a2a2e)';
+          placeholder.style.display = 'inline-block';
+          placeholder.style.verticalAlign = 'middle';
+          iconCell.appendChild(placeholder);
+        }
+        row.appendChild(iconCell);
 
         // Name
         var nameCell = document.createElement('td');
@@ -138,6 +174,13 @@
         membersCell.textContent = guild.memberCount != null ? String(guild.memberCount) : '--';
         row.appendChild(membersCell);
 
+        // Owner
+        var ownerCell = document.createElement('td');
+        ownerCell.className = 'mono';
+        ownerCell.style.fontSize = '12px';
+        ownerCell.textContent = guild.ownerId || '--';
+        row.appendChild(ownerCell);
+
         // Joined
         var joinedCell = document.createElement('td');
         joinedCell.textContent = formatDate(guild.joinedAt);
@@ -149,12 +192,15 @@
         leaveBtn.className = 'button secondary sm danger';
         leaveBtn.textContent = 'Leave';
         leaveBtn.addEventListener('click', async function () {
-          if (!confirm('Leave guild "' + guild.name + '" (' + guild.id + ')?\n\nThe bot will lose access to all channels in this server. This cannot be undone from here.')) {
+          var botLabel = botType === 'reader' ? 'reader bot' : 'bot';
+          if (!confirm('Leave guild "' + guild.name + '" (' + guild.id + ')?\n\nThe ' + botLabel + ' will lose access to all channels in this server. This cannot be undone from here.')) {
             return;
           }
           try {
             AdminApp.setStatus('Leaving guild ' + guild.name + '...');
-            var result = await AdminApp.fetchJson('/api/guilds/' + guild.id + '/leave', { method: 'POST' });
+            var url = '/api/guilds/' + guild.id + '/leave';
+            if (botType === 'reader') url += '?bot=reader';
+            var result = await AdminApp.fetchJson(url, { method: 'POST' });
             AdminApp.setStatus('Left guild "' + (result.guildName || guild.name) + '".');
             await loadGuilds();
           } catch (error) {
@@ -164,18 +210,38 @@
         actionsCell.appendChild(leaveBtn);
         row.appendChild(actionsCell);
 
-        guildsBody.appendChild(row);
+        tbody.appendChild(row);
       })(guilds[i]);
     }
   }
 
   async function loadGuilds() {
-    setGuildsMessage('Loading...');
+    setTableMessage(mainGuildsBody, 'Loading...');
+    setTableMessage(readerGuildsBody, 'Loading...');
+
     try {
       var data = await AdminApp.fetchJson('/api/guilds');
-      renderGuilds(data.guilds || []);
+
+      // Main bot guilds
+      var mainGuilds = (data.mainBot && data.mainBot.guilds) || [];
+      renderGuildTable(mainGuilds, mainGuildsBody, 'main');
+
+      // Reader bot guilds
+      if (!data.readerBot || !data.readerBot.enabled) {
+        readerGuildsStatus.textContent = 'Reader bot is disabled in config.';
+        readerGuildsWrapper.style.display = 'none';
+      } else if (!data.readerBot.online) {
+        readerGuildsStatus.textContent = 'Reader bot is offline.';
+        readerGuildsWrapper.style.display = 'none';
+      } else {
+        readerGuildsStatus.textContent = 'Servers the reader bot is currently in.';
+        readerGuildsWrapper.style.display = '';
+        var readerGuilds = data.readerBot.guilds || [];
+        renderGuildTable(readerGuilds, readerGuildsBody, 'reader');
+      }
     } catch (error) {
-      setGuildsMessage('Failed to load guilds: ' + error.message);
+      setTableMessage(mainGuildsBody, 'Failed to load guilds: ' + error.message);
+      setTableMessage(readerGuildsBody, '');
     }
   }
 

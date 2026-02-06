@@ -3,7 +3,7 @@ const path = require('path');
 
 // Check for required config files
 const configFiles = [
-  { path: './config/env.js', name: 'Environment configuration' },
+  { path: './config/config.js', name: 'Environment configuration' },
   { path: './config/.env', name: 'Environment variables' }
 ];
 
@@ -21,7 +21,7 @@ require("./errorHandlers");
 const { Client, GatewayIntentBits } = require("discord.js");
 const { exec, close } = require('./utils/database');
 const { logInfo, logSuccess, logError } = require('./utils/logger');
-const config = require('./config/env');
+const config = require('./config/config');
 const { proforwardCommand, handleProforwardCommand } = require('./commands/proforwardCommand');
 const { debugCommand, handleDebugCommand } = require('./commands/debugCommands');
 const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
@@ -188,7 +188,7 @@ process.on('SIGINT', async () => {
   }
 });
 
-// Migrate dynamic config data from env.js to JSON files (one-time, idempotent)
+// Migrate dynamic config data from config.js to JSON files (one-time, idempotent)
 const { migrateToJsonConfigs } = require('./utils/configManager');
 migrateToJsonConfigs().then(() => {
   logInfo('Attempting to log in...');

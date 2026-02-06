@@ -13,7 +13,7 @@ class FormatConverter {
       return '';
     }
     
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (envConfig.debugMode) {
       logInfo(`Converting Discord to Telegram HTML: "${text}"`);
     }
@@ -82,7 +82,7 @@ class FormatConverter {
   static discordToTelegramMarkdownV2(text) {
     if (!text) return '';
     
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (envConfig.debugMode) {
       logInfo('Converting Discord to Telegram MarkdownV2:', text);
     }

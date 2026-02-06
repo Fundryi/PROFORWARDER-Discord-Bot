@@ -86,7 +86,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 - Backend:
   - Extend existing Node process with an Express server.
   - Reuse existing config manager functions for writes.
-  - Keep `env.js`/config manager as the same source of truth.
+  - Keep `config.js`/config manager as the same source of truth.
 - Frontend:
   - Server-rendered HTML templates or minimal static HTML + fetch API.
   - No SPA framework required.
@@ -158,7 +158,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 
 ## Rollout Plan
 ### Phase 0: Foundations
-- Add feature flags in `env.js`:
+- Add feature flags in `config.js`:
   - `webAdmin.enabled`
   - `webAdmin.baseUrl`
   - `webAdmin.sessionTtlHours`
@@ -167,7 +167,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 - Keep all slash commands unchanged.
 - Status: done.
 - Implementation notes:
-  - Added `webAdmin` foundation flags in `config/env.js.example`.
+  - Added `webAdmin` foundation flags in `config/config.js.example`.
   - Added `WEB_ADMIN_*` placeholders in `config/.env.example`.
 
 ### Phase 1: Auth + Session
@@ -185,7 +185,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - Added `web/public/styles.css` for centralized theme styling.
   - Integrated startup/shutdown in `index.js` via `startWebAdminServer` and `stopWebAdminServer`.
   - Added dependencies in `package.json`: `express`, `express-session`.
-  - Moved more web settings into `.env` via `config/.env.example` and `config/env.js.example`:
+  - Moved more web settings into `.env` via `config/.env.example` and `config/config.js.example`:
     - Auth mode switch:
       - `WEB_ADMIN_AUTH_MODE=local|oauth`
     - Allowed role IDs (CSV)
@@ -247,7 +247,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
     - `configs.js` - extracted config CRUD from old inline script
     - `guilds.js` - list all bot guilds, leave unwanted guilds
     - `logs.js` - paginated message log viewer with config/status filters
-    - `settings.js` - editable bot_settings (DB) + read-only runtime config (env.js)
+    - `settings.js` - editable bot_settings (DB) + read-only runtime config (config.js)
   - New API endpoints in `web/server.js`:
     - `GET /api/dashboard` - bot status, uptime, guild count, config stats
     - `GET /api/guilds` - list all guilds bot is in

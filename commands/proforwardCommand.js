@@ -515,7 +515,7 @@ async function handleTelegram(interaction) {
     }
 
     // Check if Telegram is enabled
-    const config = require('../config/env');
+    const config = require('../config/config');
     if (!config.telegram?.enabled) {
       await interaction.reply({
         content: '❌ **Telegram integration is not enabled.**\n\nTo enable Telegram forwarding:\n1. Set `TELEGRAM_ENABLED=true` in your .env file\n2. Add your `TELEGRAM_BOT_TOKEN`\n3. Restart the bot\n\n**Need help?** Check the README for Telegram setup instructions.',
@@ -578,7 +578,7 @@ async function handleTelegram(interaction) {
   }
 
   // Check if Telegram is enabled
-  const config = require('../config/env');
+  const config = require('../config/config');
   if (!config.telegram?.enabled) {
     await interaction.reply({
       content: '❌ **Telegram integration is not enabled.**\n\nTo enable Telegram forwarding:\n1. Set `TELEGRAM_ENABLED=true` in your .env file\n2. Add your `TELEGRAM_BOT_TOKEN`\n3. Restart the bot\n\n**Need help?** Check the README for Telegram setup instructions.',
@@ -691,7 +691,7 @@ async function handleRemove(interaction) {
 
 async function handleStatus(interaction) {
   const servers = interaction.client.guilds.cache;
-  const config = require('../config/env');
+  const config = require('../config/config');
   
   let response = `**🤖 ProForwarder Status**\n\n`;
   response += `**Servers:** ${servers.size}\n`;
@@ -765,7 +765,7 @@ async function handleTest(interaction) {
   }
 
   // Check if Telegram is enabled
-  const config = require('../config/env');
+  const config = require('../config/config');
   if (!config.telegram?.enabled) {
     await interaction.reply({
       content: '❌ **Telegram integration is not enabled.**\n\nTo enable Telegram forwarding:\n1. Set `TELEGRAM_ENABLED=true` in your .env file\n2. Add your `TELEGRAM_BOT_TOKEN`\n3. Restart the bot',
@@ -813,7 +813,7 @@ async function handleTest(interaction) {
 
 async function handleTelegramDiscover(interaction) {
   // Check if Telegram is enabled
-  const config = require('../config/env');
+  const config = require('../config/config');
   if (!config.telegram?.enabled) {
     await interaction.reply({
       content: '❌ **Telegram integration is not enabled.**\n\nTo enable Telegram forwarding:\n1. Set `TELEGRAM_ENABLED=true` in your .env file\n2. Add your `TELEGRAM_BOT_TOKEN`\n3. Restart the bot',
@@ -1338,7 +1338,7 @@ async function handleAutoPublish(interaction) {
 }
 
 async function handleReaderStatus(interaction) {
-  const config = require('../config/env');
+  const config = require('../config/config');
   
   if (!config.readerBot || !config.readerBot.enabled) {
     return await interaction.reply({

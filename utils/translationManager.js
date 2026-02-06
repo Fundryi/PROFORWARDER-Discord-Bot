@@ -17,7 +17,7 @@ class TranslationManager {
    */
   async initialize() {
     try {
-      this.config = require('../config/env');
+      this.config = require('../config/config');
       
       if (!this.config.ai?.enabled || !this.config.ai?.translation?.enabled) {
         logInfo('Translation features disabled in configuration');

@@ -74,7 +74,7 @@ Enhanced Slice Converter → AI Converter (if enabled) → Basic Escape (last re
 
 ## ⚙️ Configuration
 
-### **Primary Settings** (`config/env.js`)
+### **Primary Settings** (`config/config.js`)
 ```javascript
 module.exports = {
   // Enhanced Format Conversion Settings

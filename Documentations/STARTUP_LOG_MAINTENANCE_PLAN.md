@@ -37,7 +37,7 @@ Date: 2026-02-05
    - Optionally delete the forwarded message as best‑effort when the source is missing.
    - Do **not** delete entries when only the forwarded message is missing.
 6. Add a short delay between batches to avoid rate limits.
-7. Add a config block in `config/env.js` (optional):
+7. Add a config block in `config/config.js` (optional):
    - `startupLogMaintenance.enabled`
    - `startupLogMaintenance.batchSize`
    - `startupLogMaintenance.maxRuntimeMs`
@@ -46,7 +46,7 @@ Date: 2026-02-05
    - `startupLogMaintenance.retentionAction` (`skip` | `delete`, default: `skip`)
 
 ## Implementation Status (Completed)
-- Added `startupLogMaintenance` config block in `config/env.js` and `config/env.js.example`.
+- Added `startupLogMaintenance` config block in `config/config.js` and `config/config.js.example`.
 - `index.js` now runs validation/cleanup in a background task (non-blocking).
 - `utils/database.js` now:
   - Iterates logs in pages (newest → oldest).

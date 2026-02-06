@@ -39,7 +39,7 @@ class AIFormatConverter {
       mentions.users.push({ id: userId, fullMention, name: userName });
       mentions.replacements.push(`Replace "${fullMention}" with "＠${userName}"`);
       
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       if (envConfig.debugMode) {
         logInfo(`🔍 Found user mention: ${fullMention} -> ${userName}`);
       }
@@ -58,7 +58,7 @@ class AIFormatConverter {
       mentions.roles.push({ id: roleId, fullMention, name: roleName });
       mentions.replacements.push(`Replace "${fullMention}" with "＠${roleName}"`);
       
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       if (envConfig.debugMode) {
         logInfo(`🔍 Found role mention: ${fullMention} -> ${roleName}`);
       }
@@ -80,7 +80,7 @@ class AIFormatConverter {
       mentions.channels.push({ id: channelId, fullMention, name: channelName });
       mentions.replacements.push(`Replace "${fullMention}" with "\\#${channelName}"`);
       
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       if (envConfig.debugMode) {
         logInfo(`🔍 Found channel mention: ${fullMention} -> ${channelName}`);
       }
@@ -91,7 +91,7 @@ class AIFormatConverter {
     while ((match = everyoneRegex.exec(text)) !== null) {
       mentions.replacements.push(`Replace "@everyone" with "＠everyone"`);
       
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       if (envConfig.debugMode) {
         logInfo(`🔍 Found @everyone mention -> ＠everyone`);
       }
@@ -101,13 +101,13 @@ class AIFormatConverter {
     while ((match = hereRegex.exec(text)) !== null) {
       mentions.replacements.push(`Replace "@here" with "＠here"`);
       
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       if (envConfig.debugMode) {
         logInfo(`🔍 Found @here mention -> ＠here`);
       }
     }
 
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     if (envConfig.debugMode) {
       logInfo(`🔍 Total mentions found: ${mentions.users.length} users, ${mentions.roles.length} roles, ${mentions.channels.length} channels`);
     }
@@ -126,7 +126,7 @@ class AIFormatConverter {
     try {
       // Check if we have AI manager available
       const aiManager = require('./aiManager');
-      const envConfig = require('../config/env');
+      const envConfig = require('../config/config');
       
       if (envConfig.debugMode) {
         logInfo('🤖 AI Debug: Checking AI manager status...');
@@ -467,7 +467,7 @@ Converted text (escape ALL special characters even inside formatting):`;
         return false;
       }
       
-      if (require('../config/env').debugMode) {
+      if (require('../config/config').debugMode) {
         logInfo('🤖 AI result passed validation');
       }
       return true;
@@ -513,7 +513,7 @@ Converted text (escape ALL special characters even inside formatting):`;
    * @param {Object} message - Discord message object (optional, for mention resolution)
    */
   static async convertDiscordToTelegramMarkdownV2(text, message = null) {
-    const envConfig = require('../config/env');
+    const envConfig = require('../config/config');
     
     // Streamlined Priority: Enhanced Slice (PRIMARY) > AI (FALLBACK ONLY)
     // Note: Old regular converter removed as requested - enhanced slice handles everything better

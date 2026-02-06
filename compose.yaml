@@ -15,11 +15,11 @@ services:
         else
           echo "    .env already exists"
         fi
-        if [ ! -f /config/env.js ]; then
-          cp /app/config/env.js.example /config/env.js
-          echo "    Created env.js from example"
+        if [ ! -f /config/config.js ]; then
+          cp /app/config/config.js.example /config/config.js
+          echo "    Created config.js from example"
         else
-          echo "    env.js already exists"
+          echo "    config.js already exists"
         fi
         echo "==> Setting permissions for UID 1001"
         chown -R 1001:1001 /data /config
