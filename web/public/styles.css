@@ -495,6 +495,11 @@ td .button {
   max-width: 120px;
 }
 
+.autopublish-actions {
+  margin-top: 10px;
+  align-items: center;
+}
+
 .status-badge {
   display: inline-flex;
   align-items: center;
