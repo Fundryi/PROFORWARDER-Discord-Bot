@@ -175,6 +175,16 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 - Guild selector and config list.
 - No write actions yet.
 - Verify permission filtering across multiple guilds.
+- Status: done.
+- Implementation notes:
+  - Extended `web/server.js` with:
+    - `GET /api/me` to return authenticated user + manageable guild list
+    - `GET /api/configs?guildId=...` for read-only configuration listing
+    - Server-side guild access checks:
+      - OAuth admin permission bit support
+      - Bot-side admin/allowed-role checks (role IDs from `webAdmin.allowedRoleIds`, fallback to `commandUi.allowedRoleIds`)
+  - Updated `/admin` to render read-only dashboard with guild selector and config table.
+  - Updated `web/public/styles.css` for form/table display while keeping styling centralized in CSS.
 
 ### Phase 3: Safe Mutations
 - Add enable/disable, remove with confirmation.
