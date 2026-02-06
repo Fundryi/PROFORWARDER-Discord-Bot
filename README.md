@@ -8,7 +8,7 @@
 
 # ProForwarder Discord Bot
 
-**Discord and Telegram forwarding with edit/delete sync, retry tooling, and optional web admin.**
+**Discord and Telegram forwarding with edit/delete sync and a web-first admin workflow.**
 
 [Features](#features) | [Quick Start](#quick-start) | [Commands](#commands) | [Configuration](#configuration) | [Web Admin](#web-admin) | [Docker](#docker)
 
@@ -22,13 +22,13 @@
 - Discord to Discord forwarding (same-server and cross-server)
 - Discord to Telegram forwarding with MarkdownV2 conversion
 - Edit and delete synchronization for forwarded messages
-- Retry/force-forward command for specific source messages
+- Retry/force-forward from Web Admin logs by source message ID
 - Auto-publish support for Discord announcement channels
 
 **Telegram**
 - Media + caption handling with split-chain tracking
 - Smart handling for caption/text length limits
-- Telegram chat discovery command (`/proforward telegram-discover`)
+- Discovery from bot updates + configured chats (group/supergroup/channel focused)
 
 **AI Translation**
 - AI translation flow with provider fallback
@@ -40,7 +40,7 @@
 - SQLite message log tracking
 - Startup log maintenance (validation + cleanup)
 - Reader bot support for read-only source access patterns
-- Optional web admin panel (`/admin`) for config and diagnostics
+- Built-in web admin panel (`/admin`) for configs, logs, auto-publish, and settings
 
 ---
 
@@ -79,25 +79,25 @@ npm run dev
 
 ### `/proforward` (Manage Channels required)
 
-| Subcommand | Description |
-|------------|-------------|
-| `setup` | Create Discord -> Discord forward |
-| `telegram` | Create Discord -> Telegram forward |
-| `telegram-discover` | Discover Telegram chats for your bot |
-| `list` | List active forward configurations |
-| `remove` | Remove a configuration by ID |
-| `status` | Show bot/server/channel status summary |
-| `test` | Test Telegram connectivity for a chat ID |
-| `retry` | Retry/force-forward by source Discord message ID |
-| `auto-publish` | Toggle auto-publish on announcement channels |
-| `reader-status` | Show reader bot status + invite link |
+| Subcommand | Status | Notes |
+|------------|--------|-------|
+| `status` | Active | Bot/server/channel status summary |
+| `telegram-discover` | Active | Telegram chat discovery helper |
+| `reader-status` | Active | Reader bot status + invite link |
+| `setup` | Web-managed (disabled) | Use Web Admin `Configs` tab |
+| `telegram` | Web-managed (disabled) | Use Web Admin `Configs` tab |
+| `list` | Web-managed (disabled) | Use Web Admin `Forward Configurations` table |
+| `remove` | Web-managed (disabled) | Use Web Admin config row `Remove` |
+| `test` | Web-managed (disabled) | Use Web Admin config row `Test TG` |
+| `retry` | Web-managed (disabled) | Use Web Admin `Logs` -> retry source message |
+| `auto-publish` | Web-managed (disabled) | Use Web Admin `Auto Publish` tab |
 
 ### `/debug` (Administrator required)
 
-| Subcommand | Description |
-|------------|-------------|
-| `database` | Show recent message log records |
-| `search` | Search logs by message ID |
+| Subcommand | Status | Notes |
+|------------|--------|-------|
+| `database` | Active | DB-oriented diagnostics view |
+| `search` | Active | Search logs by message ID (also available in Web Admin Logs) |
 
 ---
 
@@ -158,6 +158,15 @@ Do not edit these manually while the bot is running.
 ## Web Admin
 
 Web admin is built into the same bot process and served from `web/server.js`.
+
+### Primary capabilities
+
+- `Configs`: create/toggle/remove Discord and Telegram forwards
+- `Auto Publish`: manage announcement auto-publish settings
+- `Logs`: filter/search logs, inspect failures, retry source messages
+- `Settings`: existing-key edits with focused emoji-name management (`uploaded_emoji_names`)
+
+The project is currently web-first for day-to-day operations. Most management slash commands are intentionally disabled and redirected to Web Admin.
 
 ### Local mode (default/simple)
 
@@ -259,6 +268,7 @@ ProForwarder-Discord-Bot/
 ## Documentation
 
 Technical docs are in `Documentations/`, including:
+- `Documentations/COMMAND_WEB_COVERAGE_DEPRECATION.md`
 - `Documentations/CODE_REVIEW_ISSUES.md`
 - `Documentations/COMMAND_UX_REWORK_PLAN.md`
 - `Documentations/STARTUP_LOG_MAINTENANCE_PLAN.md`
