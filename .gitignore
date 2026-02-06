@@ -9,3 +9,4 @@ data/proforwarder.db
 data/proforwarder.db-shm
 data/proforwarder.db-wal
 compose.override.yaml
+.claude/settings.local.json
