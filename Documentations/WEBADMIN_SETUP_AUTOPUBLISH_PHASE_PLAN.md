@@ -86,3 +86,23 @@ Commit:
    - `getUpdates` chats,
    - already configured Telegram target chat IDs.
 3. Manual chat ID input remains available as a fallback.
+
+---
+
+## Implementation Status (2026-02-06)
+
+- [x] Phase 1 complete
+- [x] Phase 2 complete
+- [x] Phase 3 complete
+- [x] Phase 4 validation complete
+
+Implemented commit sequence:
+- `7b06f02` backend setup-options + auto-publish APIs
+- `57060e8` searchable setup selectors in Configs tab
+- `284fc99` Auto Publish tab UI and wiring
+
+Validation run:
+- `node --check web/server.js`
+- `node --check web/public/configs.js`
+- `node --check web/public/autopublish.js`
+- `node --check utils/configManager.js`
