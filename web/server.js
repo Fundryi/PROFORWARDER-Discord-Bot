@@ -232,6 +232,12 @@ function renderDashboardPage(auth) {
     <!-- Guilds Tab -->
     <section id="tab-guilds" class="tab-panel">
       <div class="card">
+        <h2>Invite Bots</h2>
+        <p class="muted-text">Add the bots to a new server using the invite links below.</p>
+        <div id="invite-cards" class="stat-grid"></div>
+      </div>
+
+      <div class="card">
         <h2>Bot Guilds</h2>
         <p class="muted-text">All servers the bot is currently in. You can leave unwanted guilds.</p>
         <div class="table-wrapper">
@@ -1114,6 +1120,62 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin DELETE /api/settings/${req.params.key} failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to delete setting' });
+    }
+  });
+
+  // --- Bot Info API ---
+  app.get('/api/bot-info', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const mainBotId = client.user ? client.user.id : null;
+      const mainBotPermissions = '412317248576'; // ViewChannel, SendMessages, ManageMessages, ReadMessageHistory, EmbedLinks, AttachFiles, ManageChannels
+      const readerBotPermissions = '66560'; // ViewChannel, ReadMessageHistory
+
+      const result = {
+        mainBot: {
+          username: client.user ? client.user.username : null,
+          id: mainBotId,
+          inviteUrl: mainBotId
+            ? `https://discord.com/oauth2/authorize?client_id=${mainBotId}&permissions=${mainBotPermissions}&scope=bot`
+            : null
+        },
+        readerBot: {
+          enabled: false,
+          online: false,
+          username: null,
+          id: null,
+          inviteUrl: null
+        }
+      };
+
+      try {
+        const { readerBot } = require('../index');
+        const runtimeConfig = require('../config/env');
+
+        if (runtimeConfig.readerBot && runtimeConfig.readerBot.enabled) {
+          result.readerBot.enabled = true;
+
+          if (readerBot && readerBot.isReady && readerBot.client && readerBot.client.user) {
+            const readerBotId = readerBot.client.user.id;
+            result.readerBot.online = true;
+            result.readerBot.username = readerBot.client.user.username;
+            result.readerBot.id = readerBotId;
+            result.readerBot.inviteUrl = `https://discord.com/oauth2/authorize?client_id=${readerBotId}&permissions=${readerBotPermissions}&scope=bot`;
+          }
+        }
+      } catch (_e) {
+        // reader bot module not available, leave defaults
+      }
+
+      res.json(result);
+    } catch (error) {
+      logError(`Web admin /api/bot-info failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load bot info' });
     }
   });
 

@@ -1354,15 +1354,18 @@ async function handleReaderStatus(interaction) {
     const status = readerBot && readerBot.isReady ? '🟢 Online' : '🔴 Offline';
     const guildCount = readerBot ? readerBot.getGuildCount() : 0;
     
-    // You should replace this with your actual reader bot client ID
-    const clientId = 'YOUR_READER_BOT_CLIENT_ID'; // TODO: Replace with actual client ID
-    const inviteUrl = `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=66560&scope=bot`;
-    
+    const clientId = readerBot && readerBot.client && readerBot.client.user
+      ? readerBot.client.user.id
+      : null;
+    const inviteUrl = clientId
+      ? `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=66560&scope=bot`
+      : null;
+
     let readerBotInfo = '❌ Reader Bot not available';
-    if (readerBot && readerBot.client) {
+    if (readerBot && readerBot.client && readerBot.client.user) {
       readerBotInfo = `${readerBot.client.user.tag} (${readerBot.client.user.id})`;
     }
-    
+
     await interaction.reply({
       embeds: [{
         title: '🤖 Reader Bot Status',
@@ -1373,9 +1376,9 @@ async function handleReaderStatus(interaction) {
           { name: 'Bot Info', value: readerBotInfo, inline: false },
           {
             name: 'Invite Link',
-            value: clientId === 'YOUR_READER_BOT_CLIENT_ID'
-              ? '⚠️ Please update the client ID in the code'
-              : `[Click here to invite](${inviteUrl})`,
+            value: inviteUrl
+              ? `[Click here to invite](${inviteUrl})`
+              : '⚠️ Reader Bot is not online yet — invite link will appear when it connects.',
             inline: false
           },
           {
