@@ -414,7 +414,7 @@ async function getMessageLogsFiltered({ configId = null, status = null, limit = 
   );
 }
 
-async function deleteMessageLogsFiltered({ configId = null, status = null, olderThanForwardedAt = null } = {}) {
+async function deleteMessageLogsFiltered({ configId = null, status = null } = {}) {
   const conditions = [];
   const params = [];
 
@@ -425,10 +425,6 @@ async function deleteMessageLogsFiltered({ configId = null, status = null, older
   if (status) {
     conditions.push('status = ?');
     params.push(status);
-  }
-  if (olderThanForwardedAt !== null) {
-    conditions.push('forwardedAt < ?');
-    params.push(olderThanForwardedAt);
   }
 
   if (conditions.length === 0) {

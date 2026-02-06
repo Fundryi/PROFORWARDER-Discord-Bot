@@ -108,8 +108,9 @@
     var valueSpan = document.createElement('span');
     valueSpan.className = 'val';
     valueSpan.textContent = String(value);
-    if (value === true) valueSpan.classList.add('true');
-    if (value === false) valueSpan.classList.add('false');
+    var normalized = String(value == null ? '' : value).trim().toLowerCase();
+    if (value === true || normalized === 'true') valueSpan.classList.add('true');
+    if (value === false || normalized === 'false') valueSpan.classList.add('false');
     item.appendChild(valueSpan);
 
     return item;

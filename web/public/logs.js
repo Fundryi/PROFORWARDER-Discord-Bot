@@ -7,8 +7,6 @@
   var statusFilter = document.getElementById('logs-status-filter');
   var refreshBtn = document.getElementById('logs-refresh');
   var deleteFailedBtn = document.getElementById('logs-delete-failed');
-  var deleteFailedOldBtn = document.getElementById('logs-delete-failed-old');
-  var deleteFailedDaysInput = document.getElementById('logs-delete-failed-days');
   var loadMoreBtn = document.getElementById('logs-load-more');
 
   var nextBeforeId = null;
@@ -39,12 +37,29 @@
     logsBody.innerHTML = '';
     var row = document.createElement('tr');
     var cell = document.createElement('td');
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     cell.className = 'muted-text';
     cell.textContent = message;
     row.appendChild(cell);
     logsBody.appendChild(row);
     setLoadMoreVisible(false);
+  }
+
+  function buildTargetLabel(log) {
+    if (log && log.targetLabel) return String(log.targetLabel);
+    if (log && log.targetType === 'telegram') {
+      return 'Telegram ' + String(log.forwardedChannelId || '-');
+    }
+
+    var forwardedServerId = String(log && log.forwardedServerId ? log.forwardedServerId : '').trim();
+    var forwardedChannelId = String(log && log.forwardedChannelId ? log.forwardedChannelId : '').trim();
+    if (forwardedServerId && forwardedChannelId) {
+      return 'Discord ' + forwardedServerId + ':' + forwardedChannelId;
+    }
+    if (forwardedChannelId) {
+      return 'Discord ' + forwardedChannelId;
+    }
+    return 'Unknown';
   }
 
   function setLoadMoreVisible(visible) {
@@ -88,6 +103,12 @@
       fwdCell.className = 'mono';
       fwdCell.textContent = log.forwardedMessageId || '-';
       row.appendChild(fwdCell);
+
+      // Target
+      var targetCell = document.createElement('td');
+      targetCell.className = 'mono log-target';
+      targetCell.textContent = buildTargetLabel(log);
+      row.appendChild(targetCell);
 
       // Status
       var statusCell = document.createElement('td');
@@ -170,14 +191,10 @@
     return count === 1 ? singular : plural;
   }
 
-  function getCleanupDays() {
-    if (!deleteFailedDaysInput) return null;
-    var raw = String(deleteFailedDaysInput.value || '').trim();
-    if (!raw) return null;
-
-    var days = parseInt(raw, 10);
-    if (isNaN(days) || days <= 0) return null;
-    return days;
+  function setDeleteFailedBusy(isBusy) {
+    if (!deleteFailedBtn) return;
+    deleteFailedBtn.disabled = isBusy;
+    deleteFailedBtn.textContent = isBusy ? 'Deleting...' : 'Delete Failed Logs';
   }
 
   async function deleteFailedLogs() {
@@ -194,6 +211,7 @@
     if (!confirm(warning)) return;
 
     try {
+      setDeleteFailedBusy(true);
       AdminApp.setStatus('Deleting failed logs...');
       var params = ['status=failed'];
       if (configId) params.push('configId=' + encodeURIComponent(configId));
@@ -203,44 +221,16 @@
       });
 
       var deleted = Number(result.deleted || 0);
-      AdminApp.setStatus('Deleted ' + deleted + ' failed log ' + pluralize(deleted, 'entry', 'entries') + '.');
+      if (deleted > 0) {
+        AdminApp.setStatus('Deleted ' + deleted + ' failed log ' + pluralize(deleted, 'entry', 'entries') + '.');
+      } else {
+        AdminApp.setStatus('No failed log entries matched the selected scope.');
+      }
       await loadLogs(false);
     } catch (error) {
       AdminApp.setStatus('Failed to delete logs: ' + error.message, true);
-    }
-  }
-
-  async function deleteFailedLogsOlderThanDays() {
-    var days = getCleanupDays();
-    if (!days) {
-      AdminApp.setStatus('Enter a valid positive number of days.', true);
-      return;
-    }
-
-    var configId = configFilter.value;
-    var scopeText = configId
-      ? 'for config ' + configId
-      : 'for all configs';
-    var warning = 'Delete FAILED log entries older than ' + days + ' day' + pluralize(days, '', 's') + ' ' + scopeText + '? This cannot be undone.';
-    if (!confirm(warning)) return;
-
-    try {
-      AdminApp.setStatus('Deleting old failed logs...');
-      var params = ['status=failed', 'olderThanDays=' + encodeURIComponent(String(days))];
-      if (configId) params.push('configId=' + encodeURIComponent(configId));
-
-      var result = await AdminApp.fetchJson('/api/logs?' + params.join('&'), {
-        method: 'DELETE'
-      });
-
-      var deleted = Number(result.deleted || 0);
-      AdminApp.setStatus(
-        'Deleted ' + deleted + ' failed log ' + pluralize(deleted, 'entry', 'entries') +
-        ' older than ' + days + ' day' + pluralize(days, '', 's') + '.'
-      );
-      await loadLogs(false);
-    } catch (error) {
-      AdminApp.setStatus('Failed to delete old failed logs: ' + error.message, true);
+    } finally {
+      setDeleteFailedBusy(false);
     }
   }
 
@@ -250,14 +240,9 @@
   });
 
   if (deleteFailedBtn) {
+    deleteFailedBtn.textContent = 'Delete Failed Logs';
     deleteFailedBtn.addEventListener('click', function () {
       deleteFailedLogs();
-    });
-  }
-
-  if (deleteFailedOldBtn) {
-    deleteFailedOldBtn.addEventListener('click', function () {
-      deleteFailedLogsOlderThanDays();
     });
   }
 
