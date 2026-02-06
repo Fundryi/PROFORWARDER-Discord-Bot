@@ -88,6 +88,20 @@ function getStartupLogMaintenanceOptions(overrides = {}) {
   };
 }
 
+function isDiscordMissingResourceError(error) {
+  if (!error) return false;
+
+  const code = Number(error.code);
+  if (code === 10008 || code === 10003 || code === 10004) {
+    return true;
+  }
+
+  const message = String(error.message || '').toLowerCase();
+  return message.includes('unknown message')
+    || message.includes('unknown channel')
+    || message.includes('unknown guild');
+}
+
 async function getMessageLogsPage({ limit, beforeForwardedAt = null, beforeId = null, cutoffForwardedAt = null }) {
   const conditions = [];
   const params = [];
@@ -734,6 +748,7 @@ async function cleanupOrphanedLogs(client, optionsOrLimit = 50) {
       try {
         // Check if original message still exists
         let originalExists = false;
+        let originalChecked = false;
         try {
           let sourceChannel;
           
@@ -750,13 +765,33 @@ async function cleanupOrphanedLogs(client, optionsOrLimit = 50) {
               sourceChannel = sourceGuild.channels.cache.get(log.originalChannelId);
             }
           }
+
+          if (!sourceChannel && log.originalChannelId) {
+            try {
+              sourceChannel = await client.channels.fetch(log.originalChannelId);
+            } catch (_fetchError) {
+              sourceChannel = null;
+            }
+          }
           
-          if (sourceChannel) {
+          if (sourceChannel && sourceChannel.messages && typeof sourceChannel.messages.fetch === 'function') {
+            originalChecked = true;
             await sourceChannel.messages.fetch(log.originalMessageId);
             originalExists = true;
           }
         } catch (error) {
-          // Original message doesn't exist
+          if (isDiscordMissingResourceError(error)) {
+            originalChecked = true;
+          } else if (maintenance.debugMode) {
+            logInfo(`Skipping strict orphan check for log ${log.id}: cannot verify source message (${error.message})`);
+          }
+        }
+
+        if (!originalChecked) {
+          if (maintenance.debugMode) {
+            logInfo(`Skipping orphan cleanup for log ${log.id}: source channel/message not verifiable`);
+          }
+          continue;
         }
         
         // Check if forwarded message still exists
@@ -788,12 +823,12 @@ async function cleanupOrphanedLogs(client, optionsOrLimit = 50) {
                 forwardedExists = true;
               }
             } else {
-              // Not found in Discord - assume Telegram target
-              // This handles both negative group IDs and positive private chat IDs
-              isTelegramTarget = true;
-              // For Telegram, we'll assume the message exists unless we can verify it doesn't
-              // We'll handle Telegram deletion in the cleanup section below
-              forwardedExists = true;
+              // Not found in Discord. Only treat as Telegram when chat ID format matches groups/channels.
+              if (String(log.forwardedChannelId || '').trim().startsWith('-')) {
+                isTelegramTarget = true;
+                // For Telegram, we'll assume the message exists unless we can verify it doesn't.
+                forwardedExists = true;
+              }
             }
           }
         } catch (error) {

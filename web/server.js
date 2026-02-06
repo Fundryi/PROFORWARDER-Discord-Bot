@@ -36,6 +36,14 @@ let telegramDiscoveryCache = {
   loadedAt: 0,
   payload: null
 };
+const TELEGRAM_DISCOVERY_ALLOWED_TYPES = new Set(['group', 'supergroup', 'channel']);
+
+function clearTelegramDiscoveryCache() {
+  telegramDiscoveryCache = {
+    loadedAt: 0,
+    payload: null
+  };
+}
 
 function buildDiscordAuthorizeUrl(webAdminConfig, state) {
   const params = new URLSearchParams({
@@ -940,9 +948,19 @@ function normalizeTelegramChat(chat) {
   };
 }
 
+function shouldIncludeTelegramChat(chat, source) {
+  if (!chat) return false;
+  const chatType = String(chat.type || '').toLowerCase();
+  if (source === 'configured' || chatType === 'configured') {
+    return String(chat.id || '').trim().startsWith('-');
+  }
+  return TELEGRAM_DISCOVERY_ALLOWED_TYPES.has(chatType);
+}
+
 function upsertTelegramChat(chatMap, chat, source) {
   const normalized = normalizeTelegramChat(chat);
   if (!normalized) return;
+  if (!shouldIncludeTelegramChat(normalized, source)) return;
 
   const existing = chatMap.get(normalized.id);
   if (!existing) {
@@ -1427,6 +1445,7 @@ function createWebAdminApp(client, config) {
         res.status(500).json({ error: 'Config created but could not be reloaded' });
         return;
       }
+      clearTelegramDiscoveryCache();
 
       res.status(201).json({
         config: buildConfigView(created)
@@ -1516,6 +1535,7 @@ function createWebAdminApp(client, config) {
       }
 
       await removeForwardConfig(configId);
+      clearTelegramDiscoveryCache();
 
       let deletedLogs = 0;
       try {
