@@ -9,7 +9,8 @@ const WEB_MANAGED_DEPRECATED_SUBCOMMANDS = new Set([
   'list',
   'remove',
   'test',
-  'auto-publish'
+  'auto-publish',
+  'retry'
 ]);
 
 const proforwardCommand = new SlashCommandBuilder()
@@ -768,7 +769,7 @@ async function handleStatus(interaction) {
     response += `• Discover chats: \`/proforward telegram-discover\`\n`;
     response += `• Discover by username: \`/proforward telegram-discover username:@channelname\`\n`;
   }
-  response += `• Retry a message forward: \`/proforward retry source_message_id:MESSAGE_ID\`\n`;
+  response += `• Retry a message forward: Web Admin Logs tab (${getWebAdminUrl()})\n`;
   if (config.readerBot?.enabled) {
     response += `• Reader bot status: \`/proforward reader-status\`\n`;
   }
