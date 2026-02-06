@@ -5,7 +5,13 @@
       "Bash(node:*)",
       "Bash(del \"commands\\\\configCommands.js\")",
       "Bash(del \"commands\\\\forwardCommands.js\")",
-      "Bash(del \"commands\\\\helpCommands.js\")"
+      "Bash(del \"commands\\\\helpCommands.js\")",
+      "Bash(dir:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git log:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker restart:*)"
     ]
   }
 }
