@@ -45,6 +45,105 @@ class TelegramHandler {
     return result;
   }
 
+  getTelegramErrorMessage(error) {
+    if (!error) return '';
+    if (typeof error === 'string') return error;
+    if (typeof error.message === 'string') return error.message;
+    return String(error);
+  }
+
+  isMarkdownEntityError(errorMessage) {
+    const message = String(errorMessage || '');
+    return /can't parse entities|parse entities|character '.+' is reserved/i.test(message);
+  }
+
+  isWebPreviewMediaError(errorMessage) {
+    return /(WEBPAGE_MEDIA_EMPTY|WEBPAGE_CURL_FAILED)/i.test(String(errorMessage || ''));
+  }
+
+  async sendPlainTextMessage(chatId, text, disableWebPagePreview = false, replyMarkup = null) {
+    const payload = {
+      chat_id: chatId,
+      text: text,
+      disable_web_page_preview: disableWebPagePreview
+    };
+
+    if (replyMarkup) {
+      payload.reply_markup = replyMarkup;
+    }
+
+    const result = await this.api.callTelegramAPI('sendMessage', payload);
+    if (result && result.ok) {
+      return result.result;
+    }
+
+    throw new Error(`Telegram API error (plain text fallback): ${result ? result.description : 'Unknown error'}`);
+  }
+
+  async sendPlainTextSplit(chatId, fullText, disableWebPagePreview = false) {
+    const textLengthLimit = 4000;
+    const splitIndicator = '...(continued)';
+    const parts = this.textSplitter.splitLongText(fullText, textLengthLimit, splitIndicator);
+    const sentMessages = [];
+
+    for (let i = 0; i < parts.length; i++) {
+      const messageResult = await this.sendPlainTextMessage(chatId, parts[i], disableWebPagePreview, null);
+      sentMessages.push(messageResult);
+    }
+
+    if (sentMessages.length === 1) {
+      return sentMessages[0];
+    }
+
+    return {
+      result: sentMessages[0],
+      messageChain: sentMessages.map(msg => String(msg.message_id)),
+      isSplit: true
+    };
+  }
+
+  async sendTextWithFallback(chatId, text, disableWebPagePreview = false, replyMarkup = null) {
+    const textLengthLimit = 4000;
+
+    if (text.length > textLengthLimit) {
+      try {
+        return await this.messageSender.sendLongTextMessage(chatId, text, disableWebPagePreview);
+      } catch (error) {
+        const errorMessage = this.getTelegramErrorMessage(error);
+        if (!this.isMarkdownEntityError(errorMessage)) {
+          throw error;
+        }
+
+        logInfo(`Telegram MarkdownV2 split send failed, retrying plain text split fallback: ${errorMessage}`);
+        return await this.sendPlainTextSplit(chatId, text, disableWebPagePreview);
+      }
+    }
+
+    const markdownPayload = {
+      chat_id: chatId,
+      text: text,
+      parse_mode: 'MarkdownV2',
+      disable_web_page_preview: disableWebPagePreview
+    };
+
+    if (replyMarkup) {
+      markdownPayload.reply_markup = replyMarkup;
+    }
+
+    const markdownResult = await this.api.callTelegramAPI('sendMessage', markdownPayload);
+    if (markdownResult && markdownResult.ok) {
+      return markdownResult.result;
+    }
+
+    const apiError = markdownResult ? markdownResult.description : 'Unknown error';
+    if (!this.isMarkdownEntityError(apiError)) {
+      throw new Error(`Telegram API error: ${apiError}`);
+    }
+
+    logInfo(`Telegram MarkdownV2 send failed, retrying plain text fallback: ${apiError}`);
+    return await this.sendPlainTextMessage(chatId, text, disableWebPagePreview, replyMarkup);
+  }
+
   /**
    * Send message to Telegram chat with enhanced chain support
    */
@@ -75,49 +174,41 @@ class TelegramHandler {
           if (isDebugMode) {
             logInfo(`🔍 SEND DEBUG: Embed media detected, treating as text-only message`);
           }
-          
-          // Treat as text-only message with 4000 char limit
-          const textLengthLimit = 4000; // Safe limit for text messages
-          
-          // Force disable web page preview for embed media (since we're treating as text-only)
-          const disablePreview = true; // Always disable for embed media to prevent big previews
-          
-          if (telegramMessage.text.length > textLengthLimit) {
-            logInfo(`📏 Text too long (${telegramMessage.text.length} chars), using smart text splitting`);
-            return await this.messageSender.sendLongTextMessage(chatId, telegramMessage.text, disablePreview);
-          }
-          
-          // Send as regular text message with preview disabled
-          const messagePayload = {
-            chat_id: chatId,
-            text: telegramMessage.text,
-            parse_mode: 'MarkdownV2',
-            disable_web_page_preview: disablePreview
-          };
 
-          // Only add reply_markup if it's actually provided (preserve existing logic)
-          if (telegramMessage.replyMarkup) {
-            messagePayload.reply_markup = telegramMessage.replyMarkup;
-          }
-
-          const result = await this.api.callTelegramAPI('sendMessage', messagePayload);
-
-          if (result && result.ok) {
-            logSuccess(`✅ Message sent to Telegram chat ${chatId} as text-only (embed media filtered, preview disabled)`);
-            return result.result;
-          } else {
-            throw new Error(`Telegram API error: ${result ? result.description : 'Unknown error'}`);
-          }
+          // Force disable web page previews for embed-media fallback mode.
+          const disablePreview = true;
+          const fallbackResult = await this.sendTextWithFallback(
+            chatId,
+            telegramMessage.text,
+            disablePreview,
+            telegramMessage.replyMarkup || null
+          );
+          logSuccess(`✅ Message sent to Telegram chat ${chatId} as text-only fallback (embed media filtered)`);
+          return fallbackResult;
         }
-        
-        // Send media with text as caption (may return chain if split)
-        const result = await this.messageSender.sendMediaWithCaption(chatId, telegramMessage.media, telegramMessage.text);
-        
-        // Check if result indicates a split message
-        if (result.isSplit && result.messageChain) {
-          return result; // Return chain information
-        } else {
-          return result; // Return normal result
+
+        // Send media with caption; if Telegram formatting/preview errors occur, fallback to text-only.
+        try {
+          const result = await this.messageSender.sendMediaWithCaption(chatId, telegramMessage.media, telegramMessage.text);
+          if (result.isSplit && result.messageChain) {
+            return result;
+          }
+          return result;
+        } catch (mediaError) {
+          const mediaErrorMessage = this.getTelegramErrorMessage(mediaError);
+          const canFallback = this.isMarkdownEntityError(mediaErrorMessage) || this.isWebPreviewMediaError(mediaErrorMessage);
+
+          if (!canFallback) {
+            throw mediaError;
+          }
+
+          logInfo(`Telegram media send failed, retrying as text-only fallback: ${mediaErrorMessage}`);
+          return await this.sendTextWithFallback(
+            chatId,
+            telegramMessage.text,
+            true,
+            telegramMessage.replyMarkup || null
+          );
         }
       } else {
         if (isDebugMode) {
@@ -126,35 +217,15 @@ class TelegramHandler {
           logInfo(`🔍 SEND DEBUG: Text length: ${telegramMessage.text.length} characters`);
         }
         
-        // Check if text is too long for normal message (4096 character limit)
-        const textLengthLimit = 4000; // Safe limit, Telegram allows 4096
-        
-        if (telegramMessage.text.length > textLengthLimit) {
-          logInfo(`📏 Text too long (${telegramMessage.text.length} chars), using smart text splitting`);
-          return await this.messageSender.sendLongTextMessage(chatId, telegramMessage.text, telegramMessage.disableWebPagePreview);
-        }
-        
-        // Send message with MarkdownV2 parsing using the converted message (includes embeds!)
-        const messagePayload = {
-          chat_id: chatId,
-          text: telegramMessage.text,
-          parse_mode: 'MarkdownV2',
-          disable_web_page_preview: telegramMessage.disableWebPagePreview || false
-        };
+        const result = await this.sendTextWithFallback(
+          chatId,
+          telegramMessage.text,
+          telegramMessage.disableWebPagePreview || false,
+          telegramMessage.replyMarkup || null
+        );
 
-        // Only add reply_markup if it's actually provided
-        if (telegramMessage.replyMarkup) {
-          messagePayload.reply_markup = telegramMessage.replyMarkup;
-        }
-
-        const result = await this.api.callTelegramAPI('sendMessage', messagePayload);
-
-        if (result && result.ok) {
-          logSuccess(`✅ Message sent to Telegram chat ${chatId} (using MarkdownV2)`);
-          return result.result;
-        } else {
-          throw new Error(`Telegram API error: ${result ? result.description : 'Unknown error'}`);
-        }
+        logSuccess(`✅ Message sent to Telegram chat ${chatId} (with MarkdownV2 fallback protection)`);
+        return result;
       }
     } catch (error) {
       logError('Error sending Telegram message:', error);
