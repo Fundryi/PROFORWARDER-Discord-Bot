@@ -5,6 +5,8 @@
   var configsBody = document.getElementById('configs-body');
   var createDiscordForm = document.getElementById('create-discord-form');
   var createTelegramForm = document.getElementById('create-telegram-form');
+  var forwardTabButtons = document.querySelectorAll('.forward-subtab-btn[data-forward-tab]');
+  var forwardPanels = document.querySelectorAll('.forward-panel[data-forward-panel]');
 
   var discordSourceServerSearch = document.getElementById('discord-source-server-search');
   var discordSourceServerSelect = document.getElementById('discord-source-server');
@@ -57,7 +59,7 @@
 
   function targetText(config) {
     if (config.targetType === 'telegram') {
-      var label = 'Telegram ';
+      var label = 'Telegram → ';
       if (config.telegramChatTitle && config.telegramChatTitle !== 'Configured Chat') {
         label += config.telegramChatTitle + ' (' + config.targetChatId + ')';
       } else {
@@ -69,17 +71,29 @@
       return label;
     }
     if (config.targetServerId && config.targetChannelId) {
-      return 'Discord ' + config.targetServerId + ':' + config.targetChannelId;
+      return 'Discord → ' + config.targetServerId + ':' + config.targetChannelId;
     }
     if (config.targetChannelId) {
-      return 'Discord ' + config.targetChannelId;
+      return 'Discord → ' + config.targetChannelId;
     }
     return '-';
   }
 
-  function createCell(text) {
+  function formatConfigName(name) {
+    var normalized = String(name || 'Unnamed').trim();
+    if (!normalized) normalized = 'Unnamed';
+    return normalized.replace(/\s+to\s+/gi, ' → ');
+  }
+
+  function sourceText(config) {
+    var sourceBot = config.useReaderBot ? 'Reader' : 'Main';
+    return sourceBot + ' → ' + (config.sourceChannelId || '-');
+  }
+
+  function createCell(text, className) {
     var cell = document.createElement('td');
     cell.textContent = text;
+    if (className) cell.className = className;
     return cell;
   }
 
@@ -93,18 +107,20 @@
     for (var i = 0; i < configs.length; i++) {
       var config = configs[i];
       var row = document.createElement('tr');
-      row.appendChild(createCell(String(config.id)));
-      row.appendChild(createCell(config.name || 'Unnamed'));
-      var sourceLabel = (config.useReaderBot ? '[Reader] ' : '[Main] ') + (config.sourceChannelId || '-');
-      row.appendChild(createCell(sourceLabel));
-      var targetCell = createCell(targetText(config));
+      row.appendChild(createCell(String(config.id), 'mono'));
+      row.appendChild(createCell(formatConfigName(config.name), 'config-name'));
+      row.appendChild(createCell(sourceText(config), 'mono config-flow'));
+      var targetCell = createCell(targetText(config), 'mono config-flow');
       if (config.targetStatus === 'unreachable') {
         targetCell.classList.add('text-danger');
       }
       row.appendChild(targetCell);
-      row.appendChild(createCell(config.enabled !== false ? 'Enabled' : 'Disabled'));
+      var statusCell = document.createElement('td');
+      statusCell.innerHTML = statusBadge(config.enabled !== false);
+      row.appendChild(statusCell);
 
       var actionsCell = document.createElement('td');
+      actionsCell.className = 'config-actions';
 
       (function (cfg) {
         var toggleButton = document.createElement('button');
@@ -170,6 +186,12 @@
       row.appendChild(actionsCell);
       configsBody.appendChild(row);
     }
+  }
+
+  function statusBadge(isEnabled) {
+    var cls = isEnabled ? 'status-badge success' : 'status-badge retry';
+    var text = isEnabled ? 'Enabled' : 'Disabled';
+    return '<span class="' + cls + '">' + text + '</span>';
   }
 
   async function loadConfigs(guildId) {
@@ -791,6 +813,57 @@
 
   }
 
+  function switchForwardTab(nextTabId) {
+    var tabId = String(nextTabId || '').trim().toLowerCase();
+    if (tabId !== 'discord' && tabId !== 'telegram') {
+      tabId = 'discord';
+    }
+
+    for (var i = 0; i < forwardTabButtons.length; i++) {
+      var button = forwardTabButtons[i];
+      var isActive = button.getAttribute('data-forward-tab') === tabId;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      button.setAttribute('tabindex', isActive ? '0' : '-1');
+    }
+
+    for (var j = 0; j < forwardPanels.length; j++) {
+      var panel = forwardPanels[j];
+      var panelActive = panel.getAttribute('data-forward-panel') === tabId;
+      panel.classList.toggle('active', panelActive);
+      panel.setAttribute('aria-hidden', panelActive ? 'false' : 'true');
+    }
+  }
+
+  function wireForwardTabs() {
+    if (!forwardTabButtons.length || !forwardPanels.length) return;
+
+    for (var i = 0; i < forwardTabButtons.length; i++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          switchForwardTab(btn.getAttribute('data-forward-tab'));
+        });
+
+        btn.addEventListener('keydown', function (event) {
+          if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+          event.preventDefault();
+
+          var all = Array.prototype.slice.call(forwardTabButtons);
+          var currentIndex = all.indexOf(btn);
+          if (currentIndex < 0) return;
+
+          var direction = event.key === 'ArrowRight' ? 1 : -1;
+          var nextIndex = (currentIndex + direction + all.length) % all.length;
+          var nextBtn = all[nextIndex];
+          switchForwardTab(nextBtn.getAttribute('data-forward-tab'));
+          nextBtn.focus();
+        });
+      })(forwardTabButtons[i]);
+    }
+
+    switchForwardTab('discord');
+  }
+
   if (createDiscordForm) {
     createDiscordForm.addEventListener('submit', async function (event) {
       event.preventDefault();
@@ -894,6 +967,7 @@
   }
 
   wireSearchAndSelectEvents();
+  wireForwardTabs();
 
   AdminApp.onTabActivate('configs', function () {
     loadConfigs(AdminApp.state.currentGuildId);
