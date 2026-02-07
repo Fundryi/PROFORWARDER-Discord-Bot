@@ -383,7 +383,7 @@
 
     var warnings = Array.isArray(setupState.telegram.warnings) ? setupState.telegram.warnings : [];
     if (!warnings.length) {
-      telegramChatHint.textContent = 'Telegram cannot list chats automatically. Use Verify & Register to add a chat by ID, or it will be tracked after first use.';
+      telegramChatHint.textContent = 'Select a tracked chat or enter a Chat ID. Bot access is verified automatically when creating the forward.';
       return;
     }
 
@@ -581,52 +581,6 @@
       });
     }
 
-    var verifyBtn = document.getElementById('telegram-verify-btn');
-    var verifyResult = document.getElementById('telegram-verify-result');
-    if (verifyBtn) {
-      verifyBtn.addEventListener('click', async function () {
-        var chatId = telegramChatIdInput ? telegramChatIdInput.value.trim() : '';
-        if (!isTelegramChatId(chatId)) {
-          if (verifyResult) {
-            verifyResult.style.display = '';
-            verifyResult.style.color = '#e74c3c';
-            verifyResult.textContent = 'Enter a valid Telegram chat ID first.';
-          }
-          return;
-        }
-
-        verifyBtn.disabled = true;
-        verifyBtn.textContent = 'Verifying...';
-        if (verifyResult) {
-          verifyResult.style.display = '';
-          verifyResult.style.color = '';
-          verifyResult.textContent = 'Checking bot access...';
-        }
-
-        try {
-          var result = await AdminApp.fetchJson('/api/telegram-chats/verify', {
-            method: 'POST',
-            body: JSON.stringify({ chatId: chatId })
-          });
-          if (result && result.success && result.chat) {
-            if (verifyResult) {
-              verifyResult.style.color = '#2ecc71';
-              verifyResult.textContent = 'Registered: [' + result.chat.type + '] ' + result.chat.title + ' (' + result.chat.id + ')';
-            }
-            // Refresh the dropdown to include the newly registered chat
-            await loadSetupOptions(true);
-          }
-        } catch (error) {
-          if (verifyResult) {
-            verifyResult.style.color = '#e74c3c';
-            verifyResult.textContent = 'Verify failed: ' + (error.message || 'Unknown error');
-          }
-        } finally {
-          verifyBtn.disabled = false;
-          verifyBtn.textContent = 'Verify & Register Chat';
-        }
-      });
-    }
   }
 
   if (createDiscordForm) {
@@ -689,6 +643,19 @@
         return;
       }
 
+      // Step 1: Verify bot has access to the target chat
+      try {
+        AdminApp.setStatus('Verifying bot access to Telegram chat...');
+        await AdminApp.fetchJson('/api/telegram-chats/verify', {
+          method: 'POST',
+          body: JSON.stringify({ chatId: targetChatId })
+        });
+      } catch (verifyError) {
+        AdminApp.setStatus('Cannot create forward: ' + (verifyError.message || 'Bot does not have access to this chat.'), true);
+        return;
+      }
+
+      // Step 2: Create the forward config
       var payload = {
         guildId: sourceGuildId,
         targetType: 'telegram',
@@ -704,6 +671,7 @@
           body: JSON.stringify(payload)
         });
         resetTelegramCreateForm();
+        await loadSetupOptions(true);
         var telegramConfigId = createdTelegram && createdTelegram.config ? createdTelegram.config.id : '?';
         AdminApp.setStatus('Telegram forward created successfully (Config ' + telegramConfigId + ').');
         setActiveGuild(sourceGuildId);

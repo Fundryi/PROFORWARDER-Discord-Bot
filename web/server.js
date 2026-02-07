@@ -419,16 +419,14 @@ function renderDashboardPage(auth) {
             </fieldset>
             <fieldset class="config-box">
               <legend>Target</legend>
-              <label>Telegram Chat (discovered)
-                <input id="telegram-chat-search" class="input select-search" placeholder="Search discovered chats">
+              <label>Tracked Telegram Chats
+                <input id="telegram-chat-search" class="input select-search" placeholder="Search tracked chats">
                 <select id="telegram-chat-select" class="input">
-                  <option value="">Select discovered chat (optional)</option>
+                  <option value="">Select a tracked chat (optional)</option>
                 </select>
               </label>
-              <label>Telegram Chat ID (manual or selected)<input id="telegram-chat-id" class="input" required></label>
-              <button type="button" id="telegram-verify-btn" class="button secondary sm">Verify &amp; Register Chat</button>
-              <p id="telegram-verify-result" class="muted-text" style="display:none"></p>
-              <p id="telegram-chat-hint" class="muted-text">Telegram cannot list chats automatically. Use Verify &amp; Register to add a chat by ID, or it will be tracked after first use.</p>
+              <label>Target Chat ID<input id="telegram-chat-id" class="input" required placeholder="Select above or enter Chat ID manually"></label>
+              <p id="telegram-chat-hint" class="muted-text">Select a tracked chat or enter a Chat ID. Bot access is verified automatically when creating the forward.</p>
             </fieldset>
           </div>
           <label>Name (optional)<input id="telegram-name" class="input"></label>
