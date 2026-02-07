@@ -297,12 +297,27 @@ async function initializeDatabase() {
       )
     `);
 
+    // Create telegram_chats table for persistent chat discovery/tracking
+    await run(`
+      CREATE TABLE IF NOT EXISTS telegram_chats (
+        chatId TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '',
+        type TEXT NOT NULL DEFAULT 'unknown',
+        username TEXT,
+        memberStatus TEXT DEFAULT 'unknown',
+        lastSeenAt INTEGER NOT NULL,
+        discoveredAt INTEGER NOT NULL,
+        discoveredVia TEXT DEFAULT 'unknown'
+      )
+    `);
+
     // Create indexes for common queries
     await run('CREATE INDEX IF NOT EXISTS idx_bot_settings_key ON bot_settings(key)');
     await run('CREATE INDEX IF NOT EXISTS idx_message_logs_original ON message_logs(originalMessageId, originalChannelId)');
     await run('CREATE INDEX IF NOT EXISTS idx_message_logs_config ON message_logs(configId, forwardedAt)');
     await run('CREATE INDEX IF NOT EXISTS idx_translation_threads_message ON translation_threads(forwardedMessageId)');
     await run('CREATE INDEX IF NOT EXISTS idx_translation_threads_thread ON translation_threads(threadId)');
+    await run('CREATE INDEX IF NOT EXISTS idx_telegram_chats_type ON telegram_chats(type)');
 
     await ensureMessageLogsChainColumns();
 
@@ -1061,6 +1076,57 @@ async function cleanupOrphanedThreads(client, limit = 50) {
   }
 }
 
+// Telegram chat tracking operations
+async function upsertTelegramChat(chat) {
+  const now = Date.now();
+  await run(`
+    INSERT INTO telegram_chats (chatId, title, type, username, memberStatus, lastSeenAt, discoveredAt, discoveredVia)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(chatId) DO UPDATE SET
+      title = CASE WHEN excluded.title != '' THEN excluded.title ELSE telegram_chats.title END,
+      type = CASE WHEN excluded.type NOT IN ('unknown', 'configured') THEN excluded.type ELSE telegram_chats.type END,
+      username = COALESCE(excluded.username, telegram_chats.username),
+      memberStatus = CASE WHEN excluded.memberStatus != 'unknown' THEN excluded.memberStatus ELSE telegram_chats.memberStatus END,
+      lastSeenAt = excluded.lastSeenAt,
+      discoveredVia = CASE WHEN telegram_chats.discoveredVia = 'unknown' THEN excluded.discoveredVia ELSE telegram_chats.discoveredVia END
+  `, [
+    String(chat.chatId),
+    chat.title || '',
+    chat.type || 'unknown',
+    chat.username || null,
+    chat.memberStatus || 'unknown',
+    now,
+    now,
+    chat.discoveredVia || 'unknown'
+  ]);
+  return true;
+}
+
+async function getTelegramChats(options = {}) {
+  const includeLeft = options.includeLeft === true;
+  const types = Array.isArray(options.types) ? options.types : ['group', 'supergroup', 'channel'];
+
+  const placeholders = types.map(() => '?').join(', ');
+  const params = [...types];
+
+  let query = `SELECT * FROM telegram_chats WHERE type IN (${placeholders})`;
+  if (!includeLeft) {
+    query += ` AND memberStatus NOT IN ('left', 'kicked')`;
+  }
+  query += ' ORDER BY lastSeenAt DESC';
+
+  return await all(query, params);
+}
+
+async function getTelegramChat(chatId) {
+  return await get('SELECT * FROM telegram_chats WHERE chatId = ?', [String(chatId)]);
+}
+
+async function removeTelegramChat(chatId) {
+  const result = await run('DELETE FROM telegram_chats WHERE chatId = ?', [String(chatId)]);
+  return result.changes || 0;
+}
+
 module.exports = {
   // Bot settings operations
   getBotSetting,
@@ -1088,6 +1154,11 @@ module.exports = {
   archiveTranslationThread,
   deleteTranslationThreads,
   cleanupOrphanedThreads,
+  // Telegram chat tracking
+  upsertTelegramChat,
+  getTelegramChats,
+  getTelegramChat,
+  removeTelegramChat,
   // Database utilities
   run,
   get,

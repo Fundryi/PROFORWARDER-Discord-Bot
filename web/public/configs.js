@@ -52,7 +52,16 @@
 
   function targetText(config) {
     if (config.targetType === 'telegram') {
-      return 'Telegram ' + config.targetChatId;
+      var label = 'Telegram ';
+      if (config.telegramChatTitle && config.telegramChatTitle !== 'Configured Chat') {
+        label += config.telegramChatTitle + ' (' + config.targetChatId + ')';
+      } else {
+        label += config.targetChatId;
+      }
+      if (config.targetStatus === 'unreachable') {
+        label += ' [Bot removed]';
+      }
+      return label;
     }
     if (config.targetServerId && config.targetChannelId) {
       return 'Discord ' + config.targetServerId + ':' + config.targetChannelId;
@@ -82,7 +91,11 @@
       row.appendChild(createCell(String(config.id)));
       row.appendChild(createCell(config.name || 'Unnamed'));
       row.appendChild(createCell(config.sourceChannelId || '-'));
-      row.appendChild(createCell(targetText(config)));
+      var targetCell = createCell(targetText(config));
+      if (config.targetStatus === 'unreachable') {
+        targetCell.style.color = '#e74c3c';
+      }
+      row.appendChild(targetCell);
       row.appendChild(createCell(config.enabled !== false ? 'Enabled' : 'Disabled'));
 
       var actionsCell = document.createElement('td');
@@ -223,10 +236,11 @@
 
   function telegramChatLabel(chat) {
     var type = '[' + String(chat.type || 'unknown') + ']';
-    var source = chat.source === 'updates' ? 'recent' : (chat.source === 'configured' ? 'configured' : '');
+    var sourceMap = { tracked: 'tracked', updates: 'recent', configured: 'configured', forward: 'forward' };
+    var source = sourceMap[chat.source] || '';
     var id = String(chat.id || '').trim();
     var title = String(chat.title || '').trim();
-    if (!title) {
+    if (!title || title === 'Configured Chat') {
       title = id ? ('Chat ' + id) : 'Chat';
     }
 
@@ -369,7 +383,7 @@
 
     var warnings = Array.isArray(setupState.telegram.warnings) ? setupState.telegram.warnings : [];
     if (!warnings.length) {
-      telegramChatHint.textContent = 'Chat list uses best-effort discovery from bot updates and existing configs.';
+      telegramChatHint.textContent = 'Telegram cannot list chats automatically. Use Verify & Register to add a chat by ID, or it will be tracked after first use.';
       return;
     }
 
@@ -564,6 +578,53 @@
         if (!telegramChatIdInput) return;
         if (!telegramChatSelect.value) return;
         telegramChatIdInput.value = telegramChatSelect.value;
+      });
+    }
+
+    var verifyBtn = document.getElementById('telegram-verify-btn');
+    var verifyResult = document.getElementById('telegram-verify-result');
+    if (verifyBtn) {
+      verifyBtn.addEventListener('click', async function () {
+        var chatId = telegramChatIdInput ? telegramChatIdInput.value.trim() : '';
+        if (!isTelegramChatId(chatId)) {
+          if (verifyResult) {
+            verifyResult.style.display = '';
+            verifyResult.style.color = '#e74c3c';
+            verifyResult.textContent = 'Enter a valid Telegram chat ID first.';
+          }
+          return;
+        }
+
+        verifyBtn.disabled = true;
+        verifyBtn.textContent = 'Verifying...';
+        if (verifyResult) {
+          verifyResult.style.display = '';
+          verifyResult.style.color = '';
+          verifyResult.textContent = 'Checking bot access...';
+        }
+
+        try {
+          var result = await AdminApp.fetchJson('/api/telegram-chats/verify', {
+            method: 'POST',
+            body: JSON.stringify({ chatId: chatId })
+          });
+          if (result && result.success && result.chat) {
+            if (verifyResult) {
+              verifyResult.style.color = '#2ecc71';
+              verifyResult.textContent = 'Registered: [' + result.chat.type + '] ' + result.chat.title + ' (' + result.chat.id + ')';
+            }
+            // Refresh the dropdown to include the newly registered chat
+            await loadSetupOptions(true);
+          }
+        } catch (error) {
+          if (verifyResult) {
+            verifyResult.style.color = '#e74c3c';
+            verifyResult.textContent = 'Verify failed: ' + (error.message || 'Unknown error');
+          }
+        } finally {
+          verifyBtn.disabled = false;
+          verifyBtn.textContent = 'Verify & Register Chat';
+        }
       });
     }
   }

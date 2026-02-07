@@ -26,12 +26,21 @@ const {
   getAllBotSettings,
   getBotSetting,
   setBotSetting,
+  upsertTelegramChat: dbUpsertTelegramChat,
+  getTelegramChats,
+  getTelegramChat,
   get: dbGet,
   run: dbRun
 } = require('../utils/database');
 const { logInfo, logSuccess, logError } = require('../utils/logger');
+const {
+  normalizeTelegramChat: trackerNormalize,
+  parseMyChatMemberUpdate,
+  persistChatsFromUpdates,
+  enrichChatViaAPI
+} = require('../utils/telegramChatTracker');
 
-const TELEGRAM_DISCOVERY_CACHE_TTL_MS = 60 * 1000;
+const TELEGRAM_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes (DB is the persistent backstop)
 let telegramDiscoveryCache = {
   loadedAt: 0,
   payload: null
@@ -417,7 +426,9 @@ function renderDashboardPage(auth) {
                 </select>
               </label>
               <label>Telegram Chat ID (manual or selected)<input id="telegram-chat-id" class="input" required></label>
-              <p id="telegram-chat-hint" class="muted-text">Chat list uses best-effort discovery from bot updates and existing configs.</p>
+              <button type="button" id="telegram-verify-btn" class="button secondary sm">Verify &amp; Register Chat</button>
+              <p id="telegram-verify-result" class="muted-text" style="display:none"></p>
+              <p id="telegram-chat-hint" class="muted-text">Telegram cannot list chats automatically. Use Verify &amp; Register to add a chat by ID, or it will be tracked after first use.</p>
             </fieldset>
           </div>
           <label>Name (optional)<input id="telegram-name" class="input"></label>
@@ -924,56 +935,30 @@ function mapGuildChannels(guild, botUser, options = {}) {
   }));
 }
 
-function parseUpdateChat(update) {
-  if (!update || typeof update !== 'object') return null;
-  return update.message?.chat
-    || update.edited_message?.chat
-    || update.channel_post?.chat
-    || update.edited_channel_post?.chat
-    || null;
-}
-
-function normalizeTelegramChat(chat) {
-  if (!chat || (chat.id === undefined || chat.id === null)) return null;
+// In-memory map helper: merge a chat into the response map (used during collectTelegramChatOptions)
+function upsertChatIntoMap(chatMap, chat, source) {
+  if (!chat || !chat.id) return;
   const id = String(chat.id);
-  const type = chat.type || 'unknown';
-  const title = chat.title
-    || `${chat.first_name || ''} ${chat.last_name || ''}`.trim()
-    || `Chat ${id}`;
-  return {
-    id,
-    title,
-    type,
-    username: chat.username || null
-  };
-}
-
-function shouldIncludeTelegramChat(chat, source) {
-  if (!chat) return false;
   const chatType = String(chat.type || '').toLowerCase();
+
+  // Filter: only include group/supergroup/channel (or configured with negative ID)
   if (source === 'configured' || chatType === 'configured') {
-    return String(chat.id || '').trim().startsWith('-');
-  }
-  return TELEGRAM_DISCOVERY_ALLOWED_TYPES.has(chatType);
-}
-
-function upsertTelegramChat(chatMap, chat, source) {
-  const normalized = normalizeTelegramChat(chat);
-  if (!normalized) return;
-  if (!shouldIncludeTelegramChat(normalized, source)) return;
-
-  const existing = chatMap.get(normalized.id);
-  if (!existing) {
-    chatMap.set(normalized.id, { ...normalized, source });
+    if (!id.startsWith('-')) return;
+  } else if (!TELEGRAM_DISCOVERY_ALLOWED_TYPES.has(chatType)) {
     return;
   }
 
-  chatMap.set(normalized.id, {
+  const existing = chatMap.get(id);
+  if (!existing) {
+    chatMap.set(id, { id, title: chat.title || `Chat ${id}`, type: chat.type || 'unknown', username: chat.username || null, source });
+    return;
+  }
+  chatMap.set(id, {
     ...existing,
-    title: normalized.title || existing.title,
-    type: normalized.type || existing.type,
-    username: normalized.username || existing.username,
-    source: existing.source === 'updates' ? 'updates' : source
+    title: chat.title || existing.title,
+    type: (chat.type && chat.type !== 'unknown' && chat.type !== 'configured') ? chat.type : existing.type,
+    username: chat.username || existing.username,
+    source: existing.source === 'tracked' ? 'tracked' : source
   });
 }
 
@@ -991,39 +976,79 @@ async function collectTelegramChatOptions() {
   const chatMap = new Map();
   const warnings = [];
 
-  // Always include chat IDs already used in existing Telegram forward configs.
+  // STEP 1: Load persisted chats from database (primary source)
+  try {
+    const dbChats = await getTelegramChats({ includeLeft: false });
+    for (const dbChat of dbChats) {
+      chatMap.set(dbChat.chatId, {
+        id: dbChat.chatId,
+        title: dbChat.title || `Chat ${dbChat.chatId}`,
+        type: dbChat.type,
+        username: dbChat.username || null,
+        source: 'tracked'
+      });
+    }
+  } catch (error) {
+    warnings.push(`Failed to load tracked Telegram chats: ${error.message}`);
+  }
+
+  // STEP 2: Merge in chat IDs from existing forward configs (fill gaps not yet in DB)
   try {
     const configs = await loadForwardConfigs();
     for (const cfg of configs) {
       if (cfg.targetType !== 'telegram' || !cfg.targetChatId) continue;
-      upsertTelegramChat(chatMap, {
-        id: cfg.targetChatId,
-        title: 'Configured Chat',
-        type: 'configured'
-      }, 'configured');
+      const chatId = String(cfg.targetChatId);
+      if (!chatMap.has(chatId)) {
+        upsertChatIntoMap(chatMap, { id: chatId, title: 'Configured Chat', type: 'configured' }, 'configured');
+      }
     }
   } catch (error) {
     warnings.push(`Failed to read configured Telegram chats: ${error.message}`);
   }
 
+  // STEP 3: Poll getUpdates (with my_chat_member) and persist new discoveries
+  let telegramHandler = null;
   if (telegramEnabled) {
     try {
       const TelegramHandler = require('../handlers/telegramHandler');
-      const telegramHandler = new TelegramHandler();
+      telegramHandler = new TelegramHandler();
       const initialized = await telegramHandler.initialize();
       if (!initialized) {
         warnings.push('Telegram handler failed to initialize.');
+        telegramHandler = null;
       } else {
         const updates = await telegramHandler.callTelegramAPI('getUpdates', {
           limit: 100,
-          timeout: 0
+          timeout: 0,
+          allowed_updates: ['message', 'edited_message', 'channel_post', 'edited_channel_post', 'my_chat_member']
         });
 
         if (updates && updates.ok && Array.isArray(updates.result)) {
+          // Persist to DB
+          await persistChatsFromUpdates(updates.result);
+
+          // Also merge into in-memory map for immediate response
           for (const update of updates.result) {
-            const chat = parseUpdateChat(update);
-            if (chat) {
-              upsertTelegramChat(chatMap, chat, 'updates');
+            const rawChat = update.message?.chat
+              || update.edited_message?.chat
+              || update.channel_post?.chat
+              || update.edited_channel_post?.chat
+              || null;
+            if (rawChat) {
+              const normalized = trackerNormalize(rawChat);
+              if (normalized) upsertChatIntoMap(chatMap, normalized, 'tracked');
+            }
+            const memberEvent = parseMyChatMemberUpdate(update);
+            if (memberEvent) {
+              const normalized = trackerNormalize(memberEvent.chat);
+              if (normalized) {
+                // If bot was removed, remove from the map
+                if (memberEvent.memberStatus === 'left' || memberEvent.memberStatus === 'kicked') {
+                  chatMap.delete(normalized.id);
+                } else {
+                  upsertChatIntoMap(chatMap, normalized, 'tracked');
+                }
+              }
             }
           }
         } else {
@@ -1035,6 +1060,43 @@ async function collectTelegramChatOptions() {
     }
   }
 
+  // STEP 4: Enrich any remaining "Configured Chat" placeholders via getChat API
+  if (telegramHandler) {
+    for (const [chatId, chatData] of chatMap.entries()) {
+      if (chatData.title !== 'Configured Chat') continue;
+
+      // Check DB first (may have been enriched by startup sync)
+      try {
+        const dbChat = await getTelegramChat(chatId);
+        if (dbChat && dbChat.title && dbChat.title !== '' && dbChat.title !== 'Configured Chat') {
+          chatMap.set(chatId, {
+            id: chatId,
+            title: dbChat.title,
+            type: (dbChat.type !== 'configured' && dbChat.type !== 'unknown') ? dbChat.type : chatData.type,
+            username: dbChat.username || chatData.username,
+            source: chatData.source
+          });
+          continue;
+        }
+      } catch (_) { /* ignore DB lookup failure */ }
+
+      // Call getChat API to enrich
+      try {
+        const enriched = await enrichChatViaAPI(telegramHandler, chatId);
+        if (enriched) {
+          chatMap.set(chatId, {
+            id: chatId,
+            title: enriched.title || chatData.title,
+            type: enriched.type || chatData.type,
+            username: enriched.username || chatData.username,
+            source: chatData.source
+          });
+        }
+      } catch (_) { /* enrichment is best-effort */ }
+    }
+  }
+
+  // Sort by type rank then title
   const typeRank = {
     channel: 1,
     supergroup: 2,
@@ -1310,6 +1372,21 @@ function createWebAdminApp(client, config) {
         .sort((a, b) => a.id - b.id)
         .map(buildConfigView);
 
+      // Enrich Telegram configs with target health status from tracked chats
+      for (const cfg of guildConfigs) {
+        if (cfg.targetType !== 'telegram' || !cfg.targetChatId) continue;
+        try {
+          const tracked = await getTelegramChat(cfg.targetChatId);
+          if (tracked) {
+            cfg.telegramChatTitle = tracked.title || null;
+            cfg.telegramChatType = tracked.type || null;
+            if (tracked.memberStatus === 'left' || tracked.memberStatus === 'kicked') {
+              cfg.targetStatus = 'unreachable';
+            }
+          }
+        } catch (_) { /* best-effort enrichment */ }
+      }
+
       res.json({
         guildId,
         configs: guildConfigs
@@ -1446,6 +1523,18 @@ function createWebAdminApp(client, config) {
         return;
       }
       clearTelegramDiscoveryCache();
+
+      // Auto-register Telegram chat in tracking DB for future dropdown visibility
+      if (newConfig.targetType === 'telegram' && newConfig.targetChatId) {
+        (async () => {
+          try {
+            const TH = require('../handlers/telegramHandler');
+            const th = new TH();
+            const ok = await th.initialize();
+            if (ok) await enrichChatViaAPI(th, newConfig.targetChatId);
+          } catch (_) { /* best-effort enrichment */ }
+        })();
+      }
 
       res.status(201).json({
         config: buildConfigView(created)
@@ -1605,6 +1694,78 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin telegram test failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to test Telegram target' });
+    }
+  });
+
+  // --- Telegram Chat Verify & Register ---
+  app.post('/api/telegram-chats/verify', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const chatId = typeof req.body.chatId === 'string' ? req.body.chatId.trim() : '';
+    if (!/^-?\d+$/.test(chatId)) {
+      res.status(400).json({ error: 'chatId must be a valid numeric Telegram chat ID' });
+      return;
+    }
+
+    const runtimeConfig = require('../config/config');
+    if (!runtimeConfig.telegram || runtimeConfig.telegram.enabled !== true) {
+      res.status(400).json({ error: 'Telegram integration is disabled' });
+      return;
+    }
+
+    try {
+      const TelegramHandler = require('../handlers/telegramHandler');
+      const telegramHandler = new TelegramHandler();
+      const initialized = await telegramHandler.initialize();
+      if (!initialized) {
+        res.status(500).json({ error: 'Telegram handler initialization failed' });
+        return;
+      }
+
+      const response = await telegramHandler.callTelegramAPI('getChat', { chat_id: chatId });
+      if (!response || !response.ok || !response.result) {
+        const desc = response ? response.description : 'Unknown error';
+        res.status(400).json({ error: `Bot cannot access this chat: ${desc}` });
+        return;
+      }
+
+      const chatInfo = response.result;
+      const chatType = chatInfo.type || 'unknown';
+
+      // Reject private chats
+      if (chatType === 'private') {
+        res.status(400).json({ error: 'Private user chats are not supported. Only groups, supergroups, and channels are allowed.' });
+        return;
+      }
+
+      // Persist to database
+      await dbUpsertTelegramChat({
+        chatId: String(chatInfo.id),
+        title: chatInfo.title || '',
+        type: chatType,
+        username: chatInfo.username || null,
+        memberStatus: 'member',
+        discoveredVia: 'manual_verify'
+      });
+
+      clearTelegramDiscoveryCache();
+
+      res.json({
+        success: true,
+        chat: {
+          id: String(chatInfo.id),
+          title: chatInfo.title || `Chat ${chatInfo.id}`,
+          type: chatType,
+          username: chatInfo.username || null
+        }
+      });
+    } catch (error) {
+      logError(`Telegram chat verify failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to verify Telegram chat' });
     }
   });
 

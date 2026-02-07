@@ -168,6 +168,22 @@ client.on("clientReady", async () => {
     webAdminServer = startWebAdminServer(client, config);
   }
 
+  // Telegram chat startup sync (background, non-blocking)
+  if (config.telegram && config.telegram.enabled) {
+    setTimeout(async () => {
+      try {
+        const TelegramHandler = require('./handlers/telegramHandler');
+        const { runStartupSync } = require('./utils/telegramChatTracker');
+        const telegramHandler = new TelegramHandler();
+        const initialized = await telegramHandler.initialize();
+        if (!initialized) return;
+        await runStartupSync(telegramHandler);
+      } catch (error) {
+        logError(`Telegram chat startup sync failed: ${error.message}`);
+      }
+    }, 5000);
+  }
+
   logSuccess(`Successfully logged in as ${client.user.tag}`);
   logInfo('ProForwarder bot is ready to forward messages!');
 });
