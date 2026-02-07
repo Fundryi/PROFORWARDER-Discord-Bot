@@ -54,20 +54,36 @@ Purpose: Track only items that are still below command parity or provide clear o
   - `node --check utils/telegramChatTracker.js`
   - `node --check web/server.js`
 
+### Phase 4 (2026-02-07) - Source Bot Selection in Web Config Create ✅
+- Added explicit source bot selectors in Discord + Telegram create forms (`Main Bot` / `Reader Bot`).
+- Extended `/api/form-options` payload with per-guild source-bot channel maps (`sourceBots`) and defaults.
+- Updated source channel pickers to refresh by selected source bot permissions.
+- Persisted source intent from web create flow via `sourceBot` request field and `useReaderBot` config flag.
+- Kept backward compatibility:
+  - auto-selects available bot when only one exists
+  - retains legacy fallback behavior if source-bot metadata is absent
+- Validation run:
+  - `node --check web/server.js`
+  - `node --check web/public/configs.js`
+
+### Phase 5 (2026-02-07) - Lightweight Web Security Hardening ✅
+- Added optional strict mode (`WEB_ADMIN_SECURITY_STRICT=true`) for internet-exposed deployments.
+- Added CSRF validation for mutating `/api` routes (`POST/PUT/PATCH/DELETE`) using session token + `X-CSRF-Token`.
+- Added simple in-memory rate limiting in strict mode:
+  - auth-sensitive routes
+  - mutating API requests
+- Added lightweight mutation audit logging (actor, method, path, status, duration) in strict mode.
+- Exposed CSRF token in `/api/me` and updated frontend request helper to send it on mutating requests.
+- Kept defaults simple for non-mass/local usage (strict mode is opt-in).
+- Validation run:
+  - `node --check web/server.js`
+  - `node --check web/public/app.js`
+  - `node --check web/lib/config.js`
+  - `node --check config/config.js`
+
 ## Remaining TODOs
 
-### 1. Web Security Hardening (Conditional Priority)
-- Why it stays: strong value when web admin is internet-exposed (OAuth/public domain).
-- Complexity: `Medium`
-- Impact: `High` (public), `Low-Medium` (localhost-only)
-- Decision: `Keep (conditional)`
-- Implementation approach:
-1. Add CSRF protection to mutating routes (`POST/PUT/PATCH/DELETE` APIs).
-2. Add rate limiting for auth and mutation routes.
-3. Add lightweight mutation audit logging (user, route/action, target id, timestamp).
-4. Gate strict mode by config so localhost workflows can stay simple.
-
-### 2. `/debug database` Web Parity (Low Priority)
+### 1. `/debug database` Web Parity (Low Priority)
 - Why it stays: command currently has richer DB diagnostics than web.
 - Complexity: `Medium`
 - Impact: `Low`
@@ -78,26 +94,15 @@ Purpose: Track only items that are still below command parity or provide clear o
 3. Restrict to admin-authorized users.
 4. Keep command as primary deep-debug path.
 
-### 3. Source Bot Selection Ambiguity in Web Config Create
-- Why it stays: in guilds where both bots exist, web source context defaults to main bot and does not allow explicit reader selection.
-- Complexity: `Low-Medium`
-- Impact: `Medium` for mixed-permission guilds
-- Decision: `Keep (newly discovered)`
-- Implementation approach:
-1. Add explicit source bot selector (`main`/`reader`) when both are available.
-2. Persist source intent (e.g., `useReaderBot`) from web create flow.
-3. Ensure source channel dropdown reflects the selected source bot permissions.
-4. Keep backward compatibility for existing configs.
-
 ## Removed From TODO (Already Web-Equal or Better)
 - Reader diagnostics simplified parity delivered in web (`/api/reader-status` + dashboard panel).
 - Emoji remove parity delivered (Discord app emoji delete + DB sync via dedicated endpoint).
 - Telegram `discoveredVia` semantics cleanup delivered (standardized values + safe legacy backfill).
+- Source bot selection ambiguity fixed in web config create flow.
+- Lightweight web security hardening delivered with opt-in strict mode.
 - Telegram target create flow verification is enforced in frontend and backend.
 - Telegram target input supports Chat ID, `@username`, and `t.me` links.
 - Telegram target UI is manual-first and supports tracked-chat removal with safety guardrails.
 
 ## Suggested Delivery Order
-1. Source bot selection ambiguity fix.
-2. Security hardening when moving to public/OAuth deployment.
-3. Optional web debug parity last.
+1. Optional web debug parity last.

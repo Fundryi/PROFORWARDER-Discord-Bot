@@ -6,7 +6,8 @@
   const state = {
     currentGuildId: '',
     guilds: [],
-    user: null
+    user: null,
+    csrfToken: ''
   };
 
   // -- DOM refs --
@@ -24,9 +25,18 @@
 
   async function fetchJson(url, options) {
     var opts = options || {};
+    var method = String((opts.method || 'GET')).toUpperCase();
+    var headers = { 'Content-Type': 'application/json' };
+    if (opts.headers && typeof opts.headers === 'object') {
+      headers = { ...headers, ...opts.headers };
+    }
+    if (state.csrfToken && (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE')) {
+      headers['X-CSRF-Token'] = state.csrfToken;
+    }
+
     var response = await fetch(url, {
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       ...opts
     });
     if (!response.ok) {
@@ -118,6 +128,7 @@
       var payload = await fetchJson('/api/me');
       state.user = payload.user;
       state.guilds = payload.guilds || [];
+      state.csrfToken = payload.csrfToken || '';
       populateGuilds(state.guilds);
     } catch (error) {
       setStatus('Failed to load user context.', true);

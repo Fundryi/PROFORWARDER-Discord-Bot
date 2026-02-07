@@ -74,6 +74,11 @@ function getWebAdminConfig(config) {
     oauthRedirectUri: configWebAdmin.oauthRedirectUri || '',
     oauthScopes: configWebAdmin.oauthScopes || 'identify guilds',
     botInviteRedirectUri: configWebAdmin.botInviteRedirectUri || '',
+    securityStrict: parseBoolean(configWebAdmin.securityStrict, false),
+    authRateLimitWindowMs: parseNumber(configWebAdmin.authRateLimitWindowMs, 5 * 60 * 1000),
+    authRateLimitMax: parseNumber(configWebAdmin.authRateLimitMax, 60),
+    mutationRateLimitWindowMs: parseNumber(configWebAdmin.mutationRateLimitWindowMs, 60 * 1000),
+    mutationRateLimitMax: parseNumber(configWebAdmin.mutationRateLimitMax, 180),
     localAllowedHosts,
     localAllowedIps,
     allowedRoleIds
