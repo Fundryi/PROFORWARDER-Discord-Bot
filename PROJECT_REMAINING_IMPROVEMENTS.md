@@ -25,6 +25,20 @@ Purpose: Track only items that are still below command parity or provide clear o
   - `node --check web/server.js`
   - `node --check web/public/dashboard.js`
 
+### Phase 2 (2026-02-07) - Emoji Remove Parity (DB + Discord Asset) ✅
+- Added `DELETE /api/settings/uploaded-emoji/:emojiName` with ordered behavior:
+  - resolve matching Discord application emoji by name
+  - delete Discord emoji first
+  - only then remove name from `uploaded_emoji_names`
+- Added actionable API errors when Discord deletion/fetch fails; DB entry is preserved on failure.
+- Kept operation idempotent:
+  - succeeds when emoji is already absent in Discord and/or DB
+  - returns removal status for both Discord and DB
+- Updated settings UI remove action to use the new endpoint.
+- Validation run:
+  - `node --check web/server.js`
+  - `node --check web/public/settings.js`
+
 ## Remaining TODOs
 
 ### 1. Web Security Hardening (Conditional Priority)
@@ -49,20 +63,7 @@ Purpose: Track only items that are still below command parity or provide clear o
 3. Backfill unknown/legacy values where safe.
 4. Surface value in debug/diagnostic outputs if needed.
 
-### 3. Emoji Remove Should Delete DB Entry + Discord Asset
-- Why it stays: explicit project requirement; current behavior is partial.
-- Complexity: `Medium`
-- Impact: `Medium`
-- Decision: `Keep`
-- Implementation approach:
-1. Add dedicated endpoint for per-emoji remove (by emoji name).
-2. Resolve matching Discord application emoji asset by name.
-3. Try deleting Discord emoji asset first.
-4. If Discord delete succeeds (or emoji already absent), remove the name from `uploaded_emoji_names` DB setting.
-5. If Discord delete fails due permission/API errors, do not remove from DB; return actionable error.
-6. Keep operation idempotent and log each outcome.
-
-### 4. `/debug database` Web Parity (Low Priority)
+### 3. `/debug database` Web Parity (Low Priority)
 - Why it stays: command currently has richer DB diagnostics than web.
 - Complexity: `Medium`
 - Impact: `Low`
@@ -73,7 +74,7 @@ Purpose: Track only items that are still below command parity or provide clear o
 3. Restrict to admin-authorized users.
 4. Keep command as primary deep-debug path.
 
-### 5. Source Bot Selection Ambiguity in Web Config Create
+### 4. Source Bot Selection Ambiguity in Web Config Create
 - Why it stays: in guilds where both bots exist, web source context defaults to main bot and does not allow explicit reader selection.
 - Complexity: `Low-Medium`
 - Impact: `Medium` for mixed-permission guilds
@@ -86,13 +87,13 @@ Purpose: Track only items that are still below command parity or provide clear o
 
 ## Removed From TODO (Already Web-Equal or Better)
 - Reader diagnostics simplified parity delivered in web (`/api/reader-status` + dashboard panel).
+- Emoji remove parity delivered (Discord app emoji delete + DB sync via dedicated endpoint).
 - Telegram target create flow verification is enforced in frontend and backend.
 - Telegram target input supports Chat ID, `@username`, and `t.me` links.
 - Telegram target UI is manual-first and supports tracked-chat removal with safety guardrails.
 
 ## Suggested Delivery Order
-1. Emoji remove (DB + Discord asset).
-2. `discoveredVia` semantics cleanup.
-3. Source bot selection ambiguity fix.
-4. Security hardening when moving to public/OAuth deployment.
-5. Optional web debug parity last.
+1. `discoveredVia` semantics cleanup.
+2. Source bot selection ambiguity fix.
+3. Security hardening when moving to public/OAuth deployment.
+4. Optional web debug parity last.

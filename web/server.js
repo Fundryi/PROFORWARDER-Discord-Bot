@@ -2482,6 +2482,109 @@ function createWebAdminApp(client, config) {
     }
   });
 
+  app.delete('/api/settings/uploaded-emoji/:emojiName', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const requestedName = String(req.params.emojiName || '').trim();
+    if (!requestedName) {
+      res.status(400).json({ error: 'emojiName is required' });
+      return;
+    }
+
+    try {
+      const rawValue = await getBotSetting('uploaded_emoji_names');
+      const parsedState = parseUploadedEmojiNames([
+        {
+          key: 'uploaded_emoji_names',
+          value: rawValue
+        }
+      ]);
+
+      if (parsedState.parseError) {
+        res.status(400).json({
+          error: 'uploaded_emoji_names is not valid JSON. Fix the setting value before removing individual emoji names.'
+        });
+        return;
+      }
+
+      if (!client || !client.application || !client.application.emojis) {
+        res.status(503).json({
+          error: 'Discord application emoji manager is not available yet. Wait for bot readiness and retry.'
+        });
+        return;
+      }
+
+      const normalizedRequestedName = requestedName.toLowerCase();
+      const matchedStoredName = parsedState.names.find(name => name.toLowerCase() === normalizedRequestedName) || null;
+      const canonicalName = matchedStoredName || requestedName;
+
+      let allEmojis;
+      try {
+        allEmojis = await client.application.emojis.fetch();
+      } catch (error) {
+        logError(`Web admin emoji remove fetch failed (${canonicalName}): ${error.message}`);
+        res.status(502).json({
+          error: 'Failed to query Discord application emojis. Check bot permissions/API status and retry.'
+        });
+        return;
+      }
+
+      const appEmoji = Array.from(allEmojis.values()).find(emoji =>
+        String(emoji.name || '').toLowerCase() === normalizedRequestedName
+      ) || null;
+
+      let discordStatus = 'already_absent';
+      if (appEmoji) {
+        try {
+          await appEmoji.delete();
+          discordStatus = 'deleted';
+          logInfo(`Web admin emoji remove: deleted Discord app emoji :${appEmoji.name}: (${appEmoji.id})`);
+        } catch (error) {
+          logError(`Web admin emoji remove failed deleting Discord app emoji :${appEmoji.name}: ${error.message}`);
+          res.status(502).json({
+            error: `Failed to delete Discord application emoji :${appEmoji.name}:. Check Discord application emoji permissions/API status and retry.`,
+            discordError: error.message
+          });
+          return;
+        }
+      } else {
+        logInfo(`Web admin emoji remove: Discord app emoji :${canonicalName}: already absent`);
+      }
+
+      const nextNames = parsedState.names.filter(name => name.toLowerCase() !== normalizedRequestedName);
+      const removedFromDb = nextNames.length !== parsedState.names.length;
+
+      if (removedFromDb || rawValue === null) {
+        await setBotSetting('uploaded_emoji_names', JSON.stringify(nextNames));
+      }
+
+      logInfo(
+        `Web admin emoji remove outcome for :${canonicalName}: discord=${discordStatus}; ` +
+        `dbRemoved=${removedFromDb}; remaining=${nextNames.length}; requestedBy=${auth.user.username || auth.user.id}`
+      );
+
+      res.json({
+        success: true,
+        name: canonicalName,
+        discord: {
+          status: discordStatus,
+          id: appEmoji ? appEmoji.id : null
+        },
+        db: {
+          removed: removedFromDb,
+          remainingCount: nextNames.length
+        }
+      });
+    } catch (error) {
+      logError(`Web admin emoji remove failed (${requestedName}): ${error.message}`);
+      res.status(500).json({ error: 'Failed to remove emoji name' });
+    }
+  });
+
   app.put('/api/settings/:key', async (req, res) => {
     const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
