@@ -24,8 +24,7 @@ const { logInfo, logSuccess, logError } = require('./utils/logger');
 const config = require('./config/config');
 const {
   proforwarderCommand,
-  handleProforwarderCommand,
-  buildPortalNotice
+  handleProforwarderCommand
 } = require('./commands/proforwarderCommand');
 const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
 let startWebAdminServer = () => null;
@@ -73,11 +72,6 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.commandName === 'proforwarder') {
     await handleProforwarderCommand(interaction);
-  } else if (interaction.commandName === 'proforward' || interaction.commandName === 'debug') {
-    await interaction.reply({
-      content: buildPortalNotice(`⛔ \`/${interaction.commandName}\` is disabled. Manage everything in Web Admin.`),
-      ephemeral: true
-    });
   } else {
     await interaction.reply({ content: 'Unknown command', ephemeral: true });
   }
@@ -95,7 +89,6 @@ client.on("clientReady", async () => {
 
     logSuccess('Successfully registered ProForwarder commands:');
     logInfo('- /proforwarder (web admin portal link)');
-    logInfo('- /proforward and /debug are retired and web-managed');
   } catch (error) {
     logError('Error registering commands:', error);
   }

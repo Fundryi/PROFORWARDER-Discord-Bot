@@ -163,8 +163,8 @@ Purpose: Track only items that are still below command parity or provide clear o
 - Removed legacy command modules from codebase:
   - `commands/proforwardCommand.js`
   - `commands/debugCommands.js`
-- Kept safe stale-command behavior:
-  - stale `/proforward` and `/debug` interactions return web redirect notices
+- Removed stale command compatibility handlers from runtime:
+  - bot now explicitly handles only `/proforwarder`
 - Validation run:
   - `node --check commands/proforwarderCommand.js`
   - `node --check index.js`

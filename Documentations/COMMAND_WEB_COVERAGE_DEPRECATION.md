@@ -12,6 +12,7 @@ Move day-to-day management from slash commands to web admin without losing criti
 - `RESOLVED`: Web Debug tab now includes message drilldown (`/api/debug/message-search`) with both full matches and edit-handler-aligned success subset.
 - `RESOLVED`: Remaining helper slash commands (`/proforward status`, `/proforward reader-status`, `/debug *`) were retired/unregistered; management is now web-only.
 - `RESOLVED`: Legacy command modules were removed; only `/proforwarder` portal-link command remains.
+- `RESOLVED`: Runtime compatibility handlers for old `/proforward` and `/debug` names were removed; only `/proforwarder` is handled.
 - `NOTE`: `/debug` web diagnostics remain intentionally gated by `WEB_ADMIN_DEBUG=true`.
 
 ## Current State Snapshot (Break Handoff)
