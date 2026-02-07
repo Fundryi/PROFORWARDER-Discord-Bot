@@ -485,6 +485,54 @@ td .button {
   font-size: 0.82rem;
 }
 
+.reader-diagnostics {
+  display: grid;
+  gap: 10px;
+}
+
+.reader-diagnostics-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.reader-diagnostics-facts {
+  font-size: 0.84rem;
+}
+
+.reader-diagnostics-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.reader-diagnostics-item {
+  display: grid;
+  gap: 4px;
+}
+
+.reader-diagnostics-title {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.reader-diagnostics-error {
+  color: #ffb5c0;
+  font-size: 0.86rem;
+}
+
+.reader-invite-link {
+  color: #8ed8ff;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(142, 216, 255, 0.65);
+}
+
+.reader-invite-link:hover {
+  color: #bde9ff;
+}
+
 .guild-icon-cell {
   width: 40px;
 }
