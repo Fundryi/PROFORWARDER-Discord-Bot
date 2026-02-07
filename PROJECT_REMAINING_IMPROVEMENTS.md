@@ -1,39 +1,98 @@
 # Project Remaining Improvements
 
 Date: 2026-02-07  
-Purpose: Track remaining fixes/improvements after current web-admin and Telegram UX work.
+Purpose: Track only items that are still below command parity or provide clear operational value.
 
-## Priority: Medium
+## Backlog Rule
+- Keep TODOs only when:
+- web admin is less detailed/capable than existing command behavior, or
+- the work has clear reliability/security impact.
+- Remove TODOs when web admin is already equal or better.
 
-1. Reader diagnostics parity in Web Admin
-Details: add a dedicated panel equivalent to `/proforward reader-status` with reader bot enabled/online state, guild reachability summary, source-channel access diagnostics, and invite/action guidance when missing access.  
-Status: open.  
-Source: `Documentations/COMMAND_WEB_COVERAGE_DEPRECATION.md`.
+## Phase Delivery Log
 
-2. Web security hardening (Phase 4 backlog)
-Details: add CSRF protection for mutating routes, rate limiting for auth/mutation endpoints, and mutation audit logs (who/what/when, before/after summary).  
-Status: open.  
-Source: `Documentations/COMMAND_UX_REWORK_PLAN.md` (Phase 4).
+### Phase 1 (2026-02-07) - Reader Diagnostics Parity (Simplified) ✅
+- Added `GET /api/reader-status` with:
+  - reader enabled/online state
+  - reader guild count
+  - per-config source guild/channel access diagnostics for active Discord forwards
+- Added Dashboard "Reader Diagnostics" panel with:
+  - reader status summary
+  - actionable failure hints
+  - reader invite link when available
+- Kept deep troubleshooting in `/proforward reader-status` command path.
+- Validation run:
+  - `node --check web/server.js`
+  - `node --check web/public/dashboard.js`
 
-## Priority: Low
+## Remaining TODOs
 
-1. Clarify Telegram `discoveredVia` semantics
-Details: ensure tracked chat metadata distinguishes update-discovered, manually verified, auto-verified during config creation, and forward-observed states.  
-Status: open.  
-Source: `Documentations/COMMAND_WEB_COVERAGE_DEPRECATION.md`.
+### 1. Web Security Hardening (Conditional Priority)
+- Why it stays: strong value when web admin is internet-exposed (OAuth/public domain).
+- Complexity: `Medium`
+- Impact: `High` (public), `Low-Medium` (localhost-only)
+- Decision: `Keep (conditional)`
+- Implementation approach:
+1. Add CSRF protection to mutating routes (`POST/PUT/PATCH/DELETE` APIs).
+2. Add rate limiting for auth and mutation routes.
+3. Add lightweight mutation audit logging (user, route/action, target id, timestamp).
+4. Gate strict mode by config so localhost workflows can stay simple.
 
-2. Emoji remove behavior decision
-Details: decide whether per-emoji remove should also delete the Discord application emoji asset, not only remove DB name entry.  
-Status: open decision.  
-Source: `Documentations/COMMAND_WEB_COVERAGE_DEPRECATION.md`.
+### 2. Telegram `discoveredVia` Semantics Cleanup
+- Why it stays: cheap fix with better debugging/operational clarity.
+- Complexity: `Low`
+- Impact: `Low-Medium`
+- Decision: `Keep`
+- Implementation approach:
+1. Standardize allowed values (`updates`, `manual_verify`, `config_create`, `forward`, `my_chat_member`).
+2. Ensure create-flow verification writes `config_create`.
+3. Backfill unknown/legacy values where safe.
+4. Surface value in debug/diagnostic outputs if needed.
 
-3. `/debug database` future
-Details: decide whether to keep `/debug database` as command-only diagnostics or expose equivalent web debug view.  
-Status: open decision.  
-Source: `Documentations/COMMAND_WEB_COVERAGE_DEPRECATION.md`.
+### 3. Emoji Remove Should Delete DB Entry + Discord Asset
+- Why it stays: explicit project requirement; current behavior is partial.
+- Complexity: `Medium`
+- Impact: `Medium`
+- Decision: `Keep`
+- Implementation approach:
+1. Add dedicated endpoint for per-emoji remove (by emoji name).
+2. Resolve matching Discord application emoji asset by name.
+3. Try deleting Discord emoji asset first.
+4. If Discord delete succeeds (or emoji already absent), remove the name from `uploaded_emoji_names` DB setting.
+5. If Discord delete fails due permission/API errors, do not remove from DB; return actionable error.
+6. Keep operation idempotent and log each outcome.
 
-## Suggested Order
+### 4. `/debug database` Web Parity (Low Priority)
+- Why it stays: command currently has richer DB diagnostics than web.
+- Complexity: `Medium`
+- Impact: `Low`
+- Decision: `Keep (low priority)`
+- Implementation approach:
+1. Add read-only debug panel in web only when `WEB_ADMIN_DEBUG=true`.
+2. Expose curated diagnostics (no raw SQL input), e.g. latest logs, filtered slices, table counts.
+3. Restrict to admin-authorized users.
+4. Keep command as primary deep-debug path.
 
-1. Reader diagnostics parity (medium).
-2. Phase 4 web security hardening (medium).
-3. Low-priority metadata/decision items.
+### 5. Source Bot Selection Ambiguity in Web Config Create
+- Why it stays: in guilds where both bots exist, web source context defaults to main bot and does not allow explicit reader selection.
+- Complexity: `Low-Medium`
+- Impact: `Medium` for mixed-permission guilds
+- Decision: `Keep (newly discovered)`
+- Implementation approach:
+1. Add explicit source bot selector (`main`/`reader`) when both are available.
+2. Persist source intent (e.g., `useReaderBot`) from web create flow.
+3. Ensure source channel dropdown reflects the selected source bot permissions.
+4. Keep backward compatibility for existing configs.
+
+## Removed From TODO (Already Web-Equal or Better)
+- Reader diagnostics simplified parity delivered in web (`/api/reader-status` + dashboard panel).
+- Telegram target create flow verification is enforced in frontend and backend.
+- Telegram target input supports Chat ID, `@username`, and `t.me` links.
+- Telegram target UI is manual-first and supports tracked-chat removal with safety guardrails.
+
+## Suggested Delivery Order
+1. Emoji remove (DB + Discord asset).
+2. `discoveredVia` semantics cleanup.
+3. Source bot selection ambiguity fix.
+4. Security hardening when moving to public/OAuth deployment.
+5. Optional web debug parity last.
