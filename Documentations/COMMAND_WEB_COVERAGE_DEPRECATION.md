@@ -6,6 +6,12 @@ Status: In progress (Phase D)
 ## Goal
 Move day-to-day management from slash commands to web admin without losing critical capabilities.
 
+## Audit Notes (2026-02-07)
+- `MEDIUM (resolved in this session)`: Telegram target verification is now enforced in `POST /api/configs` for `targetType=telegram`, so direct API callers cannot bypass access checks.
+- `MEDIUM (resolved in this session)`: Telegram target input now accepts numeric chat IDs, `@username`, and `t.me` links (with canonical chat ID persisted after verification).
+- `LOW`: `discoveredVia` can be misleading for auto-verified flows when records are tagged as manual verification.
+- `LOW`: Timeline/status sections were behind latest Telegram UI/flow updates and required refresh.
+
 ## Current State Snapshot (Break Handoff)
 ### Web Admin coverage now in place
 - [x] Forward create UX clears inputs and shows explicit success feedback.
@@ -25,6 +31,7 @@ Move day-to-day management from slash commands to web admin without losing criti
 - [x] Discovery cache invalidates on Telegram config create/remove to prevent stale `[configured]` entries.
 - [x] Discovery excludes private user chats and keeps group/supergroup/channel targets (plus configured negative chat IDs only).
 - [x] Telegram discovery remains best-effort from updates + existing config data.
+- [x] Tracked Telegram chats can now be removed from web UI, with guardrails that block removal while a chat is still referenced by active forward configs.
 
 ### Log maintenance hardening
 - [x] Startup orphan cleanup now deletes only when source-message absence is verifiable.
@@ -65,9 +72,8 @@ Move day-to-day management from slash commands to web admin without losing criti
 
 ## Remaining Gaps Before Full Command Shutdown
 1. Add web reader-bot diagnostics panel equivalent to `/proforward reader-status`.
-2. Add Telegram username/link discovery path beyond update-history discovery.
-3. Decide whether per-emoji remove should also remove the Discord application emoji asset, not only the DB name entry.
-4. Decide whether to keep `/debug database` as terminal-only diagnostics.
+2. Decide whether per-emoji remove should also remove the Discord application emoji asset, not only the DB name entry.
+3. Decide whether to keep `/debug database` as terminal-only diagnostics.
 
 ## Recent Implementation Timeline (Including In-Between/Extra Work)
 - `d42bad5` docs: phased hardening plan for web admin/logs/telegram.

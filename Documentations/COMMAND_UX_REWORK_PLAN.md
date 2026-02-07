@@ -25,6 +25,12 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - `11314dc` phase 2: add read-only web dashboard with guild-scoped config view
   - `92293af` fix: include web module in image and guard missing web admin import
 
+## Continuation Audit Notes (2026-02-07)
+- `MEDIUM (resolved in this session)`: Telegram chat access verification is enforced server-side in `POST /api/configs` (no frontend-only bypass path).
+- `MEDIUM (resolved in this session)`: Telegram target entry supports numeric chat IDs, `@username`, and `t.me` links in web create flow.
+- `LOW`: Tracking metadata labels (`discoveredVia`) need clearer semantics for auto-verified create flow.
+- `LOW`: Plan snapshot and implementation notes need periodic refresh as post-Phase-3.5 Telegram UX improvements landed.
+
 ## Objective
 - Replace complex in-Discord management UX with a simple web admin interface.
 - Keep bot behavior and forwarding engine unchanged.

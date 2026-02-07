@@ -316,6 +316,11 @@ textarea::placeholder {
   margin: 0;
 }
 
+.telegram-tracked-actions {
+  justify-content: flex-start;
+  margin-top: -2px;
+}
+
 .table-wrapper {
   margin-top: 12px;
   border-radius: 14px;

@@ -29,6 +29,7 @@ const {
   upsertTelegramChat: dbUpsertTelegramChat,
   getTelegramChats,
   getTelegramChat,
+  removeTelegramChat,
   get: dbGet,
   run: dbRun
 } = require('../utils/database');
@@ -419,14 +420,18 @@ function renderDashboardPage(auth) {
             </fieldset>
             <fieldset class="config-box">
               <legend>Target</legend>
+              <label>Target Chat<input id="telegram-chat-id" class="input" required placeholder="Select above or enter Chat ID, @username, or t.me link"></label>
+              <p id="telegram-chat-hint" class="muted-text">Enter Chat ID, @username, or t.me link. Bot access is verified automatically when creating the forward.</p>
               <label>Tracked Telegram Chats
                 <input id="telegram-chat-search" class="input select-search" placeholder="Search tracked chats">
                 <select id="telegram-chat-select" class="input">
                   <option value="">Select a tracked chat (optional)</option>
                 </select>
               </label>
-              <label>Target Chat ID<input id="telegram-chat-id" class="input" required placeholder="Select above or enter Chat ID manually"></label>
-              <p id="telegram-chat-hint" class="muted-text">Select a tracked chat or enter a Chat ID. Bot access is verified automatically when creating the forward.</p>
+              <div class="row telegram-tracked-actions">
+                <button type="button" id="telegram-chat-remove-btn" class="button secondary sm danger">Remove Selected Tracked Chat</button>
+              </div>
+              <p class="muted-text">Removing a tracked chat only removes it from this list. It does not remove the bot from Telegram.</p>
             </fieldset>
           </div>
           <label>Name (optional)<input id="telegram-name" class="input"></label>
@@ -808,8 +813,42 @@ function isDiscordId(value) {
   return typeof value === 'string' && /^\d+$/.test(value.trim());
 }
 
-function isTelegramChatId(value) {
-  return typeof value === 'string' && /^-?\d+$/.test(value.trim());
+function normalizeTelegramChatLookupValue(value) {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return null;
+
+  if (/^-?\d+$/.test(raw)) {
+    return { lookupValue: raw, kind: 'chat_id' };
+  }
+
+  let candidate = raw;
+  const resolveMatch = candidate.match(/^tg:\/\/resolve\?domain=([A-Za-z0-9_]{4,32})/i);
+  if (resolveMatch) {
+    candidate = resolveMatch[1];
+  } else {
+    candidate = candidate
+      .replace(/^https?:\/\/t\.me\//i, '')
+      .replace(/^t\.me\//i, '')
+      .replace(/^@/, '');
+
+    const slashIndex = candidate.indexOf('/');
+    if (slashIndex >= 0) {
+      candidate = candidate.slice(0, slashIndex);
+    }
+
+    const queryIndex = candidate.indexOf('?');
+    if (queryIndex >= 0) {
+      candidate = candidate.slice(0, queryIndex);
+    }
+
+    candidate = candidate.trim();
+  }
+
+  if (!/^[A-Za-z][A-Za-z0-9_]{3,31}$/.test(candidate)) {
+    return null;
+  }
+
+  return { lookupValue: `@${candidate}`, kind: 'username' };
 }
 
 function parseConfigId(value) {
@@ -1122,6 +1161,63 @@ async function collectTelegramChatOptions() {
   };
 
   return payload;
+}
+
+async function verifyAndTrackTelegramChatAccess(chatId, options = {}) {
+  const discoveredVia = typeof options.discoveredVia === 'string' && options.discoveredVia.trim()
+    ? options.discoveredVia.trim()
+    : 'manual_verify';
+
+  const runtimeConfig = require('../config/config');
+  if (!runtimeConfig.telegram || runtimeConfig.telegram.enabled !== true) {
+    const error = new Error('Telegram integration is disabled');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const TelegramHandler = require('../handlers/telegramHandler');
+  const telegramHandler = new TelegramHandler();
+  const initialized = await telegramHandler.initialize();
+  if (!initialized) {
+    const error = new Error('Telegram handler initialization failed');
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const response = await telegramHandler.callTelegramAPI('getChat', { chat_id: chatId });
+  if (!response || !response.ok || !response.result) {
+    const description = response && response.description ? response.description : 'Unknown error';
+    const error = new Error(`Bot cannot access this chat: ${description}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const chatInfo = response.result;
+  const chatType = chatInfo.type || 'unknown';
+
+  if (chatType === 'private') {
+    const error = new Error('Private user chats are not supported. Only groups, supergroups, and channels are allowed.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  await dbUpsertTelegramChat({
+    chatId: String(chatInfo.id),
+    title: chatInfo.title || '',
+    type: chatType,
+    username: chatInfo.username || null,
+    memberStatus: 'member',
+    discoveredVia
+  });
+
+  clearTelegramDiscoveryCache();
+
+  return {
+    id: String(chatInfo.id),
+    title: chatInfo.title || `Chat ${chatInfo.id}`,
+    type: chatType,
+    username: chatInfo.username || null
+  };
 }
 
 function createWebAdminApp(client, config) {
@@ -1505,12 +1601,23 @@ function createWebAdminApp(client, config) {
         newConfig.targetChannelId = targetChannelId;
         newConfig.name = customName || `${sourceChannel.name} to ${targetChannel.name}`;
       } else {
-        const targetChatId = typeof req.body.targetChatId === 'string' ? req.body.targetChatId.trim() : '';
-        if (!isTelegramChatId(targetChatId)) {
-          res.status(400).json({ error: 'targetChatId must be a valid numeric Telegram chat ID' });
+        const targetChatInput = typeof req.body.targetChatId === 'string' ? req.body.targetChatId.trim() : '';
+        const targetChatLookup = normalizeTelegramChatLookupValue(targetChatInput);
+        if (!targetChatLookup) {
+          res.status(400).json({ error: 'targetChatId must be a valid Telegram chat ID, @username, or t.me link' });
           return;
         }
-        newConfig.targetChatId = targetChatId;
+
+        let verifiedChat;
+        try {
+          verifiedChat = await verifyAndTrackTelegramChatAccess(targetChatLookup.lookupValue, { discoveredVia: 'config_create' });
+        } catch (verifyError) {
+          const statusCode = Number(verifyError && verifyError.statusCode) || 400;
+          res.status(statusCode).json({ error: verifyError.message || 'Failed to verify Telegram chat access' });
+          return;
+        }
+
+        newConfig.targetChatId = verifiedChat.id;
         newConfig.name = customName || `${sourceChannel.name} to Telegram`;
       }
 
@@ -1521,18 +1628,6 @@ function createWebAdminApp(client, config) {
         return;
       }
       clearTelegramDiscoveryCache();
-
-      // Auto-register Telegram chat in tracking DB for future dropdown visibility
-      if (newConfig.targetType === 'telegram' && newConfig.targetChatId) {
-        (async () => {
-          try {
-            const TH = require('../handlers/telegramHandler');
-            const th = new TH();
-            const ok = await th.initialize();
-            if (ok) await enrichChatViaAPI(th, newConfig.targetChatId);
-          } catch (_) { /* best-effort enrichment */ }
-        })();
-      }
 
       res.status(201).json({
         config: buildConfigView(created)
@@ -1703,67 +1798,71 @@ function createWebAdminApp(client, config) {
       return;
     }
 
-    const chatId = typeof req.body.chatId === 'string' ? req.body.chatId.trim() : '';
-    if (!/^-?\d+$/.test(chatId)) {
-      res.status(400).json({ error: 'chatId must be a valid numeric Telegram chat ID' });
-      return;
-    }
-
-    const runtimeConfig = require('../config/config');
-    if (!runtimeConfig.telegram || runtimeConfig.telegram.enabled !== true) {
-      res.status(400).json({ error: 'Telegram integration is disabled' });
+    const chatIdInput = typeof req.body.chatId === 'string' ? req.body.chatId.trim() : '';
+    const chatLookup = normalizeTelegramChatLookupValue(chatIdInput);
+    if (!chatLookup) {
+      res.status(400).json({ error: 'chatId must be a valid Telegram chat ID, @username, or t.me link' });
       return;
     }
 
     try {
-      const TelegramHandler = require('../handlers/telegramHandler');
-      const telegramHandler = new TelegramHandler();
-      const initialized = await telegramHandler.initialize();
-      if (!initialized) {
-        res.status(500).json({ error: 'Telegram handler initialization failed' });
-        return;
-      }
-
-      const response = await telegramHandler.callTelegramAPI('getChat', { chat_id: chatId });
-      if (!response || !response.ok || !response.result) {
-        const desc = response ? response.description : 'Unknown error';
-        res.status(400).json({ error: `Bot cannot access this chat: ${desc}` });
-        return;
-      }
-
-      const chatInfo = response.result;
-      const chatType = chatInfo.type || 'unknown';
-
-      // Reject private chats
-      if (chatType === 'private') {
-        res.status(400).json({ error: 'Private user chats are not supported. Only groups, supergroups, and channels are allowed.' });
-        return;
-      }
-
-      // Persist to database
-      await dbUpsertTelegramChat({
-        chatId: String(chatInfo.id),
-        title: chatInfo.title || '',
-        type: chatType,
-        username: chatInfo.username || null,
-        memberStatus: 'member',
-        discoveredVia: 'manual_verify'
-      });
-
-      clearTelegramDiscoveryCache();
+      const verifiedChat = await verifyAndTrackTelegramChatAccess(chatLookup.lookupValue, { discoveredVia: 'manual_verify' });
 
       res.json({
         success: true,
-        chat: {
-          id: String(chatInfo.id),
-          title: chatInfo.title || `Chat ${chatInfo.id}`,
-          type: chatType,
-          username: chatInfo.username || null
-        }
+        chat: verifiedChat
       });
     } catch (error) {
       logError(`Telegram chat verify failed: ${error.message}`);
-      res.status(500).json({ error: 'Failed to verify Telegram chat' });
+      const statusCode = Number(error && error.statusCode) || 500;
+      const errorMessage = statusCode >= 500
+        ? 'Failed to verify Telegram chat'
+        : error.message;
+      res.status(statusCode).json({ error: errorMessage });
+    }
+  });
+
+  // Remove a tracked Telegram chat from discovery storage.
+  // Safety rule: block removal if any forward config still targets this chat.
+  app.delete('/api/telegram-chats/:chatId', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    const chatId = typeof req.params.chatId === 'string' ? req.params.chatId.trim() : '';
+    if (!/^-?\d+$/.test(chatId)) {
+      res.status(400).json({ error: 'chatId must be a numeric Telegram chat ID' });
+      return;
+    }
+
+    try {
+      const allConfigs = await loadForwardConfigs();
+      const usedByConfigs = (allConfigs || []).filter(cfg =>
+        cfg &&
+        cfg.targetType === 'telegram' &&
+        String(cfg.targetChatId || '') === chatId
+      );
+
+      if (usedByConfigs.length > 0) {
+        res.status(409).json({
+          error: `Cannot remove tracked chat while it is used by ${usedByConfigs.length} forward config(s). Remove or retarget those configs first.`
+        });
+        return;
+      }
+
+      const removed = await removeTelegramChat(chatId);
+      if (!removed) {
+        res.status(404).json({ error: 'Tracked Telegram chat not found' });
+        return;
+      }
+
+      clearTelegramDiscoveryCache();
+      res.json({ success: true, chatId, removed });
+    } catch (error) {
+      logError(`Telegram chat remove failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to remove tracked Telegram chat' });
     }
   });
 
