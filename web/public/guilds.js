@@ -178,7 +178,14 @@
         leaveBtn.textContent = 'Leave';
         leaveBtn.addEventListener('click', async function () {
           var botLabel = botType === 'reader' ? 'reader bot' : 'bot';
-          if (!confirm('Leave guild "' + guild.name + '" (' + guild.id + ')?\n\nThe ' + botLabel + ' will lose access to all channels in this server. This cannot be undone from here.')) {
+          var message = 'Leave guild "' + guild.name + '" (' + guild.id + ')?\n\nThe ' +
+            botLabel + ' will lose access to all channels in this server. This cannot be undone from here.';
+          var confirmed = await AdminApp.showConfirm(
+            'Leave Guild',
+            message,
+            'Leave'
+          );
+          if (!confirmed) {
             return;
           }
           try {

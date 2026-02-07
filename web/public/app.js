@@ -53,6 +53,71 @@
     return response.json();
   }
 
+  function showConfirm(title, message, okLabel) {
+    var overlay = document.getElementById('confirm-modal');
+    var titleEl = document.getElementById('confirm-modal-title');
+    var bodyEl = document.getElementById('confirm-modal-body');
+    var okBtn = document.getElementById('confirm-modal-ok');
+    var cancelBtn = document.getElementById('confirm-modal-cancel');
+
+    if (!overlay || !titleEl || !bodyEl || !okBtn || !cancelBtn) {
+      return Promise.resolve(window.confirm(String(message || title || 'Confirm?')));
+    }
+
+    return new Promise(function (resolve) {
+      var previousActive = document.activeElement;
+      var defaultOkLabel = 'Confirm';
+
+      titleEl.textContent = String(title || 'Please Confirm');
+      bodyEl.textContent = String(message || '');
+      okBtn.textContent = String(okLabel || defaultOkLabel);
+
+      overlay.classList.add('is-visible');
+      overlay.setAttribute('aria-hidden', 'false');
+      cancelBtn.focus();
+
+      function cleanup(result) {
+        overlay.classList.remove('is-visible');
+        overlay.setAttribute('aria-hidden', 'true');
+        okBtn.textContent = defaultOkLabel;
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        overlay.removeEventListener('click', onOverlayClick);
+        document.removeEventListener('keydown', onKeyDown);
+        if (previousActive && typeof previousActive.focus === 'function') {
+          previousActive.focus();
+        }
+        resolve(result);
+      }
+
+      function onOk() {
+        cleanup(true);
+      }
+
+      function onCancel() {
+        cleanup(false);
+      }
+
+      function onOverlayClick(event) {
+        if (event.target === overlay) {
+          cleanup(false);
+        }
+      }
+
+      function onKeyDown(event) {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          cleanup(false);
+        }
+      }
+
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      overlay.addEventListener('click', onOverlayClick);
+      document.addEventListener('keydown', onKeyDown);
+    });
+  }
+
   // -- Tab switching --
   var activeTab = '';
   var tabActivateCallbacks = {};
@@ -167,6 +232,7 @@
     state: state,
     fetchJson: fetchJson,
     setStatus: setStatus,
+    showConfirm: showConfirm,
     onTabActivate: onTabActivate,
     onGuildChange: onGuildChange,
     switchTab: switchTab
