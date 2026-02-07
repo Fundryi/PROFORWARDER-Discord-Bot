@@ -23,10 +23,10 @@ const { exec, close, setMaintenanceReaderBotClient } = require('./utils/database
 const { logInfo, logSuccess, logError } = require('./utils/logger');
 const config = require('./config/config');
 const {
-  handleProforwardCommand,
-  buildRegisteredProforwardCommandData,
-  webManagedDeprecatedSubcommands
-} = require('./commands/proforwardCommand');
+  proforwarderCommand,
+  handleProforwarderCommand,
+  buildPortalNotice
+} = require('./commands/proforwarderCommand');
 const { handleMessageCreate, handleMessageUpdate, handleMessageDelete } = require('./events/messageEvents');
 let startWebAdminServer = () => null;
 let stopWebAdminServer = async () => {};
@@ -38,17 +38,6 @@ try {
 
 // Reader Bot import
 const ReaderBot = require('./readerBot');
-
-function getWebAdminUrlForNotice() {
-  try {
-    const base = String(config?.webAdmin?.baseUrl || '').trim().replace(/\/+$/, '');
-    if (!base) return '/admin';
-    if (base.endsWith('/admin')) return base;
-    return `${base}/admin`;
-  } catch (_error) {
-    return '/admin';
-  }
-}
 
 logInfo('Bot is starting up...');
 logInfo('Initializing client with required intents...');
@@ -82,11 +71,11 @@ client.on("messageDelete", async (message) => {
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === 'proforward') {
-    await handleProforwardCommand(interaction);
-  } else if (interaction.commandName === 'debug') {
+  if (interaction.commandName === 'proforwarder') {
+    await handleProforwarderCommand(interaction);
+  } else if (interaction.commandName === 'proforward' || interaction.commandName === 'debug') {
     await interaction.reply({
-      content: `⛔ \`/debug\` is disabled. Use Web Admin Debug tab: ${getWebAdminUrlForNotice()}`,
+      content: buildPortalNotice(`⛔ \`/${interaction.commandName}\` is disabled. Manage everything in Web Admin.`),
       ephemeral: true
     });
   } else {
@@ -99,29 +88,14 @@ client.on("clientReady", async () => {
   
   try {
     logInfo('Started refreshing application (/) commands...');
-    const registeredProforwardCommand = buildRegisteredProforwardCommandData({ hideDeprecated: true });
-    const visibleSubcommands = Array.isArray(registeredProforwardCommand.options)
-      ? registeredProforwardCommand.options.map(option => option.name)
-      : [];
-    const commandsToRegister = [];
-
-    // If all /proforward subcommands are web-managed, unregister slash commands fully.
-    if (visibleSubcommands.length > 0) {
-      commandsToRegister.push(registeredProforwardCommand);
-    }
-
-    // /debug is web-managed only now and intentionally not registered.
-    await client.application.commands.set(commandsToRegister);
+    const registeredPortalCommand = typeof proforwarderCommand.toJSON === 'function'
+      ? proforwarderCommand.toJSON()
+      : proforwarderCommand;
+    await client.application.commands.set([registeredPortalCommand]);
 
     logSuccess('Successfully registered ProForwarder commands:');
-    if (visibleSubcommands.length > 0) {
-      logInfo(`- /proforward ${config.debugMode ? '(DEBUG MODE)' : '(production mode)'}`);
-      logInfo(`  ├─ Visible subcommands: ${visibleSubcommands.join(', ') || '(none)'}`);
-      logInfo(`  └─ Hidden (web-managed): ${webManagedDeprecatedSubcommands.join(', ')}`);
-    } else {
-      logInfo(`- /proforward fully web-managed (all subcommands hidden/disabled)`);
-    }
-    logInfo(`- /debug fully web-managed (command unregistered)`);
+    logInfo('- /proforwarder (web admin portal link)');
+    logInfo('- /proforward and /debug are retired and web-managed');
   } catch (error) {
     logError('Error registering commands:', error);
   }

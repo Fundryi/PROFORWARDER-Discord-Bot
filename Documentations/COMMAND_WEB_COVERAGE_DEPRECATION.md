@@ -1,7 +1,7 @@
 # Command Deprecation Coverage (Web Admin)
 
 Date: 2026-02-07
-Status: Full web parity (slash commands retired)
+Status: Full web parity (single portal command retained)
 
 ## Goal
 Move day-to-day management from slash commands to web admin without losing critical capabilities.
@@ -11,6 +11,7 @@ Move day-to-day management from slash commands to web admin without losing criti
 - `RESOLVED`: `/proforward telegram-discover` was retired as a slash-command helper; web Telegram target input + verification is the supported path.
 - `RESOLVED`: Web Debug tab now includes message drilldown (`/api/debug/message-search`) with both full matches and edit-handler-aligned success subset.
 - `RESOLVED`: Remaining helper slash commands (`/proforward status`, `/proforward reader-status`, `/debug *`) were retired/unregistered; management is now web-only.
+- `RESOLVED`: Legacy command modules were removed; only `/proforwarder` portal-link command remains.
 - `NOTE`: `/debug` web diagnostics remain intentionally gated by `WEB_ADMIN_DEBUG=true`.
 
 ## Current State Snapshot (Break Handoff)
@@ -61,6 +62,7 @@ Move day-to-day management from slash commands to web admin without losing criti
 - [x] Disable remaining commands after final web parity was delivered.
 
 ## Coverage Matrix (Current)
+- `/proforwarder`: Portal shortcut to Web Admin (dynamic URL/login hint from runtime settings).
 - `/proforward setup`: Covered by `Configs` -> `Create Discord Forward`.
 - `/proforward telegram`: Covered by `Configs` -> `Create Telegram Forward`.
 - `/proforward list`: Covered by `Configs` -> `Forward Configurations`.
@@ -124,4 +126,4 @@ Move day-to-day management from slash commands to web admin without losing criti
 - Native browser `<select><option>` popup width behavior can vary by OS/browser and is not fully controllable with CSS.
 
 ## Keep Enabled For Now
-- None (slash-command management fully retired in favor of Web Admin).
+- `/proforwarder` (portal shortcut only; no management actions).
