@@ -87,10 +87,11 @@ body::before {
   inset: 0;
   pointer-events: none;
   background-image:
+    radial-gradient(ellipse at 50% 26%, rgba(255, 255, 255, 0.035), transparent 70%),
     linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
-  background-size: 42px 42px;
-  opacity: 0.28;
+  background-size: 100% 100%, 42px 42px, 42px 42px;
+  opacity: 0.34;
   z-index: -1;
 }
 
@@ -149,6 +150,18 @@ code {
   backdrop-filter: blur(14px);
   box-shadow: var(--shadow);
   padding: clamp(var(--space-4), 2.6vw, var(--space-6));
+}
+
+.layout > .card:first-child {
+  border-left: 2px solid var(--accent);
+  box-shadow: var(--shadow), -4px 0 16px var(--accent-glow);
+}
+
+.layout > .card:first-child h1 {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover), #d7f0ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .card.muted {
@@ -500,11 +513,13 @@ td .button:hover {
 @keyframes fade-slide {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(6px);
+    filter: blur(1.5px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+    filter: blur(0);
   }
 }
 
@@ -515,10 +530,35 @@ td .button:hover {
 }
 
 .stat-card {
+  position: relative;
+  overflow: hidden;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-medium);
   background: linear-gradient(160deg, var(--surface-overlay), var(--surface-muted));
   padding: var(--space-4);
+  transition: border-color var(--transition), transform var(--transition);
+}
+
+.stat-card::after {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 50% 50%, var(--accent-glow), transparent 60%);
+  opacity: 0;
+  transition: opacity var(--duration-slow) var(--ease-out);
+  pointer-events: none;
+}
+
+.stat-card:hover {
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+
+.stat-card:hover::after {
+  opacity: 1;
 }
 
 .stat-value {
@@ -975,6 +1015,23 @@ select {
   .setting-actions {
     flex-direction: row;
     min-width: 0;
+  }
+
+  .tab-nav {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 12px,
+      black calc(100% - 12px),
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent 0,
+      black 12px,
+      black calc(100% - 12px),
+      transparent 100%
+    );
   }
 }
 
