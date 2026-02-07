@@ -23,6 +23,7 @@
   var telegramChatSelect = document.getElementById('telegram-chat-select');
   var telegramChatIdInput = document.getElementById('telegram-chat-id');
   var telegramChatHint = document.getElementById('telegram-chat-hint');
+  var telegramChatRemoveBtn = document.getElementById('telegram-chat-remove-btn');
 
   var setupState = {
     loaded: false,
@@ -372,18 +373,24 @@
       'No discovered chats (manual ID still works)',
       telegramChatSelect ? telegramChatSelect.value : ''
     );
+    setTelegramTrackedActionsState();
+  }
+
+  function setTelegramTrackedActionsState() {
+    if (!telegramChatRemoveBtn || !telegramChatSelect) return;
+    telegramChatRemoveBtn.disabled = !String(telegramChatSelect.value || '').trim();
   }
 
   function refreshTelegramHint() {
     if (!telegramChatHint) return;
     if (!setupState.telegram.enabled) {
-      telegramChatHint.textContent = 'Telegram integration is currently disabled. Manual chat ID entry is still available.';
+      telegramChatHint.textContent = 'Telegram integration is currently disabled. Manual target entry (Chat ID, @username, t.me link) is still available.';
       return;
     }
 
     var warnings = Array.isArray(setupState.telegram.warnings) ? setupState.telegram.warnings : [];
     if (!warnings.length) {
-      telegramChatHint.textContent = 'Select a tracked chat or enter a Chat ID. Bot access is verified automatically when creating the forward.';
+      telegramChatHint.textContent = 'Enter Chat ID, @username, or t.me link. You can also pick or remove tracked chats below.';
       return;
     }
 
@@ -526,8 +533,72 @@
     return /^\d+$/.test(String(value || '').trim());
   }
 
-  function isTelegramChatId(value) {
-    return /^-?\d+$/.test(String(value || '').trim());
+  function isTelegramChatInput(value) {
+    var raw = String(value || '').trim();
+    if (!raw) return false;
+    if (/^-?\d+$/.test(raw)) return true;
+
+    var candidate = raw;
+    var resolveMatch = candidate.match(/^tg:\/\/resolve\?domain=([A-Za-z0-9_]{4,32})/i);
+    if (resolveMatch) {
+      candidate = resolveMatch[1];
+    } else {
+      candidate = candidate
+        .replace(/^https?:\/\/t\.me\//i, '')
+        .replace(/^t\.me\//i, '')
+        .replace(/^@/, '');
+
+      var slashIndex = candidate.indexOf('/');
+      if (slashIndex >= 0) {
+        candidate = candidate.slice(0, slashIndex);
+      }
+
+      var queryIndex = candidate.indexOf('?');
+      if (queryIndex >= 0) {
+        candidate = candidate.slice(0, queryIndex);
+      }
+
+      candidate = candidate.trim();
+    }
+
+    return /^[A-Za-z][A-Za-z0-9_]{3,31}$/.test(candidate);
+  }
+
+  async function removeSelectedTrackedTelegramChat() {
+    var selectedChatId = String(telegramChatSelect ? telegramChatSelect.value : '').trim();
+    if (!selectedChatId) {
+      AdminApp.setStatus('Select a tracked Telegram chat to remove.', true);
+      return;
+    }
+
+    if (!confirm('Remove tracked Telegram chat ' + selectedChatId + ' from this list?')) {
+      return;
+    }
+
+    try {
+      if (telegramChatRemoveBtn) {
+        telegramChatRemoveBtn.disabled = true;
+        telegramChatRemoveBtn.textContent = 'Removing...';
+      }
+
+      await AdminApp.fetchJson('/api/telegram-chats/' + encodeURIComponent(selectedChatId), {
+        method: 'DELETE'
+      });
+
+      if (telegramChatIdInput && String(telegramChatIdInput.value || '').trim() === selectedChatId) {
+        telegramChatIdInput.value = '';
+      }
+
+      AdminApp.setStatus('Tracked Telegram chat removed: ' + selectedChatId);
+      await loadSetupOptions(true);
+    } catch (error) {
+      AdminApp.setStatus('Failed to remove tracked chat: ' + error.message, true);
+    } finally {
+      if (telegramChatRemoveBtn) {
+        telegramChatRemoveBtn.textContent = 'Remove Selected Tracked Chat';
+      }
+      setTelegramTrackedActionsState();
+    }
   }
 
   function wireSearchAndSelectEvents() {
@@ -575,9 +646,16 @@
     if (telegramChatSelect) {
       wireExpandableSelect(telegramChatSelect, 8);
       telegramChatSelect.addEventListener('change', function () {
+        setTelegramTrackedActionsState();
         if (!telegramChatIdInput) return;
         if (!telegramChatSelect.value) return;
         telegramChatIdInput.value = telegramChatSelect.value;
+      });
+    }
+    if (telegramChatRemoveBtn) {
+      setTelegramTrackedActionsState();
+      telegramChatRemoveBtn.addEventListener('click', function () {
+        removeSelectedTrackedTelegramChat();
       });
     }
 
@@ -638,8 +716,8 @@
         AdminApp.setStatus('Select valid source server and source channel values.', true);
         return;
       }
-      if (!isTelegramChatId(targetChatId)) {
-        AdminApp.setStatus('Select or enter a valid Telegram chat ID.', true);
+      if (!isTelegramChatInput(targetChatId)) {
+        AdminApp.setStatus('Select or enter a valid Telegram chat ID, @username, or t.me link.', true);
         return;
       }
 
