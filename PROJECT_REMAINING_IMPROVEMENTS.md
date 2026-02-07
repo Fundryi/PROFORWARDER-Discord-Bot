@@ -81,18 +81,25 @@ Purpose: Track only items that are still below command parity or provide clear o
   - `node --check web/lib/config.js`
   - `node --check config/config.js`
 
-## Remaining TODOs
+### Phase 6 (2026-02-07) - `/debug database` Web Parity ✅
+- Added a dedicated `Debug` tab in web admin, visible only when `WEB_ADMIN_DEBUG=true`.
+- Added read-only `GET /api/debug/database` (gated by web debug flag + authenticated admin session).
+- Exposed curated diagnostics only:
+  - table counts (`message_logs`, `bot_settings`, `telegram_chats`, `translation_threads`)
+  - message log status counts
+  - Telegram `discoveredVia` distribution
+  - recent message log slice
+  - recent failed log slice
+  - recent bot setting update slice
+  - forward config summary
+- No raw SQL input or mutating debug actions were added.
+- Validation run:
+  - `node --check web/server.js`
+  - `node --check web/public/debug.js`
+  - `node --check web/public/app.js`
 
-### 1. `/debug database` Web Parity (Low Priority)
-- Why it stays: command currently has richer DB diagnostics than web.
-- Complexity: `Medium`
-- Impact: `Low`
-- Decision: `Keep (low priority)`
-- Implementation approach:
-1. Add read-only debug panel in web only when `WEB_ADMIN_DEBUG=true`.
-2. Expose curated diagnostics (no raw SQL input), e.g. latest logs, filtered slices, table counts.
-3. Restrict to admin-authorized users.
-4. Keep command as primary deep-debug path.
+## Remaining TODOs
+- None currently.
 
 ## Removed From TODO (Already Web-Equal or Better)
 - Reader diagnostics simplified parity delivered in web (`/api/reader-status` + dashboard panel).
@@ -100,9 +107,7 @@ Purpose: Track only items that are still below command parity or provide clear o
 - Telegram `discoveredVia` semantics cleanup delivered (standardized values + safe legacy backfill).
 - Source bot selection ambiguity fixed in web config create flow.
 - Lightweight web security hardening delivered with opt-in strict mode.
+- `/debug database` web parity delivered with debug-gated curated diagnostics tab/API.
 - Telegram target create flow verification is enforced in frontend and backend.
 - Telegram target input supports Chat ID, `@username`, and `t.me` links.
 - Telegram target UI is manual-first and supports tracked-chat removal with safety guardrails.
-
-## Suggested Delivery Order
-1. Optional web debug parity last.
