@@ -115,7 +115,7 @@ async function enrichChatViaAPI(telegramHandler, chatId) {
           type: normalized.type,
           username: normalized.username,
           memberStatus: 'member',
-          discoveredVia: 'config_enrichment'
+          discoveredVia: 'config_create'
         });
         return normalized;
       }

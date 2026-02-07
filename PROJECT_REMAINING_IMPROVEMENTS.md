@@ -39,6 +39,21 @@ Purpose: Track only items that are still below command parity or provide clear o
   - `node --check web/server.js`
   - `node --check web/public/settings.js`
 
+### Phase 3 (2026-02-07) - Telegram `discoveredVia` Semantics Cleanup ✅
+- Standardized persisted `discoveredVia` values to:
+  - `updates`
+  - `manual_verify`
+  - `config_create`
+  - `forward`
+  - `my_chat_member`
+- Updated enrichment path to write `config_create` (removed legacy `config_enrichment` writes).
+- Added safe legacy-value backfill during DB initialization (known aliases only).
+- Added normalization in DB upsert path so new/legacy writes resolve to standardized values.
+- Validation run:
+  - `node --check utils/database.js`
+  - `node --check utils/telegramChatTracker.js`
+  - `node --check web/server.js`
+
 ## Remaining TODOs
 
 ### 1. Web Security Hardening (Conditional Priority)
@@ -52,18 +67,7 @@ Purpose: Track only items that are still below command parity or provide clear o
 3. Add lightweight mutation audit logging (user, route/action, target id, timestamp).
 4. Gate strict mode by config so localhost workflows can stay simple.
 
-### 2. Telegram `discoveredVia` Semantics Cleanup
-- Why it stays: cheap fix with better debugging/operational clarity.
-- Complexity: `Low`
-- Impact: `Low-Medium`
-- Decision: `Keep`
-- Implementation approach:
-1. Standardize allowed values (`updates`, `manual_verify`, `config_create`, `forward`, `my_chat_member`).
-2. Ensure create-flow verification writes `config_create`.
-3. Backfill unknown/legacy values where safe.
-4. Surface value in debug/diagnostic outputs if needed.
-
-### 3. `/debug database` Web Parity (Low Priority)
+### 2. `/debug database` Web Parity (Low Priority)
 - Why it stays: command currently has richer DB diagnostics than web.
 - Complexity: `Medium`
 - Impact: `Low`
@@ -74,7 +78,7 @@ Purpose: Track only items that are still below command parity or provide clear o
 3. Restrict to admin-authorized users.
 4. Keep command as primary deep-debug path.
 
-### 4. Source Bot Selection Ambiguity in Web Config Create
+### 3. Source Bot Selection Ambiguity in Web Config Create
 - Why it stays: in guilds where both bots exist, web source context defaults to main bot and does not allow explicit reader selection.
 - Complexity: `Low-Medium`
 - Impact: `Medium` for mixed-permission guilds
@@ -88,12 +92,12 @@ Purpose: Track only items that are still below command parity or provide clear o
 ## Removed From TODO (Already Web-Equal or Better)
 - Reader diagnostics simplified parity delivered in web (`/api/reader-status` + dashboard panel).
 - Emoji remove parity delivered (Discord app emoji delete + DB sync via dedicated endpoint).
+- Telegram `discoveredVia` semantics cleanup delivered (standardized values + safe legacy backfill).
 - Telegram target create flow verification is enforced in frontend and backend.
 - Telegram target input supports Chat ID, `@username`, and `t.me` links.
 - Telegram target UI is manual-first and supports tracked-chat removal with safety guardrails.
 
 ## Suggested Delivery Order
-1. `discoveredVia` semantics cleanup.
-2. Source bot selection ambiguity fix.
-3. Security hardening when moving to public/OAuth deployment.
-4. Optional web debug parity last.
+1. Source bot selection ambiguity fix.
+2. Security hardening when moving to public/OAuth deployment.
+3. Optional web debug parity last.

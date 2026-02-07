@@ -63,6 +63,79 @@ const exec = (sql) => {
 let messageLogsChainColumnsReady = false;
 let messageLogsChainColumnsCheckPromise = null;
 let readerBotClientForMaintenance = null;
+const TELEGRAM_DISCOVERED_VIA_ALLOWED = new Set([
+  'updates',
+  'manual_verify',
+  'config_create',
+  'forward',
+  'my_chat_member'
+]);
+const TELEGRAM_DISCOVERED_VIA_LEGACY_MAP = new Map([
+  ['config_enrichment', 'config_create'],
+  ['configcreate', 'config_create'],
+  ['config_created', 'config_create'],
+  ['config', 'config_create'],
+  ['manual', 'manual_verify'],
+  ['manualverify', 'manual_verify'],
+  ['manual-verify', 'manual_verify'],
+  ['my_chatmember', 'my_chat_member'],
+  ['mychatmember', 'my_chat_member'],
+  ['update', 'updates'],
+  ['from_updates', 'updates']
+]);
+
+function normalizeTelegramDiscoveredVia(value, fallback = 'manual_verify') {
+  const fallbackValue = TELEGRAM_DISCOVERED_VIA_ALLOWED.has(fallback)
+    ? fallback
+    : 'manual_verify';
+
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return fallbackValue;
+  if (TELEGRAM_DISCOVERED_VIA_ALLOWED.has(raw)) return raw;
+
+  const mapped = TELEGRAM_DISCOVERED_VIA_LEGACY_MAP.get(raw);
+  if (mapped) return mapped;
+
+  return fallbackValue;
+}
+
+async function backfillTelegramDiscoveredViaLegacyValues() {
+  const updates = [
+    {
+      target: 'config_create',
+      values: ['config_enrichment', 'configcreate', 'config_created', 'config']
+    },
+    {
+      target: 'manual_verify',
+      values: ['manual', 'manualverify', 'manual-verify']
+    },
+    {
+      target: 'my_chat_member',
+      values: ['my_chatmember', 'mychatmember']
+    },
+    {
+      target: 'updates',
+      values: ['update', 'from_updates']
+    }
+  ];
+
+  let totalUpdated = 0;
+  for (const update of updates) {
+    if (!Array.isArray(update.values) || !update.values.length) continue;
+    const placeholders = update.values.map(() => '?').join(', ');
+    const result = await run(
+      `UPDATE telegram_chats
+       SET discoveredVia = ?
+       WHERE LOWER(TRIM(discoveredVia)) IN (${placeholders})`,
+      [update.target, ...update.values]
+    );
+    totalUpdated += Number(result.changes || 0);
+  }
+
+  if (totalUpdated > 0) {
+    logInfo(`Telegram discoveredVia backfill normalized ${totalUpdated} legacy row(s)`);
+  }
+}
 
 const close = () => {
   return new Promise((resolve, reject) => {
@@ -320,6 +393,7 @@ async function initializeDatabase() {
     await run('CREATE INDEX IF NOT EXISTS idx_telegram_chats_type ON telegram_chats(type)');
 
     await ensureMessageLogsChainColumns();
+    await backfillTelegramDiscoveredViaLegacyValues();
 
     logSuccess('Database tables ready (forward configs now in config.js)');
   } catch (error) {
@@ -1079,6 +1153,7 @@ async function cleanupOrphanedThreads(client, limit = 50) {
 // Telegram chat tracking operations
 async function upsertTelegramChat(chat) {
   const now = Date.now();
+  const discoveredVia = normalizeTelegramDiscoveredVia(chat.discoveredVia, 'manual_verify');
   await run(`
     INSERT INTO telegram_chats (chatId, title, type, username, memberStatus, lastSeenAt, discoveredAt, discoveredVia)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1088,7 +1163,11 @@ async function upsertTelegramChat(chat) {
       username = COALESCE(excluded.username, telegram_chats.username),
       memberStatus = CASE WHEN excluded.memberStatus != 'unknown' THEN excluded.memberStatus ELSE telegram_chats.memberStatus END,
       lastSeenAt = excluded.lastSeenAt,
-      discoveredVia = CASE WHEN telegram_chats.discoveredVia = 'unknown' THEN excluded.discoveredVia ELSE telegram_chats.discoveredVia END
+      discoveredVia = CASE
+        WHEN LOWER(TRIM(telegram_chats.discoveredVia)) IN ('updates', 'manual_verify', 'config_create', 'forward', 'my_chat_member')
+          THEN telegram_chats.discoveredVia
+        ELSE excluded.discoveredVia
+      END
   `, [
     String(chat.chatId),
     chat.title || '',
@@ -1097,7 +1176,7 @@ async function upsertTelegramChat(chat) {
     chat.memberStatus || 'unknown',
     now,
     now,
-    chat.discoveredVia || 'unknown'
+    discoveredVia
   ]);
   return true;
 }
