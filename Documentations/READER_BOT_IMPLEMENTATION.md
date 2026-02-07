@@ -354,9 +354,10 @@ process.on('SIGINT', async () => {
 module.exports = { client, readerBot };
 ```
 
-### Step 6: Add Reader Bot Status Command
+### Step 6: Add Reader Bot Status Command (Historical)
 
-Add reader bot status to [`commands/proforwardCommand.js`](commands/proforwardCommand.js):
+Historical note: slash command management is now retired/web-managed.
+The old example below referenced `commands/proforwardCommand.js`, which has since been removed in favor of web admin flows and `/proforwarder` portal command.
 
 ```javascript
 // Add new subcommand for reader bot status

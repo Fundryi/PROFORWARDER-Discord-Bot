@@ -33,7 +33,7 @@ All previously tracked issues from both files are implemented in current code.
   - `utils/database.js`
   - `utils/applicationEmojiManager.js`
   - `package.json`
-- Command module cleanup confirmed: only `commands/proforwardCommand.js` and `commands/debugCommands.js` are present.
+- Command module cleanup confirmed: legacy slash command modules were removed; portal command is `commands/proforwarderCommand.js`.
 
 ---
 
