@@ -1,5 +1,6 @@
 const { logInfo, logSuccess, logError } = require('../utils/logger');
-const { logForwardedMessage, logMessageChain } = require('../utils/database');
+const { logForwardedMessage, logMessageChain, upsertTelegramChat } = require('../utils/database');
+const { isBotRemovedError } = require('../utils/telegramChatTracker');
 const { getForwardConfigsForChannel } = require('../utils/configManager');
 const { sendWebhookMessage, hasWebhookPermissions } = require('../utils/webhookManager');
 const AIHandler = require('./aiHandler');
@@ -289,8 +290,41 @@ class ForwardHandler {
         logSuccess(`✅ Forwarded message from ${message.channel.name} to Telegram chat ${config.targetChatId}`);
       }
       
+      // Track the target Telegram chat for persistent discovery
+      try {
+        const chatIdStr = String(config.targetChatId);
+        // Try to extract chat metadata from the API response
+        const resultChat = telegramResult?.chat
+          || (Array.isArray(telegramResult) && telegramResult[0]?.chat)
+          || null;
+
+        await upsertTelegramChat({
+          chatId: chatIdStr,
+          title: resultChat?.title || '',
+          type: resultChat?.type || 'unknown',
+          username: resultChat?.username || null,
+          memberStatus: 'member',
+          discoveredVia: 'forward'
+        });
+      } catch (trackError) {
+        // Non-fatal: don't let chat tracking failure break forwarding
+      }
+
       return telegramResult;
     } catch (error) {
+      // Detect if the bot was removed from the target chat
+      if (config.targetChatId && isBotRemovedError(error)) {
+        try {
+          await upsertTelegramChat({
+            chatId: String(config.targetChatId),
+            title: '',
+            type: 'unknown',
+            username: null,
+            memberStatus: 'left',
+            discoveredVia: 'forward'
+          });
+        } catch (_) { /* non-fatal */ }
+      }
       throw error; // Re-throw to be handled by forwardToTarget
     }
   }
