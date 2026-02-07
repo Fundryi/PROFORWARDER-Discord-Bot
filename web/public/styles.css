@@ -984,6 +984,62 @@ select {
   display: none !important;
 }
 
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 6, 12, 0.74);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition), visibility var(--transition);
+}
+
+.modal-overlay.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal-box {
+  width: min(440px, 90vw);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-medium);
+  background: linear-gradient(160deg, var(--surface-raised), var(--surface-muted));
+  box-shadow: var(--shadow), 0 0 60px rgba(0, 0, 0, 0.5);
+  padding: var(--space-6);
+  transform: translateY(12px) scale(0.96);
+  transition: transform var(--transition);
+}
+
+.modal-overlay.is-visible .modal-box {
+  transform: translateY(0) scale(1);
+}
+
+.modal-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+  color: var(--text);
+}
+
+.modal-body {
+  color: var(--text-secondary);
+  font-size: var(--text-base);
+  margin-bottom: var(--space-6);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

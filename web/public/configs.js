@@ -129,7 +129,12 @@
         removeButton.className = 'button secondary sm danger';
         removeButton.textContent = 'Remove';
         removeButton.addEventListener('click', async function () {
-          if (!confirm('Remove config ' + cfg.id + '?')) return;
+          var confirmed = await AdminApp.showConfirm(
+            'Remove Config',
+            'Remove config ' + cfg.id + '?',
+            'Remove'
+          );
+          if (!confirmed) return;
           try {
             AdminApp.setStatus('Removing config ' + cfg.id + '...');
             var result = await AdminApp.fetchJson('/api/configs/' + cfg.id, { method: 'DELETE' });
@@ -677,7 +682,12 @@
       return;
     }
 
-    if (!confirm('Remove tracked Telegram chat ' + selectedChatId + ' from this list?')) {
+    var confirmed = await AdminApp.showConfirm(
+      'Remove Tracked Telegram Chat',
+      'Remove tracked Telegram chat ' + selectedChatId + ' from this list?',
+      'Remove'
+    );
+    if (!confirmed) {
       return;
     }
 

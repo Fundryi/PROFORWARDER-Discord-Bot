@@ -867,6 +867,17 @@ function renderDashboardPage(auth, webAdminConfig) {
       </div>
     </section>
     ${debugTabSection}
+
+    <div id="confirm-modal" class="modal-overlay" aria-hidden="true">
+      <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-body">
+        <div id="confirm-modal-title" class="modal-title">Please Confirm</div>
+        <div id="confirm-modal-body" class="modal-body"></div>
+        <div class="modal-actions">
+          <button id="confirm-modal-cancel" class="button secondary" type="button">Cancel</button>
+          <button id="confirm-modal-ok" class="button danger" type="button">Confirm</button>
+        </div>
+      </div>
+    </div>
   </main>
 
   <script src="/admin/static/app.js"></script>

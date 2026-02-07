@@ -222,7 +222,12 @@
         removeButton.type = 'button';
         removeButton.textContent = 'Remove';
         removeButton.addEventListener('click', async function () {
-          if (!confirm('Remove :' + emojiName + ': from uploaded_emoji_names?')) return;
+          var removeConfirmed = await AdminApp.showConfirm(
+            'Remove Emoji',
+            'Remove :' + emojiName + ': from uploaded_emoji_names?',
+            'Remove'
+          );
+          if (!removeConfirmed) return;
 
           try {
             removeButton.disabled = true;
@@ -335,7 +340,12 @@
       deleteBtn.className = 'button secondary sm danger';
       deleteBtn.textContent = 'Delete';
       deleteBtn.addEventListener('click', async function () {
-        if (!confirm('Delete setting "' + setting.key + '"?')) return;
+        var deleteConfirmed = await AdminApp.showConfirm(
+          'Delete Setting',
+          'Delete setting "' + setting.key + '"?',
+          'Delete'
+        );
+        if (!deleteConfirmed) return;
         try {
           AdminApp.setStatus('Deleting ' + setting.key + '...');
           await AdminApp.fetchJson('/api/settings/' + encodeURIComponent(setting.key), {

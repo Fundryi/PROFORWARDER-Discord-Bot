@@ -226,7 +226,12 @@
       warning += '\n\nNote: current status filter "' + statusFilter.value + '" does not change this action.';
     }
 
-    if (!confirm(warning)) return;
+    var confirmed = await AdminApp.showConfirm(
+      'Delete Failed Logs',
+      warning,
+      'Delete'
+    );
+    if (!confirmed) return;
 
     try {
       setDeleteFailedBusy(true);
