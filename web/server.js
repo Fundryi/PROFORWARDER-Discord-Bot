@@ -31,6 +31,7 @@ const {
   getTelegramChat,
   removeTelegramChat,
   get: dbGet,
+  all: dbAll,
   run: dbRun
 } = require('../utils/database');
 const { logInfo, logSuccess, logError } = require('../utils/logger');
@@ -354,8 +355,122 @@ async function buildUploadedEmojiPreview(client, names) {
   return preview;
 }
 
-function renderDashboardPage(auth) {
+function renderDashboardPage(auth, webAdminConfig) {
   const tag = escapeHtml(auth.user.global_name || auth.user.username || auth.user.id);
+  const debugEnabled = Boolean(webAdminConfig && webAdminConfig.debug);
+  const debugNavButton = debugEnabled
+    ? '<button data-tab="debug">Debug</button>'
+    : '';
+  const debugTabSection = debugEnabled
+    ? `
+    <!-- Debug Tab -->
+    <section id="tab-debug" class="tab-panel">
+      <div class="card">
+        <div class="header-bar">
+          <h2>Database Diagnostics</h2>
+          <button id="debug-refresh" class="button secondary sm" type="button">Refresh</button>
+        </div>
+        <p class="muted-text">Read-only curated diagnostics. Raw SQL input is intentionally not exposed.</p>
+        <div id="debug-db-summary" class="stat-grid">
+          <div class="stat-card"><div class="stat-value">--</div><div class="stat-label">Loading</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Message Log Status Counts</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody id="debug-log-status-body">
+              <tr><td colspan="2" class="muted-text">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Telegram Discovery Sources</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>discoveredVia</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody id="debug-discovered-via-body">
+              <tr><td colspan="2" class="muted-text">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Recent Bot Setting Updates</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody id="debug-settings-body">
+              <tr><td colspan="2" class="muted-text">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Recent Message Logs</h2>
+        <div class="table-wrapper">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Time</th>
+                <th>Status</th>
+                <th>Config</th>
+                <th>Original</th>
+                <th>Forwarded</th>
+              </tr>
+            </thead>
+            <tbody id="debug-recent-logs-body">
+              <tr><td colspan="6" class="muted-text">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Recent Failed Logs</h2>
+        <div class="table-wrapper">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Time</th>
+                <th>Config</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody id="debug-failed-logs-body">
+              <tr><td colspan="4" class="muted-text">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>`
+    : '';
+  const debugScriptTag = debugEnabled
+    ? '\n  <script src="/admin/static/debug.js"></script>'
+    : '';
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -384,6 +499,7 @@ function renderDashboardPage(auth) {
       <button data-tab="guilds">Guilds</button>
       <button data-tab="logs">Logs</button>
       <button data-tab="settings">Settings</button>
+      ${debugNavButton}
     </nav>
 
     <!-- Dashboard Tab -->
@@ -698,6 +814,7 @@ function renderDashboardPage(auth) {
         <div id="bot-settings" class="settings-section"></div>
       </div>
     </section>
+    ${debugTabSection}
   </main>
 
   <script src="/admin/static/app.js"></script>
@@ -706,7 +823,7 @@ function renderDashboardPage(auth) {
   <script src="/admin/static/autopublish.js"></script>
   <script src="/admin/static/guilds.js"></script>
   <script src="/admin/static/logs.js"></script>
-  <script src="/admin/static/settings.js"></script>
+  <script src="/admin/static/settings.js"></script>${debugScriptTag}
 </body>
 </html>`;
 }
@@ -1530,6 +1647,86 @@ async function verifyAndTrackTelegramChatAccess(chatId, options = {}) {
   };
 }
 
+async function buildDebugDatabaseSnapshot(options = {}) {
+  const logLimit = Math.max(5, Math.min(parseInt(options.logLimit, 10) || 20, 50));
+  const failedLimit = Math.max(5, Math.min(parseInt(options.failedLimit, 10) || 20, 50));
+  const settingLimit = Math.max(5, Math.min(parseInt(options.settingLimit, 10) || 20, 50));
+
+  const tableNames = ['message_logs', 'bot_settings', 'telegram_chats', 'translation_threads'];
+  const tableCounts = {};
+  for (const tableName of tableNames) {
+    const row = await dbGet(`SELECT COUNT(*) AS count FROM ${tableName}`);
+    tableCounts[tableName] = Number(row && row.count ? row.count : 0);
+  }
+
+  const statusRows = await dbAll(`
+    SELECT status, COUNT(*) AS count
+    FROM message_logs
+    GROUP BY status
+    ORDER BY count DESC
+  `);
+
+  const discoveredViaRows = await dbAll(`
+    SELECT discoveredVia, COUNT(*) AS count
+    FROM telegram_chats
+    GROUP BY discoveredVia
+    ORDER BY count DESC
+  `);
+
+  const recentLogs = await getMessageLogsFiltered({ limit: logLimit });
+  const failedLogs = await getFailedMessages(failedLimit);
+  const recentSettings = await dbAll(
+    'SELECT key, updatedAt FROM bot_settings ORDER BY updatedAt DESC LIMIT ?',
+    [settingLimit]
+  );
+
+  const forwardConfigs = await loadForwardConfigs();
+  const activeConfigs = forwardConfigs.filter(cfg => cfg && cfg.enabled !== false);
+  const configSummary = {
+    total: forwardConfigs.length,
+    active: activeConfigs.length,
+    disabled: forwardConfigs.length - activeConfigs.length,
+    telegramTargets: activeConfigs.filter(cfg => cfg.targetType === 'telegram').length,
+    discordTargets: activeConfigs.filter(cfg => cfg.targetType === 'discord').length,
+    readerSources: activeConfigs.filter(cfg => cfg.useReaderBot === true).length
+  };
+
+  return {
+    generatedAt: Date.now(),
+    tableCounts,
+    configSummary,
+    statusCounts: statusRows.map(row => ({
+      status: String(row.status || 'unknown'),
+      count: Number(row.count || 0)
+    })),
+    discoveredViaCounts: discoveredViaRows.map(row => ({
+      discoveredVia: String(row.discoveredVia || 'unknown'),
+      count: Number(row.count || 0)
+    })),
+    recentLogs: recentLogs.map(log => ({
+      id: Number(log.id),
+      forwardedAt: Number(log.forwardedAt || 0),
+      status: String(log.status || 'unknown'),
+      configId: Number(log.configId || 0),
+      originalMessageId: String(log.originalMessageId || ''),
+      originalChannelId: String(log.originalChannelId || ''),
+      forwardedMessageId: String(log.forwardedMessageId || ''),
+      forwardedChannelId: String(log.forwardedChannelId || ''),
+      errorMessage: log.errorMessage ? String(log.errorMessage).slice(0, 220) : ''
+    })),
+    failedLogs: failedLogs.map(log => ({
+      id: Number(log.id),
+      forwardedAt: Number(log.forwardedAt || 0),
+      configId: Number(log.configId || 0),
+      errorMessage: log.errorMessage ? String(log.errorMessage).slice(0, 300) : ''
+    })),
+    recentSettings: recentSettings.map(setting => ({
+      key: String(setting.key || ''),
+      updatedAt: Number(setting.updatedAt || 0)
+    }))
+  };
+}
+
 function createWebAdminApp(client, config) {
   const webAdminConfig = getWebAdminConfig(config);
   const app = express();
@@ -1758,7 +1955,7 @@ function createWebAdminApp(client, config) {
       return;
     }
 
-    res.status(200).send(renderDashboardPage(auth));
+    res.status(200).send(renderDashboardPage(auth, webAdminConfig));
   });
 
   app.get('/admin/shell', (req, res) => {
@@ -2661,6 +2858,31 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin /api/logs/stats failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to load log stats' });
+    }
+  });
+
+  app.get('/api/debug/database', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    if (!webAdminConfig.debug) {
+      res.status(404).json({ error: 'Debug diagnostics are disabled' });
+      return;
+    }
+
+    try {
+      const diagnostics = await buildDebugDatabaseSnapshot({
+        logLimit: req.query.logLimit,
+        failedLimit: req.query.failedLimit,
+        settingLimit: req.query.settingLimit
+      });
+      res.json(diagnostics);
+    } catch (error) {
+      logError(`Web admin /api/debug/database failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load debug diagnostics' });
     }
   });
 
