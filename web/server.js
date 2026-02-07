@@ -47,11 +47,78 @@ let telegramDiscoveryCache = {
   payload: null
 };
 const TELEGRAM_DISCOVERY_ALLOWED_TYPES = new Set(['group', 'supergroup', 'channel']);
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 function clearTelegramDiscoveryCache() {
   telegramDiscoveryCache = {
     loadedAt: 0,
     payload: null
+  };
+}
+
+function isMutatingApiRequest(req) {
+  if (!req || !req.path || !req.method) return false;
+  if (!req.path.startsWith('/api/')) return false;
+  return MUTATING_METHODS.has(String(req.method).toUpperCase());
+}
+
+function isAuthSensitiveRoute(req) {
+  if (!req || !req.path) return false;
+  const pathName = String(req.path);
+  return pathName === '/admin/login'
+    || pathName === '/admin/callback'
+    || pathName === '/admin/dev-login'
+    || pathName === '/admin/bot-invite'
+    || pathName === '/admin/bot-invite/callback';
+}
+
+function createSimpleRateLimiter(options = {}) {
+  const max = Math.max(1, Number(options.max) || 60);
+  const windowMs = Math.max(1000, Number(options.windowMs) || (60 * 1000));
+  const keyPrefix = String(options.keyPrefix || 'rate');
+  const buckets = new Map();
+
+  function cleanup(now) {
+    if (buckets.size <= 512) return;
+    for (const [key, bucket] of buckets.entries()) {
+      if (!bucket || bucket.expiresAt <= now) {
+        buckets.delete(key);
+      }
+    }
+  }
+
+  return function checkLimit(rawKey) {
+    const now = Date.now();
+    cleanup(now);
+
+    const key = `${keyPrefix}:${String(rawKey || 'unknown')}`;
+    const existing = buckets.get(key);
+    if (!existing || existing.expiresAt <= now) {
+      buckets.set(key, {
+        count: 1,
+        expiresAt: now + windowMs
+      });
+      return {
+        allowed: true,
+        remaining: max - 1
+      };
+    }
+
+    existing.count += 1;
+    buckets.set(key, existing);
+
+    if (existing.count > max) {
+      return {
+        allowed: false,
+        remaining: 0,
+        retryAfterSeconds: Math.max(1, Math.ceil((existing.expiresAt - now) / 1000))
+      };
+    }
+
+    return {
+      allowed: true,
+      remaining: Math.max(0, max - existing.count)
+    };
   };
 }
 
@@ -374,6 +441,11 @@ function renderDashboardPage(auth) {
           <div class="config-builder-grid">
             <fieldset class="config-box">
               <legend>Source</legend>
+              <label>Source Bot
+                <select id="discord-source-bot" class="input">
+                  <option value="main">Main Bot</option>
+                </select>
+              </label>
               <label>Source Server
                 <input id="discord-source-server-search" class="input select-search" placeholder="Search source servers">
                 <select id="discord-source-server" class="input" required>
@@ -414,6 +486,11 @@ function renderDashboardPage(auth) {
           <div class="config-builder-grid">
             <fieldset class="config-box">
               <legend>Source</legend>
+              <label>Source Bot
+                <select id="telegram-source-bot" class="input">
+                  <option value="main">Main Bot</option>
+                </select>
+              </label>
               <label>Source Server
                 <input id="telegram-source-server-search" class="input select-search" placeholder="Search source servers">
                 <select id="telegram-source-server" class="input" required>
@@ -716,6 +793,7 @@ function buildConfigView(configItem) {
     name: configItem.name || '',
     sourceServerId: configItem.sourceServerId || '',
     sourceChannelId: configItem.sourceChannelId || '',
+    useReaderBot: configItem.useReaderBot === true,
     targetType: configItem.targetType || '',
     targetServerId: configItem.targetServerId || '',
     targetChannelId: configItem.targetChannelId || '',
@@ -921,10 +999,11 @@ async function getAuthorizedGuildSet(client, auth, allowedRoleIds) {
   return new Set(guilds.map(guild => guild.id));
 }
 
-function getSourceGuildContext(mainClient, guildId) {
+function getSourceGuildContexts(mainClient, guildId) {
+  const contexts = {};
   const mainGuild = mainClient.guilds.cache.get(guildId);
   if (mainGuild) {
-    return {
+    contexts.main = {
       guild: mainGuild,
       botUser: mainClient.user,
       botType: 'main'
@@ -935,7 +1014,7 @@ function getSourceGuildContext(mainClient, guildId) {
   if (readerClient) {
     const readerGuild = readerClient.guilds.cache.get(guildId);
     if (readerGuild) {
-      return {
+      contexts.reader = {
         guild: readerGuild,
         botUser: readerClient.user,
         botType: 'reader'
@@ -943,7 +1022,21 @@ function getSourceGuildContext(mainClient, guildId) {
     }
   }
 
-  return null;
+  return contexts;
+}
+
+function getSourceGuildContext(mainClient, guildId, requestedSourceBot = '') {
+  const normalizedSourceBot = String(requestedSourceBot || '').trim().toLowerCase();
+  const contexts = getSourceGuildContexts(mainClient, guildId);
+
+  if (normalizedSourceBot === 'main') {
+    return contexts.main || null;
+  }
+  if (normalizedSourceBot === 'reader') {
+    return contexts.reader || null;
+  }
+
+  return contexts.main || contexts.reader || null;
 }
 
 function sortGuildChannels(channels) {
@@ -1463,6 +1556,90 @@ function createWebAdminApp(client, config) {
     }
   }));
 
+  app.use((req, _res, next) => {
+    if (req.session && !req.session.csrfToken) {
+      req.session.csrfToken = crypto.randomBytes(24).toString('hex');
+    }
+    next();
+  });
+
+  if (webAdminConfig.securityStrict) {
+    const authLimiter = createSimpleRateLimiter({
+      keyPrefix: 'webauth',
+      windowMs: webAdminConfig.authRateLimitWindowMs,
+      max: webAdminConfig.authRateLimitMax
+    });
+    const mutationLimiter = createSimpleRateLimiter({
+      keyPrefix: 'webmut',
+      windowMs: webAdminConfig.mutationRateLimitWindowMs,
+      max: webAdminConfig.mutationRateLimitMax
+    });
+
+    app.use((req, res, next) => {
+      const ip = String(req.ip || req.socket?.remoteAddress || 'unknown');
+
+      if (isAuthSensitiveRoute(req)) {
+        const decision = authLimiter(`${ip}:${req.path}`);
+        if (!decision.allowed) {
+          res.set('Retry-After', String(decision.retryAfterSeconds || 60));
+          res.status(429).send('Too many auth requests. Please retry shortly.');
+          return;
+        }
+      }
+
+      if (isMutatingApiRequest(req)) {
+        const actor = (req.session && req.session.webAdminAuth && req.session.webAdminAuth.user && req.session.webAdminAuth.user.id)
+          ? req.session.webAdminAuth.user.id
+          : ip;
+        const decision = mutationLimiter(String(actor));
+        if (!decision.allowed) {
+          res.set('Retry-After', String(decision.retryAfterSeconds || 60));
+          res.status(429).json({ error: 'Too many mutation requests. Please retry shortly.' });
+          return;
+        }
+      }
+
+      next();
+    });
+
+    app.use((req, res, next) => {
+      if (!isMutatingApiRequest(req)) {
+        next();
+        return;
+      }
+
+      const expectedToken = req.session ? req.session.csrfToken : '';
+      const providedToken = req.get('x-csrf-token') || '';
+      if (!expectedToken || !providedToken || providedToken !== expectedToken) {
+        res.status(403).json({ error: 'Invalid CSRF token' });
+        return;
+      }
+
+      next();
+    });
+
+    app.use((req, res, next) => {
+      if (!isMutatingApiRequest(req)) {
+        next();
+        return;
+      }
+
+      const startedAt = Date.now();
+      res.on('finish', () => {
+        if (res.statusCode >= 500) return;
+        const auth = getAuthFromSession(req);
+        const actor = auth && auth.user
+          ? (auth.user.username || auth.user.id)
+          : String(req.ip || req.socket?.remoteAddress || 'unknown');
+        logInfo(
+          `Web admin mutation audit: actor=${actor}; method=${req.method}; path=${req.path}; ` +
+          `status=${res.statusCode}; durationMs=${Date.now() - startedAt}`
+        );
+      });
+      next();
+    });
+  }
+
   app.get('/', (req, res) => res.redirect('/admin'));
 
   app.get('/admin/login', (req, res) => {
@@ -1599,7 +1776,10 @@ function createWebAdminApp(client, config) {
       const guilds = await getManageableSourceGuilds(client, auth, webAdminConfig.allowedRoleIds);
       res.json({
         user: auth.user,
-        guilds
+        guilds,
+        csrfToken: webAdminConfig.securityStrict
+          ? (req.session && req.session.csrfToken ? req.session.csrfToken : null)
+          : null
       });
     } catch (error) {
       logError(`Web admin /api/me failed: ${error.message}`);
@@ -1621,14 +1801,40 @@ function createWebAdminApp(client, config) {
       const targetGuilds = [];
 
       for (const sourceMeta of manageableSourceGuilds) {
-        const sourceContext = getSourceGuildContext(client, sourceMeta.id);
-        if (!sourceContext || !sourceContext.guild) continue;
+        const sourceContexts = getSourceGuildContexts(client, sourceMeta.id);
+        const mainContext = sourceContexts.main || null;
+        const readerContext = sourceContexts.reader || null;
+        const fallbackContext = mainContext || readerContext;
+        if (!fallbackContext || !fallbackContext.guild) continue;
+
+        const sourceBots = {};
+        if (mainContext && mainContext.guild) {
+          sourceBots.main = {
+            available: true,
+            sourceChannels: mapGuildChannels(mainContext.guild, mainContext.botUser)
+          };
+        }
+        if (readerContext && readerContext.guild) {
+          sourceBots.reader = {
+            available: true,
+            sourceChannels: mapGuildChannels(readerContext.guild, readerContext.botUser)
+          };
+        }
+
+        const defaultSourceBot = sourceMeta.sourceBot === 'reader' && sourceBots.reader
+          ? 'reader'
+          : (sourceBots.main ? 'main' : (sourceBots.reader ? 'reader' : 'main'));
+        const defaultSourceChannels = sourceBots[defaultSourceBot]
+          ? sourceBots[defaultSourceBot].sourceChannels
+          : [];
 
         sourceGuilds.push({
-          id: sourceContext.guild.id,
-          name: sourceContext.guild.name,
+          id: fallbackContext.guild.id,
+          name: fallbackContext.guild.name,
           sourceBot: sourceMeta.sourceBot,
-          sourceChannels: mapGuildChannels(sourceContext.guild, sourceContext.botUser)
+          defaultSourceBot,
+          sourceChannels: defaultSourceChannels,
+          sourceBots
         });
       }
 
@@ -1722,6 +1928,7 @@ function createWebAdminApp(client, config) {
     }
 
     const sourceChannelId = typeof req.body.sourceChannelId === 'string' ? req.body.sourceChannelId.trim() : '';
+    const sourceBotInput = typeof req.body.sourceBot === 'string' ? req.body.sourceBot.trim().toLowerCase() : '';
     const targetType = typeof req.body.targetType === 'string' ? req.body.targetType.trim().toLowerCase() : '';
     const customName = typeof req.body.name === 'string' ? req.body.name.trim() : '';
 
@@ -1734,6 +1941,10 @@ function createWebAdminApp(client, config) {
       res.status(400).json({ error: 'targetType must be discord or telegram' });
       return;
     }
+    if (sourceBotInput && sourceBotInput !== 'main' && sourceBotInput !== 'reader') {
+      res.status(400).json({ error: 'sourceBot must be main or reader when provided' });
+      return;
+    }
 
     try {
       const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
@@ -1742,9 +1953,16 @@ function createWebAdminApp(client, config) {
         return;
       }
 
-      const sourceContext = getSourceGuildContext(client, guildId);
+      const sourceContexts = getSourceGuildContexts(client, guildId);
+      const selectedSourceBot = sourceBotInput || (sourceContexts.main ? 'main' : 'reader');
+      const sourceContext = selectedSourceBot === 'reader'
+        ? (sourceContexts.reader || null)
+        : (sourceContexts.main || null);
       if (!sourceContext || !sourceContext.guild) {
-        res.status(400).json({ error: 'Source guild not found in bot cache' });
+        const unavailableMsg = selectedSourceBot === 'reader'
+          ? 'Selected source bot (reader) is not in this guild'
+          : 'Selected source bot (main) is not in this guild';
+        res.status(400).json({ error: unavailableMsg });
         return;
       }
       const sourceGuild = sourceContext.guild;
@@ -1772,6 +1990,7 @@ function createWebAdminApp(client, config) {
         sourceType: 'discord',
         sourceServerId: guildId,
         sourceChannelId,
+        useReaderBot: selectedSourceBot === 'reader',
         targetType,
         createdBy: auth.user.id
       };
@@ -2956,6 +3175,7 @@ function startWebAdminServer(client, config) {
       `[WebAdmin Debug] trustProxy=${webAdminConfig.trustProxy}; ` +
       `baseUrl=${webAdminConfig.baseUrl || '(not set)'}; ` +
       `authMode=${webAdminConfig.authMode}; ` +
+      `securityStrict=${webAdminConfig.securityStrict}; ` +
       `allowedHosts=${(webAdminConfig.localAllowedHosts || []).join(',') || '(none)'}; ` +
       `allowedIps=${(webAdminConfig.localAllowedIps || []).join(',') || '(none)'}`
     );

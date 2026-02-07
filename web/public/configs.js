@@ -8,6 +8,7 @@
 
   var discordSourceServerSearch = document.getElementById('discord-source-server-search');
   var discordSourceServerSelect = document.getElementById('discord-source-server');
+  var discordSourceBotSelect = document.getElementById('discord-source-bot');
   var discordSourceChannelSearch = document.getElementById('discord-source-channel-search');
   var discordSourceChannelSelect = document.getElementById('discord-source-channel');
   var discordTargetServerSearch = document.getElementById('discord-target-server-search');
@@ -17,6 +18,7 @@
 
   var telegramSourceServerSearch = document.getElementById('telegram-source-server-search');
   var telegramSourceServerSelect = document.getElementById('telegram-source-server');
+  var telegramSourceBotSelect = document.getElementById('telegram-source-bot');
   var telegramSourceChannelSearch = document.getElementById('telegram-source-channel-search');
   var telegramSourceChannelSelect = document.getElementById('telegram-source-channel');
   var telegramChatSearch = document.getElementById('telegram-chat-search');
@@ -36,8 +38,10 @@
       warnings: []
     },
     discordSourceGuildId: '',
+    discordSourceBot: 'main',
     discordTargetGuildId: '',
-    telegramSourceGuildId: ''
+    telegramSourceGuildId: '',
+    telegramSourceBot: 'main'
   };
 
   function setConfigsMessage(message) {
@@ -91,7 +95,8 @@
       var row = document.createElement('tr');
       row.appendChild(createCell(String(config.id)));
       row.appendChild(createCell(config.name || 'Unnamed'));
-      row.appendChild(createCell(config.sourceChannelId || '-'));
+      var sourceLabel = (config.useReaderBot ? '[Reader] ' : '[Main] ') + (config.sourceChannelId || '-');
+      row.appendChild(createCell(sourceLabel));
       var targetCell = createCell(targetText(config));
       if (config.targetStatus === 'unreachable') {
         targetCell.style.color = '#e74c3c';
@@ -235,6 +240,74 @@
     return prefix + channel.name + ' (' + channel.id + ')';
   }
 
+  function getSourceBotOptionsForGuild(guild) {
+    var options = [];
+    if (!guild || !guild.sourceBots) return options;
+
+    if (guild.sourceBots.main && guild.sourceBots.main.available) {
+      options.push({ id: 'main', label: 'Main Bot' });
+    }
+    if (guild.sourceBots.reader && guild.sourceBots.reader.available) {
+      options.push({ id: 'reader', label: 'Reader Bot' });
+    }
+
+    return options;
+  }
+
+  function resolveSourceBotForGuild(guild, preferredSourceBot) {
+    var options = getSourceBotOptionsForGuild(guild);
+    if (!options.length) return 'main';
+
+    var normalizedPreferred = String(preferredSourceBot || '').trim().toLowerCase();
+    if (normalizedPreferred && options.some(function (opt) { return opt.id === normalizedPreferred; })) {
+      return normalizedPreferred;
+    }
+
+    var defaultSourceBot = String(guild && guild.defaultSourceBot ? guild.defaultSourceBot : '').trim().toLowerCase();
+    if (defaultSourceBot && options.some(function (opt) { return opt.id === defaultSourceBot; })) {
+      return defaultSourceBot;
+    }
+
+    return options[0].id;
+  }
+
+  function getSourceChannelsForGuild(guild, sourceBot) {
+    if (!guild) return [];
+    var normalizedBot = resolveSourceBotForGuild(guild, sourceBot);
+    if (guild.sourceBots && guild.sourceBots[normalizedBot]) {
+      return guild.sourceBots[normalizedBot].sourceChannels || [];
+    }
+    return guild.sourceChannels || [];
+  }
+
+  function setSourceBotSelectOptions(select, guild, preferredSourceBot) {
+    if (!select) return 'main';
+
+    var botOptions = getSourceBotOptionsForGuild(guild);
+    select.innerHTML = '';
+
+    if (!botOptions.length) {
+      var emptyOption = document.createElement('option');
+      emptyOption.value = 'main';
+      emptyOption.textContent = 'Main Bot';
+      select.appendChild(emptyOption);
+      select.disabled = true;
+      return 'main';
+    }
+
+    for (var i = 0; i < botOptions.length; i++) {
+      var option = document.createElement('option');
+      option.value = botOptions[i].id;
+      option.textContent = botOptions[i].label;
+      select.appendChild(option);
+    }
+
+    var selectedSourceBot = resolveSourceBotForGuild(guild, preferredSourceBot);
+    select.value = selectedSourceBot;
+    select.disabled = botOptions.length <= 1;
+    return selectedSourceBot;
+  }
+
   function telegramChatLabel(chat) {
     var type = '[' + String(chat.type || 'unknown') + ']';
     var sourceMap = { tracked: 'tracked', updates: 'recent', configured: 'configured', forward: 'forward' };
@@ -297,12 +370,22 @@
       'No source servers found',
       setupState.discordSourceGuildId
     );
+    refreshDiscordSourceBotSelect();
     refreshDiscordSourceChannelSelect();
+  }
+
+  function refreshDiscordSourceBotSelect() {
+    var guild = getGuildById(setupState.sourceGuilds, setupState.discordSourceGuildId);
+    setupState.discordSourceBot = setSourceBotSelectOptions(
+      discordSourceBotSelect,
+      guild,
+      setupState.discordSourceBot
+    );
   }
 
   function refreshDiscordSourceChannelSelect() {
     var guild = getGuildById(setupState.sourceGuilds, setupState.discordSourceGuildId);
-    var channels = guild ? (guild.sourceChannels || []) : [];
+    var channels = guild ? getSourceChannelsForGuild(guild, setupState.discordSourceBot) : [];
     var filteredChannels = filterOptions(channels, discordSourceChannelSearch ? discordSourceChannelSearch.value : '', channelLabel);
     setSelectOptions(
       discordSourceChannelSelect,
@@ -347,12 +430,22 @@
       'No source servers found',
       setupState.telegramSourceGuildId
     );
+    refreshTelegramSourceBotSelect();
     refreshTelegramSourceChannelSelect();
+  }
+
+  function refreshTelegramSourceBotSelect() {
+    var guild = getGuildById(setupState.sourceGuilds, setupState.telegramSourceGuildId);
+    setupState.telegramSourceBot = setSourceBotSelectOptions(
+      telegramSourceBotSelect,
+      guild,
+      setupState.telegramSourceBot
+    );
   }
 
   function refreshTelegramSourceChannelSelect() {
     var guild = getGuildById(setupState.sourceGuilds, setupState.telegramSourceGuildId);
-    var channels = guild ? (guild.sourceChannels || []) : [];
+    var channels = guild ? getSourceChannelsForGuild(guild, setupState.telegramSourceBot) : [];
     var filteredChannels = filterOptions(channels, telegramSourceChannelSearch ? telegramSourceChannelSearch.value : '', channelLabel);
     setSelectOptions(
       telegramSourceChannelSelect,
@@ -447,6 +540,12 @@
         setupState.discordSourceGuildId = '';
         setupState.telegramSourceGuildId = '';
       }
+
+      var selectedDiscordSourceGuild = getGuildById(setupState.sourceGuilds, setupState.discordSourceGuildId);
+      var selectedTelegramSourceGuild = getGuildById(setupState.sourceGuilds, setupState.telegramSourceGuildId);
+      setupState.discordSourceBot = resolveSourceBotForGuild(selectedDiscordSourceGuild, setupState.discordSourceBot);
+      setupState.telegramSourceBot = resolveSourceBotForGuild(selectedTelegramSourceGuild, setupState.telegramSourceBot);
+
       if (preferredTargetGuild && getGuildById(setupState.targetGuilds, preferredTargetGuild)) {
         setupState.discordTargetGuildId = preferredTargetGuild;
       } else if (setupState.targetGuilds.length) {
@@ -470,6 +569,9 @@
 
     setupState.discordSourceGuildId = guildId;
     setupState.telegramSourceGuildId = guildId;
+    var guild = getGuildById(setupState.sourceGuilds, guildId);
+    setupState.discordSourceBot = resolveSourceBotForGuild(guild, setupState.discordSourceBot);
+    setupState.telegramSourceBot = resolveSourceBotForGuild(guild, setupState.telegramSourceBot);
     if (!setupState.discordTargetGuildId && getGuildById(setupState.targetGuilds, guildId)) {
       setupState.discordTargetGuildId = guildId;
     }
@@ -508,6 +610,8 @@
     if (discordTargetChannelSearch) discordTargetChannelSearch.value = '';
 
     setupState.discordSourceGuildId = getFirstId(setupState.sourceGuilds);
+    var guild = getGuildById(setupState.sourceGuilds, setupState.discordSourceGuildId);
+    setupState.discordSourceBot = resolveSourceBotForGuild(guild, setupState.discordSourceBot);
     setupState.discordTargetGuildId = getFirstId(setupState.targetGuilds);
     renderSetupSelectors();
 
@@ -523,6 +627,8 @@
     if (telegramChatIdInput) telegramChatIdInput.value = '';
 
     setupState.telegramSourceGuildId = getFirstId(setupState.sourceGuilds);
+    var guild = getGuildById(setupState.sourceGuilds, setupState.telegramSourceGuildId);
+    setupState.telegramSourceBot = resolveSourceBotForGuild(guild, setupState.telegramSourceBot);
     renderSetupSelectors();
 
     var telegramNameInput = document.getElementById('telegram-name');
@@ -608,6 +714,13 @@
     if (discordSourceServerSelect) {
       discordSourceServerSelect.addEventListener('change', function () {
         setupState.discordSourceGuildId = discordSourceServerSelect.value;
+        refreshDiscordSourceBotSelect();
+        refreshDiscordSourceChannelSelect();
+      });
+    }
+    if (discordSourceBotSelect) {
+      discordSourceBotSelect.addEventListener('change', function () {
+        setupState.discordSourceBot = String(discordSourceBotSelect.value || 'main').trim().toLowerCase();
         refreshDiscordSourceChannelSelect();
       });
     }
@@ -634,6 +747,13 @@
     if (telegramSourceServerSelect) {
       telegramSourceServerSelect.addEventListener('change', function () {
         setupState.telegramSourceGuildId = telegramSourceServerSelect.value;
+        refreshTelegramSourceBotSelect();
+        refreshTelegramSourceChannelSelect();
+      });
+    }
+    if (telegramSourceBotSelect) {
+      telegramSourceBotSelect.addEventListener('change', function () {
+        setupState.telegramSourceBot = String(telegramSourceBotSelect.value || 'main').trim().toLowerCase();
         refreshTelegramSourceChannelSelect();
       });
     }
@@ -667,6 +787,7 @@
       await loadSetupOptions(false);
 
       var sourceGuildId = String(discordSourceServerSelect ? discordSourceServerSelect.value : '').trim();
+      var sourceBot = String(discordSourceBotSelect ? discordSourceBotSelect.value : setupState.discordSourceBot || 'main').trim().toLowerCase();
       var sourceChannelId = String(discordSourceChannelSelect ? discordSourceChannelSelect.value : '').trim();
       var targetServerId = String(discordTargetServerSelect ? discordTargetServerSelect.value : '').trim();
       var targetChannelId = String(discordTargetChannelSelect ? discordTargetChannelSelect.value : '').trim();
@@ -678,6 +799,7 @@
 
       var payload = {
         guildId: sourceGuildId,
+        sourceBot: sourceBot,
         targetType: 'discord',
         sourceChannelId: sourceChannelId,
         targetChannelId: targetChannelId,
@@ -707,6 +829,7 @@
       await loadSetupOptions(false);
 
       var sourceGuildId = String(telegramSourceServerSelect ? telegramSourceServerSelect.value : '').trim();
+      var sourceBot = String(telegramSourceBotSelect ? telegramSourceBotSelect.value : setupState.telegramSourceBot || 'main').trim().toLowerCase();
       var sourceChannelId = String(telegramSourceChannelSelect ? telegramSourceChannelSelect.value : '').trim();
       var selectedChatId = String(telegramChatSelect ? telegramChatSelect.value : '').trim();
       var typedChatId = String(telegramChatIdInput ? telegramChatIdInput.value : '').trim();
@@ -736,6 +859,7 @@
       // Step 2: Create the forward config
       var payload = {
         guildId: sourceGuildId,
+        sourceBot: sourceBot,
         targetType: 'telegram',
         sourceChannelId: sourceChannelId,
         targetChatId: targetChatId,
