@@ -98,8 +98,28 @@ Purpose: Track only items that are still below command parity or provide clear o
   - `node --check web/public/debug.js`
   - `node --check web/public/app.js`
 
+### Phase 7 (2026-02-07) - Command vs Web Parity Audit ✅
+- Completed a full audit of all command surfaces (current + legacy/deprecated) against web admin.
+- Confirmed web-managed/deprecated command parity is complete for:
+  - `/proforward setup`
+  - `/proforward telegram`
+  - `/proforward list`
+  - `/proforward remove`
+  - `/proforward test`
+  - `/proforward auto-publish`
+  - `/proforward retry`
+- Confirmed active command helpers remain intentionally available in Discord for quick ops:
+  - `/proforward status`
+  - `/proforward telegram-discover`
+  - `/proforward reader-status`
+  - `/debug database`
+  - `/debug search`
+- Parity result: **near-full** overall; no blocking capability regressions found.
+- Updated docs/backlog with remaining low-priority parity differences.
+
 ## Remaining TODOs
-- None currently.
+- Add an explicit web "Telegram Discover" action that mirrors `/proforward telegram-discover` one-shot results view (including discovery warnings and grouped output).
+- Add optional web debug drilldown for a message ID that mirrors `/debug search`'s extra edit-handler-focused summary (`originalMessageId` success rows).
 
 ## Removed From TODO (Already Web-Equal or Better)
 - Reader diagnostics simplified parity delivered in web (`/api/reader-status` + dashboard panel).
@@ -111,3 +131,4 @@ Purpose: Track only items that are still below command parity or provide clear o
 - Telegram target create flow verification is enforced in frontend and backend.
 - Telegram target input supports Chat ID, `@username`, and `t.me` links.
 - Telegram target UI is manual-first and supports tracked-chat removal with safety guardrails.
+- Parity audit confirmed all web-managed/deprecated `/proforward` command paths are now web-equal or better.
