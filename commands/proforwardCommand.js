@@ -8,10 +8,12 @@ const WEB_MANAGED_DEPRECATED_SUBCOMMANDS = new Set([
   'telegram',
   'list',
   'remove',
+  'status',
   'test',
   'auto-publish',
   'retry',
-  'telegram-discover'
+  'telegram-discover',
+  'reader-status'
 ]);
 
 const proforwardCommand = new SlashCommandBuilder()
@@ -207,9 +209,16 @@ async function sendWebManagedDisabledNotice(interaction, subcommand) {
 }
 
 async function handleProforwardCommand(interaction) {
-  const subcommand = interaction.options.getSubcommand();
-
   try {
+    const subcommand = interaction.options.getSubcommand(false);
+    if (!subcommand) {
+      await interaction.reply({
+        content: `⛔ \`/proforward\` is disabled. Manage this in Web Admin: ${getWebAdminUrl()}`,
+        ephemeral: true
+      });
+      return;
+    }
+
     if (WEB_MANAGED_DEPRECATED_SUBCOMMANDS.has(subcommand)) {
       await sendWebManagedDisabledNotice(interaction, subcommand);
       return;
