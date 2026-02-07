@@ -125,42 +125,22 @@ Purpose: Track only items that are still below command parity or provide clear o
 - Validation run:
   - `node --check commands/proforwardCommand.js`
 
+### Phase 9 (2026-02-07) - `/debug search` Web Drilldown Parity ✅
+- Added debug-gated read-only endpoint: `GET /api/debug/message-search?messageId=...`.
+- Added Debug tab "Message Drilldown" panel:
+  - message ID input + search action
+  - all-match results (`originalMessageId` OR `forwardedMessageId`)
+  - edit-handler-aligned subset (`originalMessageId` + `status='success'`)
+  - total vs shown summary for truncated result sets
+- Kept behavior safe:
+  - endpoint is authenticated and available only when `WEB_ADMIN_DEBUG=true`
+  - no raw SQL input and no mutating actions
+- Validation run:
+  - `node --check web/server.js`
+  - `node --check web/public/debug.js`
+
 ## Remaining TODOs
-- Add optional web debug drilldown for a message ID that mirrors `/debug search`'s extra edit-handler-focused summary (`originalMessageId` success rows).
-
-## Proposed Next Implementation (Awaiting Approval)
-Phase 8 is delivered. The proposal below is the only remaining pending implementation.
-
-### Proposal - Web Debug Message Drilldown (for `/debug search` Near-Parity)
-Goal:
-- Add an optional debug-only message drilldown view that includes both broad log matches and the command-style "edit handler" success summary.
-
-Implementation outline:
-- Backend (`web/server.js`):
-  - Add debug-gated endpoint: `GET /api/debug/message-search?messageId=...`.
-  - Return:
-    - `allMatches`: rows where `originalMessageId = ? OR forwardedMessageId = ?` (ordered newest first).
-    - `editHandlerMatches`: rows equivalent to command helper (`getMessageLogsByOriginalMessage` semantics: success rows by original ID).
-    - lightweight counts for both arrays.
-- Frontend (`web/public/debug.js` + debug tab HTML in `web/server.js`):
-  - Add "Message Drilldown" card with input + search button.
-  - Render two result tables:
-    - full match set (`allMatches`)
-    - edit-handler subset (`editHandlerMatches`)
-  - Keep panel visible only when `WEB_ADMIN_DEBUG=true`.
-
-Safety constraints:
-- Read-only endpoint, debug-gated, no SQL input, no mutating behavior.
-
-Acceptance checks:
-- Querying an existing message ID returns expected rows in both tables.
-- Querying unknown ID returns clean "no results" state.
-- Debug tab behavior remains unchanged for existing diagnostics.
-
-### Suggested delivery order (small/safe steps)
-1. Debug message drilldown backend endpoint.
-2. Debug message drilldown frontend panel.
-3. Final parity doc update and regression sanity checks.
+- None currently.
 
 ## Removed From TODO (Already Web-Equal or Better)
 - Reader diagnostics simplified parity delivered in web (`/api/reader-status` + dashboard panel).
@@ -174,3 +154,4 @@ Acceptance checks:
 - Telegram target UI is manual-first and supports tracked-chat removal with safety guardrails.
 - Parity audit confirmed all web-managed/deprecated `/proforward` command paths are now web-equal or better.
 - `/proforward telegram-discover` retired in favor of Web Admin Telegram target input + verification flow.
+- `/debug search` web parity delivered via debug-gated Message Drilldown panel/API.

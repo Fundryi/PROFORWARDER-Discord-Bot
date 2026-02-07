@@ -377,6 +377,58 @@ function renderDashboardPage(auth, webAdminConfig) {
       </div>
 
       <div class="card">
+        <div class="header-bar">
+          <h2>Message Drilldown</h2>
+          <div class="row">
+            <input id="debug-message-id" class="input" type="text" placeholder="Discord message ID">
+            <button id="debug-message-search" class="button secondary sm" type="button">Search</button>
+          </div>
+        </div>
+        <p class="muted-text">Search by original or forwarded message ID. Includes edit-handler success subset.</p>
+        <p id="debug-message-meta" class="muted-text">Enter a message ID and click Search.</p>
+
+        <h3>All Matches</h3>
+        <div class="table-wrapper">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Time</th>
+                <th>Status</th>
+                <th>Config</th>
+                <th>Original</th>
+                <th>Forwarded</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody id="debug-message-all-body">
+              <tr><td colspan="7" class="muted-text">Enter a message ID and click Search.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3>Edit Handler Matches (Original + Success)</h3>
+        <div class="table-wrapper">
+          <table class="logs-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Time</th>
+                <th>Status</th>
+                <th>Config</th>
+                <th>Original</th>
+                <th>Forwarded</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody id="debug-message-edit-body">
+              <tr><td colspan="7" class="muted-text">Enter a message ID and click Search.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
         <h2>Message Log Status Counts</h2>
         <div class="table-wrapper">
           <table>
@@ -1727,6 +1779,71 @@ async function buildDebugDatabaseSnapshot(options = {}) {
   };
 }
 
+async function buildDebugMessageSearchSnapshot(messageId, options = {}) {
+  const normalizedMessageId = String(messageId || '').trim();
+  const limit = Math.max(10, Math.min(parseInt(options.limit, 10) || 200, 500));
+
+  const [allCountRow, editCountRow] = await Promise.all([
+    dbGet(
+      `SELECT COUNT(*) AS count
+       FROM message_logs
+       WHERE originalMessageId = ? OR forwardedMessageId = ?`,
+      [normalizedMessageId, normalizedMessageId]
+    ),
+    dbGet(
+      `SELECT COUNT(*) AS count
+       FROM message_logs
+       WHERE originalMessageId = ? AND status = 'success'`,
+      [normalizedMessageId]
+    )
+  ]);
+
+  const [allMatches, editHandlerMatches] = await Promise.all([
+    dbAll(
+      `SELECT *
+       FROM message_logs
+       WHERE originalMessageId = ? OR forwardedMessageId = ?
+       ORDER BY forwardedAt DESC
+       LIMIT ?`,
+      [normalizedMessageId, normalizedMessageId, limit]
+    ),
+    dbAll(
+      `SELECT *
+       FROM message_logs
+       WHERE originalMessageId = ? AND status = 'success'
+       ORDER BY forwardedAt DESC
+       LIMIT ?`,
+      [normalizedMessageId, limit]
+    )
+  ]);
+
+  function mapLog(log) {
+    return {
+      id: Number(log.id),
+      forwardedAt: Number(log.forwardedAt || 0),
+      status: String(log.status || 'unknown'),
+      configId: Number(log.configId || 0),
+      originalMessageId: String(log.originalMessageId || ''),
+      forwardedMessageId: String(log.forwardedMessageId || ''),
+      errorMessage: log.errorMessage ? String(log.errorMessage).slice(0, 220) : ''
+    };
+  }
+
+  const allTotal = Number(allCountRow && allCountRow.count ? allCountRow.count : 0);
+  const editTotal = Number(editCountRow && editCountRow.count ? editCountRow.count : 0);
+
+  return {
+    messageId: normalizedMessageId,
+    limit,
+    allMatchesTotal: allTotal,
+    editHandlerMatchesTotal: editTotal,
+    allMatchesTruncated: allTotal > allMatches.length,
+    editHandlerMatchesTruncated: editTotal > editHandlerMatches.length,
+    allMatches: allMatches.map(mapLog),
+    editHandlerMatches: editHandlerMatches.map(mapLog)
+  };
+}
+
 function createWebAdminApp(client, config) {
   const webAdminConfig = getWebAdminConfig(config);
   const app = express();
@@ -2883,6 +3000,37 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin /api/debug/database failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to load debug diagnostics' });
+    }
+  });
+
+  app.get('/api/debug/message-search', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    if (!webAdminConfig.debug) {
+      res.status(404).json({ error: 'Debug diagnostics are disabled' });
+      return;
+    }
+
+    const messageId = typeof req.query.messageId === 'string'
+      ? req.query.messageId.trim()
+      : '';
+    if (!/^\d+$/.test(messageId)) {
+      res.status(400).json({ error: 'messageId must be a numeric Discord message ID' });
+      return;
+    }
+
+    try {
+      const result = await buildDebugMessageSearchSnapshot(messageId, {
+        limit: req.query.limit
+      });
+      res.json(result);
+    } catch (error) {
+      logError(`Web admin /api/debug/message-search failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to run debug message search' });
     }
   });
 

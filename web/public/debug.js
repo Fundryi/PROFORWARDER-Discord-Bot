@@ -11,6 +11,11 @@
   var recentLogsBody = document.getElementById('debug-recent-logs-body');
   var failedLogsBody = document.getElementById('debug-failed-logs-body');
   var settingsBody = document.getElementById('debug-settings-body');
+  var messageIdInput = document.getElementById('debug-message-id');
+  var messageSearchButton = document.getElementById('debug-message-search');
+  var messageMeta = document.getElementById('debug-message-meta');
+  var messageAllBody = document.getElementById('debug-message-all-body');
+  var messageEditBody = document.getElementById('debug-message-edit-body');
 
   function formatTime(timestamp) {
     var value = Number(timestamp || 0);
@@ -157,6 +162,88 @@
     }
   }
 
+  function setMessageMeta(text, isError) {
+    if (!messageMeta) return;
+    messageMeta.className = isError ? 'muted-text error-text' : 'muted-text';
+    messageMeta.textContent = text;
+  }
+
+  function renderMessageRows(tbody, rows, emptyMessage) {
+    if (!tbody) return;
+    if (!Array.isArray(rows) || !rows.length) {
+      setTableMessage(tbody, 7, emptyMessage);
+      return;
+    }
+
+    tbody.innerHTML = '';
+    for (var i = 0; i < rows.length; i++) {
+      var item = rows[i] || {};
+      var row = document.createElement('tr');
+      appendCell(row, String(item.id || '-'), 'mono');
+      appendCell(row, formatTime(item.forwardedAt));
+      appendCell(row, item.status || 'unknown');
+      appendCell(row, String(item.configId || '-'));
+      appendCell(row, String(item.originalMessageId || '-'), 'mono');
+      appendCell(row, String(item.forwardedMessageId || '-'), 'mono');
+      appendCell(row, item.errorMessage || '-', item.errorMessage ? 'error-text' : '');
+      tbody.appendChild(row);
+    }
+  }
+
+  function summarizeTruncation(prefix, total, shown, truncated) {
+    if (!truncated) {
+      return prefix + ': ' + shown + ' row' + (shown === 1 ? '' : 's') + '.';
+    }
+    return prefix + ': showing ' + shown + ' of ' + total + ' row' + (total === 1 ? '' : 's') + '.';
+  }
+
+  async function searchMessageDrilldown() {
+    var messageId = String(messageIdInput ? messageIdInput.value : '').trim();
+    if (!/^\d+$/.test(messageId)) {
+      setMessageMeta('Enter a numeric Discord message ID.', true);
+      setTableMessage(messageAllBody, 7, 'Enter a numeric Discord message ID.');
+      setTableMessage(messageEditBody, 7, 'Enter a numeric Discord message ID.');
+      return;
+    }
+
+    setMessageMeta('Searching message logs for ' + messageId + '...');
+    setTableMessage(messageAllBody, 7, 'Loading...');
+    setTableMessage(messageEditBody, 7, 'Loading...');
+
+    try {
+      var result = await AdminApp.fetchJson('/api/debug/message-search?messageId=' + encodeURIComponent(messageId));
+      var allMatches = Array.isArray(result.allMatches) ? result.allMatches : [];
+      var editMatches = Array.isArray(result.editHandlerMatches) ? result.editHandlerMatches : [];
+      var allTotal = Number(result.allMatchesTotal || allMatches.length || 0);
+      var editTotal = Number(result.editHandlerMatchesTotal || editMatches.length || 0);
+
+      renderMessageRows(messageAllBody, allMatches, 'No matching log rows found.');
+      renderMessageRows(messageEditBody, editMatches, 'No edit-handler success rows found.');
+
+      var summary = summarizeTruncation(
+        'All matches',
+        allTotal,
+        allMatches.length,
+        Boolean(result.allMatchesTruncated)
+      );
+      summary += ' ';
+      summary += summarizeTruncation(
+        'Edit-handler matches',
+        editTotal,
+        editMatches.length,
+        Boolean(result.editHandlerMatchesTruncated)
+      );
+      setMessageMeta(summary);
+
+      AdminApp.setStatus('Debug message search complete for ' + messageId + '.');
+    } catch (error) {
+      setMessageMeta('Message drilldown failed: ' + error.message, true);
+      setTableMessage(messageAllBody, 7, 'Failed to load message drilldown.');
+      setTableMessage(messageEditBody, 7, 'Failed to load message drilldown.');
+      AdminApp.setStatus('Failed to load debug message search: ' + error.message, true);
+    }
+  }
+
   async function loadDebugDiagnostics() {
     setTableMessage(statusBody, 2, 'Loading...');
     setTableMessage(discoveredViaBody, 2, 'Loading...');
@@ -189,6 +276,25 @@
       loadDebugDiagnostics();
     });
   }
+
+  if (messageSearchButton) {
+    messageSearchButton.addEventListener('click', function () {
+      searchMessageDrilldown();
+    });
+  }
+
+  if (messageIdInput) {
+    messageIdInput.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        searchMessageDrilldown();
+      }
+    });
+  }
+
+  setTableMessage(messageAllBody, 7, 'Enter a message ID and click Search.');
+  setTableMessage(messageEditBody, 7, 'Enter a message ID and click Search.');
+  setMessageMeta('Enter a message ID and click Search.');
 
   AdminApp.onTabActivate('debug', function () {
     loadDebugDiagnostics();
