@@ -4,7 +4,7 @@ Date: 2026-02-06
 Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 
 ## Current Progress Snapshot
-- Latest completed phase: Phase 3.5 (tabbed dashboard + guild management).
+- Latest completed phase: Phase 3.5 plus post-phase Telegram/config UX hardening.
 - Current state:
   - Bot runtime stable and unchanged for forwarding logic.
   - Web admin remains feature-flagged by `WEB_ADMIN_ENABLED`.
@@ -13,11 +13,14 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
   - OAuth stays available behind `WEB_ADMIN_AUTH_MODE=oauth` for later domain rollout.
   - Web admin config loading consolidated to `config.webAdmin` (no direct env fallback in `web/server.js`).
   - Local auth supports explicit host allowlist and optional IP allowlist with debug logging.
-  - Tabbed SPA dashboard with 6 tabs: Dashboard, Configs, Guilds, Logs, Settings.
+  - Tabbed SPA dashboard with 6 tabs: Dashboard, Configs, Auto Publish, Guilds, Logs, Settings.
   - Root URL `/` redirects to `/admin` (no more "Cannot GET /").
   - Guild management: view all bot guilds, leave unwanted guilds from web UI.
   - Message logs viewer with pagination, config/status filters.
   - Bot settings editor (DB-stored key-value pairs) and read-only runtime config display.
+  - Telegram create flow verifies chat access before saving config (frontend + backend).
+  - Telegram target input supports numeric IDs, `@username`, and `t.me` links (stored as canonical chat ID).
+  - Tracked Telegram chats are removable in web UI with in-use config safeguards.
   - Frontend is vanilla HTML/CSS/JS served as static files from `web/public/`.
 - Completed implementation commits:
   - `991e4ba` phase 0: add web admin config flags and env placeholders
@@ -28,6 +31,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 ## Continuation Audit Notes (2026-02-07)
 - `MEDIUM (resolved in this session)`: Telegram chat access verification is enforced server-side in `POST /api/configs` (no frontend-only bypass path).
 - `MEDIUM (resolved in this session)`: Telegram target entry supports numeric chat IDs, `@username`, and `t.me` links in web create flow.
+- `LOW (resolved in this session)`: Telegram target UI flow was reordered to manual-first input with tracked-chat management controls.
 - `LOW`: Tracking metadata labels (`discoveredVia`) need clearer semantics for auto-verified create flow.
 - `LOW`: Plan snapshot and implementation notes need periodic refresh as post-Phase-3.5 Telegram UX improvements landed.
 
@@ -148,18 +152,23 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 
 ## API Contract (Internal)
 - `GET /api/me` -> authenticated user + allowed guilds.
+- `GET /api/form-options` -> source/target channel options + Telegram tracked chats.
 - `GET /api/configs?guildId=...` -> configs for guild.
 - `POST /api/configs` -> create config.
 - `PATCH /api/configs/:id` -> enable/disable or update supported fields.
 - `DELETE /api/configs/:id` -> remove config.
 - `POST /api/configs/:id/test-telegram` -> connectivity test.
+- `POST /api/telegram-chats/verify` -> verify and track Telegram chat by ID/username/link.
+- `DELETE /api/telegram-chats/:chatId` -> remove tracked Telegram chat (blocked when still used by configs).
+- `GET /api/auto-publish` -> list auto-publish channels/options.
+- `PUT /api/auto-publish` -> toggle auto-publish for a channel.
 
 ## Validation Rules (Server-Side)
 - Discord IDs must be numeric strings.
 - Source and target Discord channels cannot be identical.
 - Target types:
   - `discord`: requires target guild/channel and bot permissions.
-  - `telegram`: requires valid numeric chat ID.
+  - `telegram`: requires valid chat ID, `@username`, or `t.me` link; resolved and persisted as canonical chat ID.
 - Reject writes when user loses required role/admin rights mid-session.
 
 ## Rollout Plan
@@ -246,7 +255,7 @@ Baseline commit: `0ecb018518ca5fef3cc5498e363206e00ccbef13`
 - Implementation notes:
   - Replaced `renderDashboardPage()` inline HTML+JS (330 lines) with a clean HTML shell loading external scripts.
   - Removed deprecated `renderAuthenticatedShell()` and `/admin/shell` route.
-  - Added 6 tabs: Dashboard, Configs, Guilds, Logs, Settings.
+  - Added 6 tabs: Dashboard, Configs, Auto Publish, Guilds, Logs, Settings.
   - New frontend files in `web/public/`:
     - `app.js` - shared utilities (fetchJson, tab switching, guild selector, shared state via `AdminApp`)
     - `dashboard.js` - bot status overview with stat cards, 30s auto-refresh
