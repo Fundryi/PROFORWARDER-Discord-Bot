@@ -10,7 +10,8 @@ const WEB_MANAGED_DEPRECATED_SUBCOMMANDS = new Set([
   'remove',
   'test',
   'auto-publish',
-  'retry'
+  'retry',
+  'telegram-discover'
 ]);
 
 const proforwardCommand = new SlashCommandBuilder()
@@ -217,9 +218,6 @@ async function handleProforwardCommand(interaction) {
     switch (subcommand) {
       case 'status':
         await handleStatus(interaction);
-        break;
-      case 'telegram-discover':
-        await handleTelegramDiscover(interaction);
         break;
       case 'retry':
         await handleRetry(interaction);
@@ -546,7 +544,7 @@ async function handleTelegram(interaction) {
     // Validate chat ID format
     if (!/^-?\d+$/.test(chatId)) {
       await interaction.reply({
-        content: '❌ Invalid Telegram chat ID format.\n\n**Examples:**\n• Group/Channel: `-1001234567890` (negative)\n• Private chat: `123456789` (positive)\n\n**Easy way to get chat ID:**\n1. Use `/proforward telegram-discover` to automatically find chat IDs\n2. Or add @userinfobot to your chat and send a message',
+        content: `❌ Invalid Telegram chat ID format.\n\n**Examples:**\n• Group/Channel: \`-1001234567890\` (negative)\n• Private chat: \`123456789\` (positive)\n\n**Easy ways to set Telegram target in Web Admin (${getWebAdminUrl()}):**\n1. Paste \`@username\` or \`https://t.me/username\`\n2. Or paste numeric Chat ID directly\n3. Or add @userinfobot to your chat to read the numeric ID`,
         ephemeral: true
       });
       return;
@@ -609,7 +607,7 @@ async function handleTelegram(interaction) {
   // Validate chat ID format
   if (!/^-?\d+$/.test(chatId)) {
     await interaction.reply({
-      content: '❌ Invalid Telegram chat ID format.\n\n**Examples:**\n• Group/Channel: `-1001234567890` (negative)\n• Private chat: `123456789` (positive)\n\n**Easy way to get chat ID:**\n1. Use `/proforward telegram-discover` to automatically find chat IDs\n2. Or add @userinfobot to your chat and send a message',
+      content: `❌ Invalid Telegram chat ID format.\n\n**Examples:**\n• Group/Channel: \`-1001234567890\` (negative)\n• Private chat: \`123456789\` (positive)\n\n**Easy ways to set Telegram target in Web Admin (${getWebAdminUrl()}):**\n1. Paste \`@username\` or \`https://t.me/username\`\n2. Or paste numeric Chat ID directly\n3. Or add @userinfobot to your chat to read the numeric ID`,
       ephemeral: true
     });
     return;
@@ -766,8 +764,7 @@ async function handleStatus(interaction) {
   response += `\n**💡 Quick Tips:**\n`;
   response += `• Create/manage forwards: Web Admin ${getWebAdminUrl()}\n`;
   if (config.telegram?.enabled) {
-    response += `• Discover chats: \`/proforward telegram-discover\`\n`;
-    response += `• Discover by username: \`/proforward telegram-discover username:@channelname\`\n`;
+    response += `• Telegram target in Web Admin accepts Chat ID, \`@username\`, or \`https://t.me/...\`\n`;
   }
   response += `• Retry a message forward: Web Admin Logs tab (${getWebAdminUrl()})\n`;
   if (config.readerBot?.enabled) {
@@ -954,8 +951,7 @@ async function handleTelegramDiscover(interaction) {
       
       errorMsg += '**To discover chats:**\n';
       errorMsg += '1. Add your Telegram bot to the target group/channel\n';
-      errorMsg += '2. **For channels:** Use `/proforward telegram-discover username:@channelname`\n';
-      errorMsg += '   or `/proforward telegram-discover username:https://t.me/channelname`\n';
+      errorMsg += `2. **For channels:** In Web Admin (${getWebAdminUrl()}), use \`@channelname\` or \`https://t.me/channelname\` as target\n`;
       errorMsg += '3. **For groups:** Send at least one message in the chat, then run discovery\n\n';
       
       if (errors.length > 0) {

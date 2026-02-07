@@ -8,7 +8,7 @@ Move day-to-day management from slash commands to web admin without losing criti
 
 ## Audit Notes (2026-02-07)
 - `RESOLVED`: Web-managed `/proforward` command set now has parity or better behavior in web admin.
-- `LOW`: Web has Telegram discovery + verify flows, but no single "run discover now" report view that mirrors `/proforward telegram-discover` output format.
+- `RESOLVED`: `/proforward telegram-discover` was retired as a slash-command helper; web Telegram target input + verification is the supported path.
 - `LOW`: Web logs message-ID search covers `/debug search` lookup intent, but does not expose the command's extra edit-handler-focused success-only summary.
 - `NOTE`: `/debug` web diagnostics remain intentionally gated by `WEB_ADMIN_DEBUG=true`.
 
@@ -69,14 +69,13 @@ Move day-to-day management from slash commands to web admin without losing criti
 - `/proforward retry`: Covered by `Logs` -> `Retry Source Message` (command disabled).
 - `/proforward status`: Covered by `Dashboard` + `Guilds` (kept in Discord as quick status helper).
 - `/proforward reader-status`: Covered by dashboard `Reader Diagnostics` + `Guilds` invite/status cards.
-- `/proforward telegram-discover`: Near parity via tracked discovery + manual verify (`Chat ID`, `@username`, `t.me`), but no dedicated one-shot report action.
+- `/proforward telegram-discover`: Retired/disabled; web Telegram setup supports `Chat ID`, `@username`, and `t.me` verification directly.
 - `/debug search`: Near parity via `Logs` message-ID search (missing dedicated edit-handler success-only summary block).
 - `/debug database`: Covered by debug-gated `Debug` tab + `GET /api/debug/database`.
 
 ## Remaining Gaps Before Full Command Shutdown
-1. Add optional explicit Telegram discover action/report in web for operators who want the same UX as `/proforward telegram-discover`.
-2. Add optional debug message drilldown view that includes `/debug search`-style edit-handler summary rows.
-3. Decide whether to keep helper commands (`status`, `telegram-discover`, `reader-status`, `/debug *`) long-term or fully move to web-only workflows.
+1. Add optional debug message drilldown view that includes `/debug search`-style edit-handler summary rows.
+2. Decide whether to keep helper commands (`status`, `reader-status`, `/debug *`) long-term or fully move to web-only workflows.
 
 ## Recent Implementation Timeline (Including In-Between/Extra Work)
 - `d42bad5` docs: phased hardening plan for web admin/logs/telegram.
@@ -125,7 +124,6 @@ Move day-to-day management from slash commands to web admin without losing criti
 - Native browser `<select><option>` popup width behavior can vary by OS/browser and is not fully controllable with CSS.
 
 ## Keep Enabled For Now
-- `/proforward telegram-discover`
 - `/proforward reader-status`
 - `/debug database`
 - `/debug search`

@@ -110,16 +110,57 @@ Purpose: Track only items that are still below command parity or provide clear o
   - `/proforward retry`
 - Confirmed active command helpers remain intentionally available in Discord for quick ops:
   - `/proforward status`
-  - `/proforward telegram-discover`
   - `/proforward reader-status`
   - `/debug database`
   - `/debug search`
 - Parity result: **near-full** overall; no blocking capability regressions found.
 - Updated docs/backlog with remaining low-priority parity differences.
 
+### Phase 8 (2026-02-07) - Retire `/proforward telegram-discover` ✅
+- Marked `/proforward telegram-discover` as web-managed deprecated (hidden from slash registration and disabled at runtime with web redirect notice).
+- Kept behavior safe and simple:
+  - no change to Telegram forward runtime logic
+  - command users are redirected to Web Admin flow
+- Updated Telegram-related command helper text to point at Web Admin target formats (`Chat ID`, `@username`, `t.me`).
+- Validation run:
+  - `node --check commands/proforwardCommand.js`
+
 ## Remaining TODOs
-- Add an explicit web "Telegram Discover" action that mirrors `/proforward telegram-discover` one-shot results view (including discovery warnings and grouped output).
 - Add optional web debug drilldown for a message ID that mirrors `/debug search`'s extra edit-handler-focused summary (`originalMessageId` success rows).
+
+## Proposed Next Implementation (Awaiting Approval)
+Phase 8 is delivered. The proposal below is the only remaining pending implementation.
+
+### Proposal - Web Debug Message Drilldown (for `/debug search` Near-Parity)
+Goal:
+- Add an optional debug-only message drilldown view that includes both broad log matches and the command-style "edit handler" success summary.
+
+Implementation outline:
+- Backend (`web/server.js`):
+  - Add debug-gated endpoint: `GET /api/debug/message-search?messageId=...`.
+  - Return:
+    - `allMatches`: rows where `originalMessageId = ? OR forwardedMessageId = ?` (ordered newest first).
+    - `editHandlerMatches`: rows equivalent to command helper (`getMessageLogsByOriginalMessage` semantics: success rows by original ID).
+    - lightweight counts for both arrays.
+- Frontend (`web/public/debug.js` + debug tab HTML in `web/server.js`):
+  - Add "Message Drilldown" card with input + search button.
+  - Render two result tables:
+    - full match set (`allMatches`)
+    - edit-handler subset (`editHandlerMatches`)
+  - Keep panel visible only when `WEB_ADMIN_DEBUG=true`.
+
+Safety constraints:
+- Read-only endpoint, debug-gated, no SQL input, no mutating behavior.
+
+Acceptance checks:
+- Querying an existing message ID returns expected rows in both tables.
+- Querying unknown ID returns clean "no results" state.
+- Debug tab behavior remains unchanged for existing diagnostics.
+
+### Suggested delivery order (small/safe steps)
+1. Debug message drilldown backend endpoint.
+2. Debug message drilldown frontend panel.
+3. Final parity doc update and regression sanity checks.
 
 ## Removed From TODO (Already Web-Equal or Better)
 - Reader diagnostics simplified parity delivered in web (`/api/reader-status` + dashboard panel).
@@ -132,3 +173,4 @@ Purpose: Track only items that are still below command parity or provide clear o
 - Telegram target input supports Chat ID, `@username`, and `t.me` links.
 - Telegram target UI is manual-first and supports tracked-chat removal with safety guardrails.
 - Parity audit confirmed all web-managed/deprecated `/proforward` command paths are now web-equal or better.
+- `/proforward telegram-discover` retired in favor of Web Admin Telegram target input + verification flow.
