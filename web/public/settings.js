@@ -224,18 +224,17 @@
         removeButton.addEventListener('click', async function () {
           if (!confirm('Remove :' + emojiName + ': from uploaded_emoji_names?')) return;
 
-          var nextNames = names.filter(function (name) {
-            return String(name).toLowerCase() !== String(emojiName).toLowerCase();
-          });
-
           try {
             removeButton.disabled = true;
-            AdminApp.setStatus('Removing :' + emojiName + ': ...');
-            await AdminApp.fetchJson('/api/settings/' + encodeURIComponent(setting.key), {
-              method: 'PUT',
-              body: JSON.stringify({ value: JSON.stringify(nextNames) })
+            AdminApp.setStatus('Removing :' + emojiName + ': from Discord + DB tracking...');
+            var result = await AdminApp.fetchJson('/api/settings/uploaded-emoji/' + encodeURIComponent(emojiName), {
+              method: 'DELETE'
             });
-            AdminApp.setStatus('Removed :' + emojiName + ': from uploaded_emoji_names.');
+            var discordStatus = result && result.discord ? result.discord.status : 'unknown';
+            var dbRemoved = result && result.db ? result.db.removed === true : false;
+            AdminApp.setStatus(
+              'Removed :' + emojiName + ': (Discord: ' + discordStatus + ', DB: ' + (dbRemoved ? 'removed' : 'already absent') + ').'
+            );
             await loadSettings();
           } catch (error) {
             AdminApp.setStatus('Failed to remove emoji name: ' + error.message, true);
