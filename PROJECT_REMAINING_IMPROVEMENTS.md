@@ -139,6 +139,21 @@ Purpose: Track only items that are still below command parity or provide clear o
   - `node --check web/server.js`
   - `node --check web/public/debug.js`
 
+### Phase 10 (2026-02-07) - Retire Remaining Slash Helpers ✅
+- Moved remaining helper commands to web-managed mode:
+  - `/proforward status`
+  - `/proforward reader-status`
+  - `/debug database`
+  - `/debug search`
+- Updated slash registration behavior:
+  - `/proforward` is not registered when all subcommands are web-managed
+  - `/debug` is intentionally unregistered
+- Kept safe stale-command behavior during Discord propagation:
+  - stale `/proforward ...` and `/debug ...` calls return clear redirect notices to Web Admin
+- Validation run:
+  - `node --check commands/proforwardCommand.js`
+  - `node --check index.js`
+
 ## Remaining TODOs
 - None currently.
 
@@ -155,3 +170,4 @@ Purpose: Track only items that are still below command parity or provide clear o
 - Parity audit confirmed all web-managed/deprecated `/proforward` command paths are now web-equal or better.
 - `/proforward telegram-discover` retired in favor of Web Admin Telegram target input + verification flow.
 - `/debug search` web parity delivered via debug-gated Message Drilldown panel/API.
+- Remaining slash helper commands retired; day-to-day operations are now web-only.
