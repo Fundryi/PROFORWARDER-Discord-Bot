@@ -154,6 +154,21 @@ Purpose: Track only items that are still below command parity or provide clear o
   - `node --check commands/proforwardCommand.js`
   - `node --check index.js`
 
+### Phase 11 (2026-02-07) - Single Portal Command + Command Code Cleanup ✅
+- Added a single slash command: `/proforwarder`.
+- `/proforwarder` replies with dynamic web portal links from runtime config:
+  - always provides Web Admin URL from `webAdmin.baseUrl`
+  - provides direct login URL when OAuth mode + HTTPS base URL are configured
+  - falls back to local-mode guidance when local auth is active
+- Removed legacy command modules from codebase:
+  - `commands/proforwardCommand.js`
+  - `commands/debugCommands.js`
+- Kept safe stale-command behavior:
+  - stale `/proforward` and `/debug` interactions return web redirect notices
+- Validation run:
+  - `node --check commands/proforwarderCommand.js`
+  - `node --check index.js`
+
 ## Remaining TODOs
 - None currently.
 
@@ -171,3 +186,4 @@ Purpose: Track only items that are still below command parity or provide clear o
 - `/proforward telegram-discover` retired in favor of Web Admin Telegram target input + verification flow.
 - `/debug search` web parity delivered via debug-gated Message Drilldown panel/API.
 - Remaining slash helper commands retired; day-to-day operations are now web-only.
+- Legacy command code removed; `/proforwarder` retained only as Web Admin portal shortcut.
