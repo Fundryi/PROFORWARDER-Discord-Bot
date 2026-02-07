@@ -585,7 +585,7 @@ function renderDashboardPage(auth, webAdminConfig) {
       <div class="card">
         <h2>Forward Configurations</h2>
         <div class="table-wrapper">
-          <table>
+          <table class="configs-table">
             <thead>
               <tr>
                 <th>ID</th>
@@ -604,93 +604,103 @@ function renderDashboardPage(auth, webAdminConfig) {
       </div>
 
       <div class="card">
-        <h2>Create Discord Forward</h2>
-        <form id="create-discord-form" class="form-grid config-builder-form">
-          <div class="config-builder-grid">
-            <fieldset class="config-box">
-              <legend>Source</legend>
-              <label>Source Bot
-                <select id="discord-source-bot" class="input">
-                  <option value="main">Main Bot</option>
-                </select>
-              </label>
-              <label>Source Server
-                <input id="discord-source-server-search" class="input select-search" placeholder="Search source servers">
-                <select id="discord-source-server" class="input" required>
-                  <option value="">Loading source servers...</option>
-                </select>
-              </label>
-              <label>Source Channel
-                <input id="discord-source-channel-search" class="input select-search" placeholder="Search source channels">
-                <select id="discord-source-channel" class="input" required>
-                  <option value="">Select source server first</option>
-                </select>
-              </label>
-            </fieldset>
-            <fieldset class="config-box">
-              <legend>Target</legend>
-              <label>Target Server (Main Bot)
-                <input id="discord-target-server-search" class="input select-search" placeholder="Search target servers">
-                <select id="discord-target-server" class="input" required>
-                  <option value="">Loading target servers...</option>
-                </select>
-              </label>
-              <label>Target Channel (Main Bot)
-                <input id="discord-target-channel-search" class="input select-search" placeholder="Search target channels">
-                <select id="discord-target-channel" class="input" required>
-                  <option value="">Select target server first</option>
-                </select>
-              </label>
-            </fieldset>
+        <h2>Forward Builder</h2>
+        <div class="forward-builder">
+          <div class="forward-subtabs" role="tablist" aria-label="Forward Type">
+            <button id="forward-tab-discord" class="forward-subtab-btn active" data-forward-tab="discord" role="tab" aria-selected="true" aria-controls="forward-panel-discord" tabindex="0">Discord</button>
+            <button id="forward-tab-telegram" class="forward-subtab-btn" data-forward-tab="telegram" role="tab" aria-selected="false" aria-controls="forward-panel-telegram" tabindex="-1">Telegram</button>
           </div>
-          <label>Name (optional)<input id="discord-name" class="input"></label>
-          <button type="submit" class="button">Create Discord Forward</button>
-        </form>
-      </div>
 
-      <div class="card">
-        <h2>Create Telegram Forward</h2>
-        <form id="create-telegram-form" class="form-grid config-builder-form">
-          <div class="config-builder-grid">
-            <fieldset class="config-box">
-              <legend>Source</legend>
-              <label>Source Bot
-                <select id="telegram-source-bot" class="input">
-                  <option value="main">Main Bot</option>
-                </select>
-              </label>
-              <label>Source Server
-                <input id="telegram-source-server-search" class="input select-search" placeholder="Search source servers">
-                <select id="telegram-source-server" class="input" required>
-                  <option value="">Loading source servers...</option>
-                </select>
-              </label>
-              <label>Source Channel
-                <input id="telegram-source-channel-search" class="input select-search" placeholder="Search source channels">
-                <select id="telegram-source-channel" class="input" required>
-                  <option value="">Select source server first</option>
-                </select>
-              </label>
-            </fieldset>
-            <fieldset class="config-box">
-              <legend>Target</legend>
-              <label>Target Chat<input id="telegram-chat-id" class="input" required placeholder="Select above or enter Chat ID, @username, or t.me link"></label>
-              <p id="telegram-chat-hint" class="muted-text">Enter Chat ID, @username, or t.me link. Bot access is verified automatically when creating the forward.</p>
-              <label>Tracked Telegram Chats
-                <input id="telegram-chat-search" class="input select-search" placeholder="Search tracked chats">
-                <select id="telegram-chat-select" class="input">
-                  <option value="">Select a tracked chat (optional)</option>
-                </select>
-              </label>
-              <div class="row telegram-tracked-actions">
-                <button type="button" id="telegram-chat-remove-btn" class="button secondary sm danger">Remove Selected Tracked Chat</button>
+          <section id="forward-panel-discord" class="forward-panel active" data-forward-panel="discord" role="tabpanel" aria-labelledby="forward-tab-discord" aria-hidden="false">
+            <h3>Create Discord Forward</h3>
+            <form id="create-discord-form" class="form-grid config-builder-form">
+              <div class="config-builder-grid">
+                <fieldset class="config-box">
+                  <legend>Source</legend>
+                  <label>Source Bot
+                    <select id="discord-source-bot" class="input">
+                      <option value="main">Main Bot</option>
+                    </select>
+                  </label>
+                  <label>Source Server
+                    <input id="discord-source-server-search" class="input select-search" placeholder="Search source servers">
+                    <select id="discord-source-server" class="input" required>
+                      <option value="">Loading source servers...</option>
+                    </select>
+                  </label>
+                  <label>Source Channel
+                    <input id="discord-source-channel-search" class="input select-search" placeholder="Search source channels">
+                    <select id="discord-source-channel" class="input" required>
+                      <option value="">Select source server first</option>
+                    </select>
+                  </label>
+                </fieldset>
+                <fieldset class="config-box">
+                  <legend>Target</legend>
+                  <label>Target Server (Main Bot)
+                    <input id="discord-target-server-search" class="input select-search" placeholder="Search target servers">
+                    <select id="discord-target-server" class="input" required>
+                      <option value="">Loading target servers...</option>
+                    </select>
+                  </label>
+                  <label>Target Channel (Main Bot)
+                    <input id="discord-target-channel-search" class="input select-search" placeholder="Search target channels">
+                    <select id="discord-target-channel" class="input" required>
+                      <option value="">Select target server first</option>
+                    </select>
+                  </label>
+                </fieldset>
               </div>
-              <p class="muted-text">Removing a tracked chat only removes it from this list. It does not remove the bot from Telegram.</p>
-            </fieldset>
-          </div>
-          <label>Name (optional)<input id="telegram-name" class="input"></label>
-          <button type="submit" class="button">Create Telegram Forward</button>
-        </form>
+              <label>Name (optional)<input id="discord-name" class="input"></label>
+              <button type="submit" class="button">Create Discord Forward</button>
+            </form>
+          </section>
+
+          <section id="forward-panel-telegram" class="forward-panel" data-forward-panel="telegram" role="tabpanel" aria-labelledby="forward-tab-telegram" aria-hidden="true">
+            <h3>Create Telegram Forward</h3>
+            <form id="create-telegram-form" class="form-grid config-builder-form">
+              <div class="config-builder-grid">
+                <fieldset class="config-box">
+                  <legend>Source</legend>
+                  <label>Source Bot
+                    <select id="telegram-source-bot" class="input">
+                      <option value="main">Main Bot</option>
+                    </select>
+                  </label>
+                  <label>Source Server
+                    <input id="telegram-source-server-search" class="input select-search" placeholder="Search source servers">
+                    <select id="telegram-source-server" class="input" required>
+                      <option value="">Loading source servers...</option>
+                    </select>
+                  </label>
+                  <label>Source Channel
+                    <input id="telegram-source-channel-search" class="input select-search" placeholder="Search source channels">
+                    <select id="telegram-source-channel" class="input" required>
+                      <option value="">Select source server first</option>
+                    </select>
+                  </label>
+                </fieldset>
+                <fieldset class="config-box">
+                  <legend>Target</legend>
+                  <label>Target Chat<input id="telegram-chat-id" class="input" required placeholder="Select above or enter Chat ID, @username, or t.me link"></label>
+                  <p id="telegram-chat-hint" class="muted-text">Enter Chat ID, @username, or t.me link. Bot access is verified automatically when creating the forward.</p>
+                  <label>Tracked Telegram Chats
+                    <input id="telegram-chat-search" class="input select-search" placeholder="Search tracked chats">
+                    <select id="telegram-chat-select" class="input">
+                      <option value="">Select a tracked chat (optional)</option>
+                    </select>
+                  </label>
+                  <div class="row telegram-tracked-actions">
+                    <button type="button" id="telegram-chat-remove-btn" class="button secondary sm danger">Remove Selected Tracked Chat</button>
+                  </div>
+                  <p class="muted-text">Removing a tracked chat only removes it from this list. It does not remove the bot from Telegram.</p>
+                </fieldset>
+              </div>
+              <label>Name (optional)<input id="telegram-name" class="input"></label>
+              <button type="submit" class="button">Create Telegram Forward</button>
+            </form>
+          </section>
+        </div>
       </div>
     </section>
 
