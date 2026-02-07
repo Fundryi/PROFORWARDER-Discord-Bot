@@ -169,6 +169,10 @@ code {
   color: var(--danger);
 }
 
+.text-danger {
+  color: var(--danger) !important;
+}
+
 .row {
   display: flex;
   flex-wrap: wrap;
@@ -240,6 +244,14 @@ code {
   transform: translateY(0);
 }
 
+.button:disabled,
+.button[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: saturate(0.35);
+}
+
 .button.secondary {
   color: var(--text);
   background: rgba(108, 141, 187, 0.16);
@@ -250,6 +262,11 @@ code {
 .button.secondary:hover {
   border-color: rgba(159, 197, 255, 0.42);
   background: rgba(116, 149, 199, 0.2);
+}
+
+.button.secondary:active {
+  background: rgba(108, 141, 187, 0.25);
+  border-color: rgba(159, 197, 255, 0.52);
 }
 
 .button.danger {
@@ -280,16 +297,22 @@ textarea {
   color: var(--text);
   font: inherit;
   padding: 10px var(--space-3);
-  outline: none;
-  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition);
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  transition: border-color var(--transition), box-shadow var(--transition), background var(--transition), outline-color var(--transition);
 }
 
 .input:focus,
 select:focus,
 textarea:focus {
   border-color: rgba(112, 197, 255, 0.72);
-  box-shadow: 0 0 0 3px rgba(66, 164, 255, 0.2);
   background: rgba(8, 14, 25, 0.94);
+}
+
+.input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  box-shadow: 0 0 0 3px rgba(66, 164, 255, 0.2);
 }
 
 textarea {
@@ -393,6 +416,10 @@ tbody tr {
   transition: background var(--transition);
 }
 
+tbody tr:nth-child(even) {
+  background: rgba(100, 150, 220, 0.03);
+}
+
 tbody tr:hover {
   background: rgba(110, 159, 233, 0.09);
 }
@@ -400,6 +427,10 @@ tbody tr:hover {
 td .button {
   margin-right: 6px;
   margin-bottom: 6px;
+}
+
+td .button:hover {
+  transform: none;
 }
 
 .icon-col {
@@ -444,6 +475,16 @@ td .button {
   color: #041120;
   border-color: rgba(171, 216, 255, 0.6);
   background: linear-gradient(160deg, var(--accent), var(--accent-strong));
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tab-nav button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .tab-panel {
@@ -956,5 +997,15 @@ select {
   .settings-help,
   .emoji-preview-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

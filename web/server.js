@@ -359,12 +359,12 @@ function renderDashboardPage(auth, webAdminConfig) {
   const tag = escapeHtml(auth.user.global_name || auth.user.username || auth.user.id);
   const debugEnabled = Boolean(webAdminConfig && webAdminConfig.debug);
   const debugNavButton = debugEnabled
-    ? '<button data-tab="debug">Debug</button>'
+    ? '<button id="tab-btn-debug" data-tab="debug" role="tab" aria-selected="false" aria-controls="tab-debug" tabindex="-1">Debug</button>'
     : '';
   const debugTabSection = debugEnabled
     ? `
     <!-- Debug Tab -->
-    <section id="tab-debug" class="tab-panel">
+    <section id="tab-debug" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-debug" aria-hidden="true">
       <div class="card">
         <div class="header-bar">
           <h2>Database Diagnostics</h2>
@@ -541,21 +541,21 @@ function renderDashboardPage(auth, webAdminConfig) {
           <a class="button secondary sm" href="/admin/logout">Logout</a>
         </div>
       </div>
-      <p id="status-message" class="muted-text">Ready.</p>
+      <p id="status-message" class="muted-text" role="status" aria-live="polite">Ready.</p>
     </section>
 
-    <nav class="tab-nav">
-      <button data-tab="dashboard" class="active">Dashboard</button>
-      <button data-tab="configs">Configs</button>
-      <button data-tab="autopublish">Auto Publish</button>
-      <button data-tab="guilds">Guilds</button>
-      <button data-tab="logs">Logs</button>
-      <button data-tab="settings">Settings</button>
+    <nav class="tab-nav" role="tablist" aria-label="Admin Sections">
+      <button id="tab-btn-dashboard" data-tab="dashboard" class="active" role="tab" aria-selected="true" aria-controls="tab-dashboard" tabindex="0">Dashboard</button>
+      <button id="tab-btn-configs" data-tab="configs" role="tab" aria-selected="false" aria-controls="tab-configs" tabindex="-1">Configs</button>
+      <button id="tab-btn-autopublish" data-tab="autopublish" role="tab" aria-selected="false" aria-controls="tab-autopublish" tabindex="-1">Auto Publish</button>
+      <button id="tab-btn-guilds" data-tab="guilds" role="tab" aria-selected="false" aria-controls="tab-guilds" tabindex="-1">Guilds</button>
+      <button id="tab-btn-logs" data-tab="logs" role="tab" aria-selected="false" aria-controls="tab-logs" tabindex="-1">Logs</button>
+      <button id="tab-btn-settings" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings" tabindex="-1">Settings</button>
       ${debugNavButton}
     </nav>
 
     <!-- Dashboard Tab -->
-    <section id="tab-dashboard" class="tab-panel active">
+    <section id="tab-dashboard" class="tab-panel active" role="tabpanel" aria-labelledby="tab-btn-dashboard" aria-hidden="false">
       <div class="card">
         <h2>Bot Status</h2>
         <div id="dashboard-stats" class="stat-grid">
@@ -574,7 +574,7 @@ function renderDashboardPage(auth, webAdminConfig) {
     </section>
 
     <!-- Configs Tab -->
-    <section id="tab-configs" class="tab-panel">
+    <section id="tab-configs" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-configs" aria-hidden="true">
       <div class="card">
         <h2>Guild</h2>
         <select id="guild-select" class="input">
@@ -695,7 +695,7 @@ function renderDashboardPage(auth, webAdminConfig) {
     </section>
 
     <!-- Auto Publish Tab -->
-    <section id="tab-autopublish" class="tab-panel">
+    <section id="tab-autopublish" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-autopublish" aria-hidden="true">
       <div class="card">
         <h2>Auto Publish</h2>
         <p class="muted-text">Manage announcement channels where the bot auto-publishes posts after 1 minute.</p>
@@ -741,7 +741,7 @@ function renderDashboardPage(auth, webAdminConfig) {
     </section>
 
     <!-- Guilds Tab -->
-    <section id="tab-guilds" class="tab-panel">
+    <section id="tab-guilds" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-guilds" aria-hidden="true">
       <div class="card">
         <h2>Invite Bots</h2>
         <p class="muted-text">Add the bots to a new server using the invite links below.</p>
@@ -796,14 +796,14 @@ function renderDashboardPage(auth, webAdminConfig) {
     </section>
 
     <!-- Logs Tab -->
-    <section id="tab-logs" class="tab-panel">
+    <section id="tab-logs" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-logs" aria-hidden="true">
       <div class="card">
         <h2>Message Logs</h2>
         <div class="filter-bar">
-          <select id="logs-config-filter">
+          <select id="logs-config-filter" class="input">
             <option value="">All Configs</option>
           </select>
-          <select id="logs-status-filter">
+          <select id="logs-status-filter" class="input">
             <option value="">All Statuses</option>
             <option value="success">Success</option>
             <option value="failed">Failed</option>
@@ -844,7 +844,7 @@ function renderDashboardPage(auth, webAdminConfig) {
     </section>
 
     <!-- Settings Tab -->
-    <section id="tab-settings" class="tab-panel">
+    <section id="tab-settings" class="tab-panel" role="tabpanel" aria-labelledby="tab-btn-settings" aria-hidden="true">
       <div class="card">
         <h2>Runtime Configuration</h2>
         <p class="muted-text">Read-only values from config.js. Edit the config file to change these.</p>

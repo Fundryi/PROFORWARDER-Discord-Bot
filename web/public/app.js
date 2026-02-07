@@ -62,10 +62,15 @@
     activeTab = tabId;
 
     tabButtons.forEach(function (btn) {
-      btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
+      var isActive = btn.getAttribute('data-tab') === tabId;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      btn.setAttribute('tabindex', isActive ? '0' : '-1');
     });
     tabPanels.forEach(function (panel) {
-      panel.classList.toggle('active', panel.id === 'tab-' + tabId);
+      var isActive = panel.id === 'tab-' + tabId;
+      panel.classList.toggle('active', isActive);
+      panel.setAttribute('aria-hidden', isActive ? 'false' : 'true');
     });
 
     // fire activation callback
