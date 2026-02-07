@@ -99,7 +99,7 @@
       row.appendChild(createCell(sourceLabel));
       var targetCell = createCell(targetText(config));
       if (config.targetStatus === 'unreachable') {
-        targetCell.style.color = '#e74c3c';
+        targetCell.classList.add('text-danger');
       }
       row.appendChild(targetCell);
       row.appendChild(createCell(config.enabled !== false ? 'Enabled' : 'Disabled'));
