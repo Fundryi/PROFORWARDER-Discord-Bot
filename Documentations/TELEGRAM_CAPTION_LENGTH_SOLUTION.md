@@ -125,7 +125,7 @@ telegram: {
 
 1. [`handlers/telegramHandler.js`](handlers/telegramHandler.js) - Main implementation
 2. [`config/config.js.example`](config/config.js.example) - Configuration options
-3. [`README.md`](README.md) - Documentation update
+3. [`README.md`](../README.md) - Documentation update
 
 ## Critical Integration Requirements
 

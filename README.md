@@ -324,7 +324,7 @@ Detailed project docs are in `Documentations/`, including:
 - `Documentations/WEBADMIN_LOGS_TELEGRAM_HARDENING_PLAN.md`
 
 Tracking file:
-- `PROJECT_REMAINING_IMPROVEMENTS.md`
+- `Documentations/PROJECT_REMAINING_IMPROVEMENTS.md`
 
 ## License
 
