@@ -31,6 +31,9 @@ Move day-to-day management from slash commands to web admin without losing criti
 - [x] Discovery cache invalidates on Telegram config create/remove to prevent stale `[configured]` entries.
 - [x] Discovery excludes private user chats and keeps group/supergroup/channel targets (plus configured negative chat IDs only).
 - [x] Telegram discovery remains best-effort from updates + existing config data.
+- [x] Telegram forward create flow verifies target chat access before config creation (frontend + backend enforcement).
+- [x] Telegram target input supports numeric chat IDs, `@username`, and `t.me` links.
+- [x] Telegram target UI is manual-first (Target Chat input first, tracked chats below).
 - [x] Tracked Telegram chats can now be removed from web UI, with guardrails that block removal while a chat is still referenced by active forward configs.
 
 ### Log maintenance hardening
@@ -102,6 +105,9 @@ Move day-to-day management from slash commands to web admin without losing criti
 - `938ada9` fixes: Telegram discovery cache invalidation + safer orphan log cleanup.
 - `331869a` phase D: `/proforward retry` disabled and tracker updated.
 - `0b75241` logs hardening: DB-first-safe verification for startup maintenance + reader-client-aware source checks.
+- `6b9196c` telegram tracking: persistent chat tracker + startup sync + discovery pipeline baseline.
+- `d5ff4a5` telegram UX: moved verify into create flow and simplified UI interactions.
+- `578cfb3` telegram web UX: manual-first target layout + tracked chat remove with in-use safety guard.
 
 ## Latest Incident Note (Logs Not Showing)
 - Symptom reported: Web Logs appeared empty after restart while forwards were being used.

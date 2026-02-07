@@ -29,6 +29,9 @@
 - Media + caption handling with split-chain tracking
 - Smart handling for caption/text length limits
 - Discovery from bot updates + configured chats (group/supergroup/channel focused)
+- Create-flow verification of bot chat access before Telegram forward configs are saved
+- Target input supports numeric chat IDs, `@username`, and `t.me` links (resolved to canonical chat ID)
+- Tracked Telegram chats can be removed from web UI (blocked when still used by forward configs)
 
 **AI Translation**
 - AI translation flow with provider fallback
@@ -161,12 +164,14 @@ Web admin is built into the same bot process and served from `web/server.js`.
 
 ### Primary capabilities
 
-- `Configs`: create/toggle/remove Discord and Telegram forwards
+- `Configs`: create/toggle/remove Discord and Telegram forwards, with manual-first Telegram target input plus tracked-chat selection/removal
 - `Auto Publish`: manage announcement auto-publish settings
 - `Logs`: filter/search logs, inspect failures, retry source messages
 - `Settings`: existing-key edits with focused emoji-name management (`uploaded_emoji_names`)
 
 The project is currently web-first for day-to-day operations. Most management slash commands are intentionally disabled and redirected to Web Admin.
+
+Telegram note: the Telegram Bot API does not provide a direct "list all chats bot is in" endpoint. Chat discovery is best-effort via updates plus tracked/configured chat data.
 
 ### Local mode (default/simple)
 
@@ -274,6 +279,9 @@ Technical docs are in `Documentations/`, including:
 - `Documentations/STARTUP_LOG_MAINTENANCE_PLAN.md`
 - `Documentations/READER_BOT_IMPLEMENTATION.md`
 - `Documentations/TELEGRAM_CAPTION_LENGTH_SOLUTION.md`
+
+Project-level open-item tracker:
+- `PROJECT_REMAINING_IMPROVEMENTS.md`
 
 ---
 
