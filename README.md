@@ -44,10 +44,10 @@ So your concern is correct: for Docker-only usage, you can skip `npm install`.
 ## Docker Quick Start (Recommended)
 
 1. Clone repo and enter it.
-2. Start services:
+2. Run the one-time init to seed config files and set permissions:
 
 ```bash
-docker compose up -d
+docker compose --profile init run --rm init-config
 ```
 
 3. Edit `.env` and set at least:
@@ -60,11 +60,19 @@ WEB_ADMIN_ENABLED=true
 WEB_ADMIN_AUTH_MODE=local
 ```
 
-4. Restart after changes:
+4. Start the bot:
+
+```bash
+docker compose up -d
+```
+
+5. Restart after config changes:
 
 ```bash
 docker compose restart
 ```
+
+> **Note:** The init-config service lives behind the `init` profile, so `docker compose up` never starts it. Re-run step 2 any time you need to reset config permissions or re-seed missing files.
 
 ### Important Compose Behavior
 
