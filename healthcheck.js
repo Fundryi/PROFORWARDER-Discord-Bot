@@ -9,8 +9,7 @@ try {
   // Check that required files exist
   const requiredFiles = [
     path.join(__dirname, 'index.js'),
-    path.join(__dirname, 'config', 'config.js'),
-    path.join(__dirname, 'config', '.env')
+    path.join(__dirname, 'config', 'config.js')
   ];
 
   for (const file of requiredFiles) {
