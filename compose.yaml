@@ -1,5 +1,6 @@
 services:
   init-config:
+    profiles: ["init"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -38,9 +39,6 @@ services:
       dockerfile: Dockerfile
     container_name: proforwarder-discord-bot
     restart: unless-stopped
-    depends_on:
-      init-config:
-        condition: service_completed_successfully
     environment:
       - NODE_ENV=production
     volumes:
