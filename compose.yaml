@@ -26,6 +26,8 @@ services:
         echo "==> Init complete, sleeping..."
         sleep infinity
     user: root
+    healthcheck:
+      disable: true
     volumes:
       - /srv/docker-data/proforwarder/data:/data
       - /srv/docker-data/proforwarder/config:/config
