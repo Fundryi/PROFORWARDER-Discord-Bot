@@ -284,15 +284,13 @@ ProForwarder-Discord-Bot/
 
 Additional docs in `Documentations/`:
 
-- `Documentations/PROJECT_REMAINING_IMPROVEMENTS.md`
-- `Documentations/UI_UX_IMPROVEMENTS_VALIDATED.md`
-- `Documentations/COMMAND_WEB_COVERAGE_DEPRECATION.md`
-- `Documentations/COMMAND_UX_REWORK_PLAN.md`
-- `Documentations/READER_BOT_IMPLEMENTATION.md`
-- `Documentations/TELEGRAM_CAPTION_LENGTH_SOLUTION.md`
-- `Documentations/TELEGRAM_HANDLER_REFACTORING_PLAN.md`
-- `Documentations/WEBADMIN_SETUP_AUTOPUBLISH_PHASE_PLAN.md`
-- `Documentations/WEBADMIN_LOGS_TELEGRAM_HARDENING_PLAN.md`
+| Folder | Contents |
+| --- | --- |
+| `architecture/` | Project planning, reader bot design, remaining improvements |
+| `format-conversion/` | Discord/Telegram markdown references, conversion system docs |
+| `telegram/` | Caption length solution, startup log maintenance |
+| `web-admin/` | Command UX rework, deprecation audit, UI/UX specs, hardening plans |
+| `archive/` | Completed plans and resolved tracking (code review, refactoring, audit fixes) |
 
 ## License
 

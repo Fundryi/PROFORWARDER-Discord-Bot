@@ -1,14 +1,60 @@
+# Dependencies
 node_modules/
+
+# Environment & secrets (NEVER commit)
 .env
-data/userPoints.json
-licenses/*
-redeemed_licenses/*
+.env.local
+.env.*.local
 config/.env
+
+# Runtime-managed config (bot writes these at runtime)
 config/forwardConfigs.json
 config/autoPublish.json
 config/cachedInvites.json
+
+# Database
 data/proforwarder.db
 data/proforwarder.db-shm
 data/proforwarder.db-wal
+
+# Legacy data files
+data/userPoints.json
+licenses/*
+redeemed_licenses/*
+
+# Docker local overrides
 compose.override.yaml
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local agent state
 .claude/settings.local.json
+.mcp.json
+
+# Local Roam data
+.roam/
+
+# Auto Claude data directory
+.auto-claude/
+
+# Temporary test files
+TEST/*
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
