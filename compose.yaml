@@ -34,11 +34,11 @@ services:
       dockerfile: Dockerfile
     container_name: proforwarder-discord-bot
     restart: unless-stopped
+    env_file: .env
     environment:
       - NODE_ENV=production
     volumes:
       - /srv/docker-data/proforwarder/data:/app/data
-      - /srv/docker-data/proforwarder/config/.env:/app/.env
     healthcheck:
       test: ["CMD", "node", "healthcheck.js"]
       interval: 30s
@@ -57,9 +57,7 @@ services:
     image: ghcr.io/fundryi/proforwarder-discord-bot/cloudflared:latest
     build:
       context: ./docker/cloudflared
-    env_file:
-      - path: ./.env
-        required: false
+    env_file: .env
     depends_on:
       proforwarder-bot:
         condition: service_healthy
