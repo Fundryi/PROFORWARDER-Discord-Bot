@@ -52,6 +52,9 @@ TEST/*
 *.log
 logs/
 
+# Local scripts
+scripts/
+
 # Temporary files
 tmp/
 temp/

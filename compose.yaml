@@ -34,6 +34,7 @@ services:
     restart: "no"
 
   proforwarder-bot:
+    image: ghcr.io/fundryi/proforwarder-discord-bot/bot:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -59,6 +60,7 @@ services:
       - proforwarder
 
   cloudflared:
+    image: ghcr.io/fundryi/proforwarder-discord-bot/cloudflared:latest
     build:
       context: ./docker/cloudflared
     env_file:
