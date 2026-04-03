@@ -11,16 +11,10 @@ services:
       - |
         echo "==> Setting up config files"
         if [ ! -f /config/.env ]; then
-          cp /app/config/.env.example /config/.env
+          cp /app/.env.example /config/.env
           echo "    Created .env from example - EDIT WITH YOUR TOKENS"
         else
           echo "    .env already exists"
-        fi
-        if [ ! -f /config/config.js ]; then
-          cp /app/config/config.js /config/config.js
-          echo "    Created config.js from default"
-        else
-          echo "    config.js already exists"
         fi
         echo "==> Setting permissions for UID 1001"
         chown -R 1001:1001 /data /config
@@ -44,7 +38,7 @@ services:
       - NODE_ENV=production
     volumes:
       - /srv/docker-data/proforwarder/data:/app/data
-      - /srv/docker-data/proforwarder/config:/app/config
+      - /srv/docker-data/proforwarder/config/.env:/app/.env
     healthcheck:
       test: ["CMD", "node", "healthcheck.js"]
       interval: 30s
@@ -64,7 +58,7 @@ services:
     build:
       context: ./docker/cloudflared
     env_file:
-      - path: ./config/.env
+      - path: ./.env
         required: false
     depends_on:
       proforwarder-bot:

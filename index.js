@@ -4,7 +4,7 @@ const path = require('path');
 // Check for required config files
 const configFiles = [
   { path: './config/config.js', name: 'Environment configuration' },
-  { path: './config/.env', name: 'Environment variables' }
+  { path: './.env', name: 'Environment variables' }
 ];
 
 configFiles.forEach(file => {
@@ -15,7 +15,7 @@ configFiles.forEach(file => {
   }
 });
 
-require('dotenv').config({ path: './config/.env' });
+require('dotenv').config();
 require("./errorHandlers");
 
 const { Client, GatewayIntentBits } = require("discord.js");

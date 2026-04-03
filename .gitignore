@@ -3,7 +3,6 @@ node_modules/
 
 # Environment & secrets (NEVER commit)
 .env
-config/.env
 
 # Runtime-managed data (bot writes these at runtime)
 data/forwardConfigs.json

@@ -27,7 +27,7 @@ RUN addgroup -g 1001 -S nodejs && \
     adduser -S botuser -u 1001
 
 # Create required directories
-RUN mkdir -p data config && \
+RUN mkdir -p data && \
     chown -R botuser:nodejs /app
 
 # Copy node_modules from builder
@@ -44,7 +44,8 @@ COPY --chown=botuser:nodejs handlers ./handlers
 COPY --chown=botuser:nodejs events ./events
 COPY --chown=botuser:nodejs commands ./commands
 COPY --chown=botuser:nodejs web ./web
-COPY --chown=botuser:nodejs config ./config
+COPY --chown=botuser:nodejs config/config.js ./config/config.js
+COPY --chown=botuser:nodejs .env.example ./.env.example
 
 USER botuser
 
