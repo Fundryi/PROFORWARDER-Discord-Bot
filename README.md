@@ -14,7 +14,7 @@ Web-first Discord forwarding with Telegram support, edit/delete sync, retry tool
 
 </div>
 
-Validated against current codebase on 2026-02-07.
+Validated against current codebase on 2026-04-03.
 
 ## At a Glance
 
@@ -204,9 +204,9 @@ Primary files:
 - `config/config.js` (runtime config module)
 
 Runtime-managed JSON:
-- `config/forwardConfigs.json`
-- `config/autoPublish.json`
-- `config/cachedInvites.json`
+- `data/forwardConfigs.json`
+- `data/autoPublish.json`
+- `data/cachedInvites.json`
 
 Persistent DB:
 - `data/proforwarder.db`

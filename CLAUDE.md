@@ -31,7 +31,7 @@ No test suite exists. No linter configured. Verify changes manually via web admi
 
 ```
 index.js                        # Entry point — boots Discord client, DB, web server
-readerBot.js                    # Optional secondary read-only Discord client (6K lines)
+readerBot.js                    # Optional secondary read-only Discord client (~216 lines)
 errorHandlers.js                # Global unhandledRejection / uncaughtException
 healthcheck.js                  # Docker health check script
 
@@ -55,7 +55,7 @@ commands/
 
 utils/
   database.js                   # SQLite3 promisified wrapper, WAL mode, write-lock (1.2K lines)
-  configManager.js              # Forward config CRUD (reads/writes forwardConfigs.json)
+  configManager.js              # Forward config CRUD (reads/writes data/forwardConfigs.json)
   logger.js                     # Colored timestamped logging: logInfo/logSuccess/logError
   webhookManager.js             # Discord webhook creation & per-channel reuse
   sliceFormatConverter.js       # PRIMARY: slice-based Discord->Telegram MarkdownV2
@@ -78,10 +78,6 @@ config/
   config.js                     # Runtime config module (loads .env, exports object)
   .env                          # Secrets & toggles (git-ignored)
   .env.example                  # Template for .env
-  forwardConfigs.json           # Forward rules (runtime-managed, do NOT edit while running)
-  autoPublish.json              # Auto-publish settings (runtime-managed)
-  cachedInvites.json            # Discord invite cache (runtime-managed)
-
 web/
   server.js                     # Express v5 app — ALL API routes + HTML shell (3.6K lines)
   lib/
@@ -100,6 +96,9 @@ web/
 
 data/
   proforwarder.db               # SQLite database (git-ignored)
+  forwardConfigs.json           # Forward rules (runtime-managed, do NOT edit while running)
+  autoPublish.json              # Auto-publish settings (runtime-managed)
+  cachedInvites.json            # Discord invite cache (runtime-managed)
 
 Documentations/                 # Planning & design docs (historical reference)
 ```
@@ -135,6 +134,9 @@ Documentations/                 # Planning & design docs (historical reference)
 - **Frontend SPA**: tab-based, `app.js` manages shared state + routing, each tab has own JS file
 - **Logging**: always use `logInfo`/`logSuccess`/`logError` from `utils/logger.js`, never raw `console.log`
 - **Rate limiting**: in-memory (resets on restart), defined in `web/server.js`
+- **Forwarding flow**: source channel messages are matched against forward configs and sent to target Discord channels (via webhooks) and/or Telegram chats
+- **Retry queue**: failed forwards are queued in-memory and retried every 5 minutes; stale entries are cleaned up automatically
+- **Message chain tracking**: long messages are split and tracked via `messageChain` array, `chainPosition`, and `chainParentId` for edit/delete propagation across splits
 
 ## Database Tables
 
@@ -156,8 +158,10 @@ Primary config file: `config/.env` (git-ignored). See `config/.env.example` for 
 | Bot | `BOT_TOKEN`, `DEBUG_MODE`, `FORWARD_BOT_MESSAGES` |
 | Format | `USE_SLICE_FORMAT_CONVERTER`, `USE_AI_FORMAT_CONVERTER` |
 | Reader Bot | `READER_BOT_ENABLED`, `READER_BOT_TOKEN` |
-| Telegram | `TELEGRAM_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_URL` |
-| AI | `GEMINI_API_KEY`, `GOOGLE_TRANSLATE_API_KEY`, `GOOGLE_PROJECT_ID` |
+| Telegram | `TELEGRAM_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_API_URL`, `TELEGRAM_HIDE_SOURCE_HEADER`, `TELEGRAM_SMART_LINK_PREVIEWS` |
+| AI | `GEMINI_API_KEY`, `GOOGLE_TRANSLATE_API_KEY`, `GOOGLE_PROJECT_ID`, `GEMINI_MODEL`, `AI_TRANSLATION_PROVIDER` |
+| Log Maintenance | `STARTUP_LOG_MAINTENANCE`, `LOG_RETENTION_DAYS`, `LOG_RETENTION_ACTION` |
+| Command UI | `COMMAND_UI_ENABLED`, `COMMAND_UI_ALLOWED_ROLE_IDS` |
 | Web Admin | `WEB_ADMIN_ENABLED`, `WEB_ADMIN_PORT`, `WEB_ADMIN_AUTH_MODE`, `WEB_ADMIN_SESSION_SECRET` |
 | Web Auth | `WEB_ADMIN_DISCORD_CLIENT_ID`, `WEB_ADMIN_DISCORD_CLIENT_SECRET`, `WEB_ADMIN_DISCORD_REDIRECT_URI` |
 | Security | `WEB_ADMIN_SECURITY_STRICT`, rate limit vars |
@@ -177,7 +181,7 @@ The `init-config` service lives behind the `init` profile — `docker compose up
 
 ## Gotchas
 
-- **Do NOT edit JSON config files while bot is running** — the bot writes to `forwardConfigs.json`, `autoPublish.json`, and `cachedInvites.json` at runtime. Edit via web admin or stop the bot first.
+- **Do NOT edit runtime JSON files while bot is running** — the bot writes to `data/forwardConfigs.json`, `data/autoPublish.json`, and `data/cachedInvites.json` at runtime. Edit via web admin or stop the bot first.
 - **`config/config.js` is NOT JSON** — it's a JS module that reads `process.env`. Do not try to parse it as JSON.
 - **Express v5** (not v4) — route parameter syntax and error handling differ from v4 tutorials.
 - **`web/server.js` is 3,600+ lines** — contains ALL API routes AND serves the HTML shell inline. Read specific line ranges, not the whole file.
@@ -187,6 +191,6 @@ The `init-config` service lives behind the `init` profile — `docker compose up
 - **Webhook name `ProForwarder`** — used to detect self-forwarding loops. Do not rename without updating the check in `forwardHandler.js`.
 - **Rate limiters are in-memory** — reset on every restart, defined in `web/server.js`.
 - **Reader bot is optional** — only initialized if `READER_BOT_ENABLED=true` AND `READER_BOT_TOKEN` is set.
-- **`readerBot.js` is 6,000+ lines** — read specific sections, not the whole file.
+- **`readerBot.js` is ~216 lines** — small, cohesive single class wrapping the optional read-only Discord client.
 - **Docker Compose loads override by default** — if behavior differs from expected, check if `compose.override.yaml` is being applied.
 - **Graceful shutdown** — `SIGINT` handler in `index.js` closes bots, database, and web server in order. Don't add additional shutdown logic elsewhere.

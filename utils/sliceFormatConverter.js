@@ -36,7 +36,7 @@ class SliceFormatConverter {
       const convertedSlices = [];
       for (let i = 0; i < slices.length; i++) {
         const slice = slices[i];
-        const convertedSlice = await this.convertSlice(slice, message);
+        const convertedSlice = await this.convertSlice(slice, message, envConfig);
         convertedSlices.push(convertedSlice);
         
         if (envConfig.debugMode) {
@@ -197,57 +197,57 @@ class SliceFormatConverter {
    * @param {Object} message - Discord message object (for mention resolution)
    * @returns {string} Converted slice content
    */
-  static async convertSlice(slice, message = null) {
-    const envConfig = require('../config/config');
+  static async convertSlice(slice, message = null, envConfig = null) {
+    if (!envConfig) envConfig = require('../config/config');
     
     switch (slice.type) {
       case 'plain_text':
-        return this.escapeMarkdownV2ForText(slice.content);
+        return FormatConverter.escapeMarkdownV2ForText(slice.content);
         
       case 'bold':
         // **text** -> *text*
         const boldContent = slice.groups[0];
-        return `*${this.escapeSpecialCharsInFormatting(boldContent)}*`;
+        return `*${this.escapeSpecialCharsInFormatting(boldContent, envConfig)}*`;
         
       case 'italic':
         // *text* -> _text_
         const italicContent = slice.groups[0];
-        return `_${this.escapeSpecialCharsInFormatting(italicContent)}_`;
+        return `_${this.escapeSpecialCharsInFormatting(italicContent, envConfig)}_`;
         
       case 'bold_italic':
         // ***text*** -> *_text_*
         const boldItalicContent = slice.groups[0];
-        return `*_${this.escapeSpecialCharsInFormatting(boldItalicContent)}_*`;
+        return `*_${this.escapeSpecialCharsInFormatting(boldItalicContent, envConfig)}_*`;
         
       case 'underline':
         // __text__ -> __text__
         const underlineContent = slice.groups[0];
-        return `__${this.escapeSpecialCharsInFormatting(underlineContent)}__`;
+        return `__${this.escapeSpecialCharsInFormatting(underlineContent, envConfig)}__`;
         
       case 'underline_bold':
         // __**text**__ -> __*text*__
         const underlineBoldContent = slice.groups[0];
-        return `__*${this.escapeSpecialCharsInFormatting(underlineBoldContent)}*__`;
+        return `__*${this.escapeSpecialCharsInFormatting(underlineBoldContent, envConfig)}*__`;
         
       case 'underline_italic':
         // __*text*__ -> ___text___
         const underlineItalicContent = slice.groups[0];
-        return `___${this.escapeSpecialCharsInFormatting(underlineItalicContent)}___`;
+        return `___${this.escapeSpecialCharsInFormatting(underlineItalicContent, envConfig)}___`;
         
       case 'underline_bold_italic':
         // __***text***__ -> *_\\_text\\_*
         const underlineBoldItalicContent = slice.groups[0];
-        return `*_\\_${this.escapeSpecialCharsInFormatting(underlineBoldItalicContent)}\\_*`;
+        return `*_\\_${this.escapeSpecialCharsInFormatting(underlineBoldItalicContent, envConfig)}\\_*`;
         
       case 'strikethrough':
         // ~~text~~ -> ~text~
         const strikeContent = slice.groups[0];
-        return `~${this.escapeSpecialCharsInFormatting(strikeContent)}~`;
+        return `~${this.escapeSpecialCharsInFormatting(strikeContent, envConfig)}~`;
         
       case 'spoiler':
         // ||text|| -> ||text||
         const spoilerContent = slice.groups[0];
-        return `||${this.escapeSpecialCharsInFormatting(spoilerContent)}||`;
+        return `||${this.escapeSpecialCharsInFormatting(spoilerContent, envConfig)}||`;
         
       case 'code_block':
         // ```code``` -> ```code```
@@ -271,7 +271,7 @@ class SliceFormatConverter {
       case 'heading3':
         // # ## ### text -> *text*
         const headingContent = slice.groups[0];
-        return `*${this.escapeSpecialCharsInFormatting(headingContent)}*`;
+        return `*${this.escapeSpecialCharsInFormatting(headingContent, envConfig)}*`;
         
       case 'heading4':
       case 'heading5':
@@ -281,7 +281,7 @@ class SliceFormatConverter {
         const hashes = slice.content.substring(0, headingLevel);
         const headingText = slice.groups[0];
         const escapedHashes = hashes.replace(/#/g, '\\#');
-        return `${escapedHashes} ${this.escapeMarkdownV2ForText(headingText)}`;
+        return `${escapedHashes} ${FormatConverter.escapeMarkdownV2ForText(headingText)}`;
         
       case 'link':
         // [text](url) -> [text](url)
@@ -296,13 +296,12 @@ class SliceFormatConverter {
         if (message && message.mentions && message.mentions.users) {
           const user = message.mentions.users.get(userId);
           const userName = user ? (user.globalName || user.username || user.displayName) : `User${userId}`;
-          const envConfig = require('../config/config');
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved user mention: ${slice.content} -> ${userName}`);
           }
-          return `＠${this.escapeMarkdownV2ForText(userName)}`;
+          return `＠${FormatConverter.escapeMarkdownV2ForText(userName)}`;
         }
-        return `＠${this.escapeMarkdownV2ForText(`User${userId}`)}`;
+        return `＠${FormatConverter.escapeMarkdownV2ForText(`User${userId}`)}`;
         
       case 'role_mention':
         // <@&123> -> resolve to role name
@@ -310,13 +309,12 @@ class SliceFormatConverter {
         if (message && message.mentions && message.mentions.roles) {
           const role = message.mentions.roles.get(roleId);
           const roleName = role ? role.name : `Role${roleId}`;
-          const envConfig = require('../config/config');
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved role mention: ${slice.content} -> ${roleName}`);
           }
-          return `＠${this.escapeMarkdownV2ForText(roleName)}`;
+          return `＠${FormatConverter.escapeMarkdownV2ForText(roleName)}`;
         }
-        return `＠${this.escapeMarkdownV2ForText(`Role${roleId}`)}`;
+        return `＠${FormatConverter.escapeMarkdownV2ForText(`Role${roleId}`)}`;
         
       case 'channel_mention':
         // <#123> -> resolve to channel name
@@ -327,29 +325,28 @@ class SliceFormatConverter {
             channel = message.guild.channels.cache.get(channelId);
           }
           const channelName = channel ? channel.name : `channel${channelId}`;
-          const envConfig = require('../config/config');
           if (envConfig.debugMode) {
             logInfo(`🔪 🔍 Using resolved channel mention: ${slice.content} -> #${channelName}`);
           }
-          return `\\#${this.escapeMarkdownV2ForText(channelName)}`;
+          return `\\#${FormatConverter.escapeMarkdownV2ForText(channelName)}`;
         }
-        return `\\#${this.escapeMarkdownV2ForText(`channel${channelId}`)}`;
+        return `\\#${FormatConverter.escapeMarkdownV2ForText(`channel${channelId}`)}`;
         
       case 'custom_emoji':
         // <:name:123> -> convert to standard emoji or remove
         const emojiName = slice.groups[0].toLowerCase();
-        const standardEmoji = this.convertCustomEmojiToStandard(emojiName);
+        const standardEmoji = this.convertCustomEmojiToStandard(emojiName, envConfig);
         return standardEmoji ? standardEmoji : ''; // Remove if no standard equivalent
         
       case 'block_quote':
         // > text -> >text
         const quoteContent = slice.groups[0];
-        return `>${this.escapeMarkdownV2ForText(quoteContent)}`;
+        return `>${FormatConverter.escapeMarkdownV2ForText(quoteContent)}`;
         
       case 'multi_quote':
         // >>> text -> **>text
         const multiQuoteContent = slice.groups[0];
-        return `**>${this.escapeMarkdownV2ForText(multiQuoteContent)}`;
+        return `**>${FormatConverter.escapeMarkdownV2ForText(multiQuoteContent)}`;
         
       case 'everyone_mention':
         // @everyone -> ＠everyone
@@ -363,7 +360,7 @@ class SliceFormatConverter {
         if (envConfig.debugMode) {
           logInfo(`🔪 Unknown slice type: ${slice.type}, treating as plain text`);
         }
-        return this.escapeMarkdownV2ForText(slice.content);
+        return FormatConverter.escapeMarkdownV2ForText(slice.content);
     }
   }
   
@@ -372,7 +369,7 @@ class SliceFormatConverter {
    * @param {string} text - Text inside formatting
    * @returns {string} Processed and escaped text
    */
-  static escapeSpecialCharsInFormatting(text) {
+  static escapeSpecialCharsInFormatting(text, envConfig = null) {
     if (!text) return '';
     
     // First, process any Discord mentions within the text (use full-width @)
@@ -392,9 +389,9 @@ class SliceFormatConverter {
     processedText = processedText.replace(/@here/g, '＠here');
     
     // Then, process any custom emojis within the text
+    if (!envConfig) envConfig = require('../config/config');
     processedText = processedText.replace(/<a?:(\w+):\d+>/g, (match, emojiName) => {
-      const standardEmoji = this.convertCustomEmojiToStandard(emojiName);
-      const envConfig = require('../config/config');
+      const standardEmoji = this.convertCustomEmojiToStandard(emojiName, envConfig);
       if (standardEmoji) {
         if (envConfig.debugMode) {
           logInfo(`🔪 🔍 Converted custom emoji within formatting: ${match} -> ${standardEmoji}`);
@@ -413,24 +410,11 @@ class SliceFormatConverter {
   }
   
   /**
-   * Escape text for use in Telegram MarkdownV2 (for plain text content)
-   * @param {string} text - Plain text to escape
-   * @returns {string} Escaped text
-   */
-  static escapeMarkdownV2ForText(text) {
-    if (!text) return '';
-    
-    // Characters that need escaping in MarkdownV2 plain text:
-    // _ * [ ] ( ) ~ ` > # + - = | { } . ! \
-    return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
-  }
-  
-  /**
    * Convert custom Discord emoji names to standard Unicode emojis
    * @param {string} emojiName - Custom emoji name
    * @returns {string|null} Standard emoji or null if no equivalent
    */
-  static convertCustomEmojiToStandard(emojiName) {
+  static convertCustomEmojiToStandard(emojiName, envConfig = null) {
     const name = emojiName.toLowerCase();
     
     // Enhanced emoji mapping with 200+ common Discord emojis
@@ -564,8 +548,8 @@ class SliceFormatConverter {
     };
     
     // Try exact match first
+    if (!envConfig) envConfig = require('../config/config');
     if (emojiMap[name]) {
-      const envConfig = require('../config/config');
       if (envConfig.debugMode) {
         logInfo(`🔪 🔍 Converted custom emoji: <:${emojiName}:*> -> ${emojiMap[name]}`);
       }
@@ -580,7 +564,6 @@ class SliceFormatConverter {
       // 2. Our key is at least 4 characters (avoid false matches like "no" in "unknown")
       // 3. Exact word boundaries (e.g., "heart_red" contains "heart")
       if (key.length >= 4 && (name.startsWith(key) || name.includes('_' + key) || name.includes(key + '_'))) {
-        const envConfig = require('../config/config');
         if (envConfig.debugMode) {
           logInfo(`🔪 🔍 Converted custom emoji (partial match): <:${emojiName}:*> -> ${emoji} (matched "${key}")`);
         }
@@ -589,7 +572,6 @@ class SliceFormatConverter {
     }
     
     // If no match found, remove the emoji cleanly
-    const envConfig = require('../config/config');
     if (envConfig.debugMode) {
       logInfo(`🔪 🔍 Removed unsupported custom emoji: <:${emojiName}:*> (no match found)`);
     }

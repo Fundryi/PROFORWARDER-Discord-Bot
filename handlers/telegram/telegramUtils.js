@@ -133,7 +133,7 @@ class TelegramUtils {
         const textSplitter = new TelegramTextSplitter();
 
         // Split the first part to fit the first message (media caption or text)
-        const escapedSplitIndicator = this.escapeMarkdownV2ForText(splitIndicator);
+        const escapedSplitIndicator = FormatConverter.escapeMarkdownV2ForText(splitIndicator);
         const availableFirstLength = firstMessageLimit - escapedSplitIndicator.length - 10;
         let firstSplitPoint = textSplitter.findOptimalSplitPoint(newFullText, availableFirstLength);
         if (!firstSplitPoint || firstSplitPoint <= 0) {
@@ -217,16 +217,6 @@ class TelegramUtils {
     }
   }
 
-  /**
-   * Escape text for use in Telegram MarkdownV2 (for plain text content)
-   */
-  escapeMarkdownV2ForText(text) {
-    if (!text) return '';
-    
-    // Characters that need escaping in MarkdownV2 plain text:
-    // _ * [ ] ( ) ~ ` > # + - = | { } . ! \
-    return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
-  }
 }
 
 module.exports = TelegramUtils;

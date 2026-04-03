@@ -81,7 +81,8 @@ class TelegramHandler {
   }
 
   async sendPlainTextSplit(chatId, fullText, disableWebPagePreview = false) {
-    const textLengthLimit = 4000;
+    const envConfig = require('../config/config');
+    const textLengthLimit = envConfig.telegram?.textLengthLimit || 4000;
     const splitIndicator = '...(continued)';
     const parts = this.textSplitter.splitLongText(fullText, textLengthLimit, splitIndicator);
     const sentMessages = [];
@@ -103,7 +104,8 @@ class TelegramHandler {
   }
 
   async sendTextWithFallback(chatId, text, disableWebPagePreview = false, replyMarkup = null) {
-    const textLengthLimit = 4000;
+    const envConfig = require('../config/config');
+    const textLengthLimit = envConfig.telegram?.textLengthLimit || 4000;
 
     if (text.length > textLengthLimit) {
       try {

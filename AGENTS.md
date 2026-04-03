@@ -51,7 +51,7 @@ All MCP tools are accessed through **MCP Router**. In Codex, the server name is 
 - **All web API routes are in one file** — `web/server.js` (3,600+ lines). Use line ranges.
 - **Frontend is vanilla JS** — no React, no build tools. Each tab is a separate `.js` file in `web/public/`.
 - **Config is a JS module** — `config/config.js` reads `.env` and exports a plain object. Not JSON.
-- **Runtime JSON files** — `config/forwardConfigs.json`, `config/autoPublish.json`, `config/cachedInvites.json` are written by the bot at runtime. Do NOT edit while running.
+- **Runtime JSON files** — `data/forwardConfigs.json`, `data/autoPublish.json`, `data/cachedInvites.json` are written by the bot at runtime. Do NOT edit while running.
 
 ## Troubleshooting
 

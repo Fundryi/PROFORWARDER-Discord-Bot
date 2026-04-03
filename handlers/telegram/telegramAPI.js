@@ -1,5 +1,6 @@
 const { logInfo, logSuccess, logError } = require('../../utils/logger');
 const https = require('https');
+const http = require('http');
 
 /**
  * Telegram API Handler - Pure API communication layer
@@ -55,10 +56,14 @@ class TelegramAPI {
     return new Promise((resolve, reject) => {
       const postData = JSON.stringify(params);
       
+      const parsedUrl = new URL(this.apiUrl);
+      const useHttps = parsedUrl.protocol === 'https:';
+      const requestModule = useHttps ? https : http;
+
       const options = {
-        hostname: this.apiUrl.replace('https://', '').replace('http://', ''),
-        port: 443,
-        path: `/bot${this.botToken}/${method}`,
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port ? parseInt(parsedUrl.port, 10) : (useHttps ? 443 : 80),
+        path: `${parsedUrl.pathname.replace(/\/$/, '')}/bot${this.botToken}/${method}`,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -66,7 +71,7 @@ class TelegramAPI {
         }
       };
 
-      const req = https.request(options, (res) => {
+      const req = requestModule.request(options, (res) => {
         let data = '';
 
         res.on('data', (chunk) => {

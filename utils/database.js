@@ -4,6 +4,12 @@ const path = require('path');
 const chalk = require('chalk');
 const { logInfo, logSuccess, logError, formatUser } = require('./logger');
 
+const MESSAGE_STATUS = Object.freeze({
+  SUCCESS: 'success',
+  FAILED: 'failed',
+  RETRY: 'retry'
+});
+
 // Create data directory if it doesn't exist (sync to ensure it exists before DB opens)
 const dataDir = path.join(__dirname, '..', 'data');
 try {
@@ -436,7 +442,7 @@ async function getAllBotSettings() {
 
 
 // Message logging operations
-async function logForwardedMessage(originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, status = 'success', errorMessage = null) {
+async function logForwardedMessage(originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, status = MESSAGE_STATUS.SUCCESS, errorMessage = null) {
   try {
     await run(
       `INSERT INTO message_logs (originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, forwardedAt, status, errorMessage)
@@ -450,7 +456,7 @@ async function logForwardedMessage(originalMessageId, originalChannelId, origina
 }
 
 // Enhanced message chain logging for split messages (Telegram caption splitting)
-async function logMessageChain(originalMessageId, originalChannelId, originalServerId, messageChain, forwardedChannelId, forwardedServerId, configId, status = 'success', errorMessage = null) {
+async function logMessageChain(originalMessageId, originalChannelId, originalServerId, messageChain, forwardedChannelId, forwardedServerId, configId, status = MESSAGE_STATUS.SUCCESS, errorMessage = null) {
   try {
     if (!Array.isArray(messageChain) || messageChain.length === 0) {
       throw new Error('messageChain must be a non-empty array');
@@ -459,25 +465,34 @@ async function logMessageChain(originalMessageId, originalChannelId, originalSer
     await ensureMessageLogsChainColumns();
     const timestamp = Date.now();
     const messageChainJson = JSON.stringify(messageChain);
-    
-    // Log primary message (first in chain)
-    const primaryResult = await run(
-      `INSERT INTO message_logs (originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, forwardedAt, status, errorMessage, messageChain, chainPosition, chainParentId)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [originalMessageId, originalChannelId, originalServerId, messageChain[0], forwardedChannelId, forwardedServerId, configId, timestamp, status, errorMessage, messageChainJson, 0, null]
-    );
-    
-    const primaryLogId = primaryResult.lastID;
-    
-    // Log secondary messages (rest of chain)
-    for (let i = 1; i < messageChain.length; i++) {
-      await run(
+
+    // Wrap all chain inserts in a single transaction
+    await run('BEGIN');
+    let primaryLogId;
+    try {
+      // Log primary message (first in chain)
+      const primaryResult = await run(
         `INSERT INTO message_logs (originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, forwardedAt, status, errorMessage, messageChain, chainPosition, chainParentId)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [originalMessageId, originalChannelId, originalServerId, messageChain[i], forwardedChannelId, forwardedServerId, configId, timestamp, status, errorMessage, messageChainJson, i, primaryLogId]
+        [originalMessageId, originalChannelId, originalServerId, messageChain[0], forwardedChannelId, forwardedServerId, configId, timestamp, status, errorMessage, messageChainJson, 0, null]
       );
+
+      primaryLogId = primaryResult.lastID;
+
+      // Log secondary messages (rest of chain)
+      for (let i = 1; i < messageChain.length; i++) {
+        await run(
+          `INSERT INTO message_logs (originalMessageId, originalChannelId, originalServerId, forwardedMessageId, forwardedChannelId, forwardedServerId, configId, forwardedAt, status, errorMessage, messageChain, chainPosition, chainParentId)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [originalMessageId, originalChannelId, originalServerId, messageChain[i], forwardedChannelId, forwardedServerId, configId, timestamp, status, errorMessage, messageChainJson, i, primaryLogId]
+        );
+      }
+      await run('COMMIT');
+    } catch (txError) {
+      await run('ROLLBACK').catch(() => {});
+      throw txError;
     }
-    
+
     logInfo(`📎 Logged message chain: ${messageChain.length} messages for original ${originalMessageId}`);
     return primaryLogId;
   } catch (error) {
@@ -517,7 +532,7 @@ async function getMessageChain(originalMessageId, configId) {
     if (configId !== undefined && configId !== null) {
       const results = await all(`
         SELECT * FROM message_logs
-        WHERE originalMessageId = ? AND configId = ? AND status = 'success'
+        WHERE originalMessageId = ? AND configId = ? AND status = '${MESSAGE_STATUS.SUCCESS}'
         ORDER BY chainPosition ASC
       `, [messageIdStr, configId]);
       return results;
@@ -525,7 +540,7 @@ async function getMessageChain(originalMessageId, configId) {
 
     const results = await all(`
       SELECT * FROM message_logs
-      WHERE originalMessageId = ? AND status = 'success'
+      WHERE originalMessageId = ? AND status = '${MESSAGE_STATUS.SUCCESS}'
       ORDER BY chainPosition ASC
     `, [messageIdStr]);
 
@@ -543,7 +558,7 @@ async function isMessageChain(originalMessageId) {
     
     const result = await get(`
       SELECT COUNT(*) as count FROM message_logs
-      WHERE originalMessageId = ? AND status = 'success' AND messageChain IS NOT NULL
+      WHERE originalMessageId = ? AND status = '${MESSAGE_STATUS.SUCCESS}' AND messageChain IS NOT NULL
     `, [messageIdStr]);
     
     return result.count > 1;
@@ -562,12 +577,12 @@ async function deleteMessageChain(originalMessageId, configId) {
     if (configId !== undefined && configId !== null) {
       result = await run(`
         DELETE FROM message_logs
-        WHERE originalMessageId = ? AND configId = ? AND status = 'success'
+        WHERE originalMessageId = ? AND configId = ? AND status = '${MESSAGE_STATUS.SUCCESS}'
       `, [messageIdStr, configId]);
     } else {
       result = await run(`
         DELETE FROM message_logs
-        WHERE originalMessageId = ? AND status = 'success'
+        WHERE originalMessageId = ? AND status = '${MESSAGE_STATUS.SUCCESS}'
       `, [messageIdStr]);
     }
 
@@ -645,7 +660,7 @@ async function getMessageLogs(configId = null, limit = 100) {
 
 async function getFailedMessages(limit = 50) {
   try {
-    return await all('SELECT * FROM message_logs WHERE status = "failed" ORDER BY forwardedAt DESC LIMIT ?', [limit]);
+    return await all(`SELECT * FROM message_logs WHERE status = '${MESSAGE_STATUS.FAILED}' ORDER BY forwardedAt DESC LIMIT ?`, [limit]);
   } catch (error) {
     logError('Error getting failed messages:', error);
     throw error;
@@ -675,7 +690,7 @@ async function getMessageLogsByOriginalMessage(originalMessageId) {
     
     const results = await all(`
       SELECT * FROM message_logs
-      WHERE originalMessageId = ? AND status = 'success'
+      WHERE originalMessageId = ? AND status = '${MESSAGE_STATUS.SUCCESS}'
       ORDER BY forwardedAt DESC
     `, [messageIdStr]);
     
@@ -744,7 +759,7 @@ async function validateRecentMessageLogs(client, optionsOrLimit = 20) {
         }
         
         // Skip failed logs
-        if (log.status !== 'success') {
+        if (log.status !== MESSAGE_STATUS.SUCCESS) {
           logInfo(`  Skipping log ${log.id} - status is ${log.status}`);
           continue;
         }
@@ -840,7 +855,7 @@ async function cleanupDeletedMessage(originalMessageId) {
   try {
     const result = await run(`
       DELETE FROM message_logs
-      WHERE originalMessageId = ? AND status = 'success'
+      WHERE originalMessageId = ? AND status = '${MESSAGE_STATUS.SUCCESS}'
     `, [String(originalMessageId)]);
     
     logInfo(`🗑️ Cleaned up ${result.changes || 0} database entries for deleted message ${originalMessageId}`);
@@ -902,7 +917,7 @@ async function cleanupOrphanedLogs(client, optionsOrLimit = 50) {
 
       for (const log of recentLogs) {
         processedCount++;
-      if (log.status !== 'success') continue;
+      if (log.status !== MESSAGE_STATUS.SUCCESS) continue;
       
       try {
         // Check if original message still exists
@@ -1207,6 +1222,7 @@ async function removeTelegramChat(chatId) {
 }
 
 module.exports = {
+  MESSAGE_STATUS,
   // Bot settings operations
   getBotSetting,
   setBotSetting,

@@ -2,7 +2,7 @@ const { logInfo, logSuccess, logError } = require('../utils/logger');
 const { logForwardedMessage, logMessageChain, upsertTelegramChat } = require('../utils/database');
 const { isBotRemovedError } = require('../utils/telegramChatTracker');
 const { getForwardConfigsForChannel } = require('../utils/configManager');
-const { sendWebhookMessage, hasWebhookPermissions } = require('../utils/webhookManager');
+const { sendWebhookMessage, hasWebhookPermissions, WEBHOOK_NAME, isOurWebhook, processMentions } = require('../utils/webhookManager');
 const AIHandler = require('./aiHandler');
 const TelegramHandler = require('./telegramHandler');
 
@@ -49,14 +49,18 @@ class ForwardHandler {
   async processMessage(message) {
     try {
       // Skip our own messages to prevent infinite loops
-      if (message.author.id === this.client.user.id) return;
+      if (message.author?.id === this.client.user?.id) return;
       
       // Skip webhook messages from ProForwarder to prevent loops
       if (message.webhookId && message.author.bot) {
-        // Check if this is from a ProForwarder webhook
+        // Check cache first (no API call), fall back to fetch on miss
+        if (isOurWebhook(message.webhookId)) {
+          return; // Skip our own webhook messages
+        }
+        // If not in cache, it could be our webhook from before a restart — fetch to be safe
         try {
           const webhook = await message.fetchWebhook();
-          if (webhook && webhook.name === 'ProForwarder') {
+          if (webhook && webhook.name === WEBHOOK_NAME) {
             return; // Skip our own webhook messages
           }
         } catch (error) {
@@ -133,8 +137,8 @@ class ForwardHandler {
           'failed',
           error.message
         );
-      } catch (logError) {
-        logError('Error logging failed forward:', logError);
+      } catch (dbLogError) {
+        logError('Error logging failed forward:', dbLogError);
       }
 
       // Add to retry queue for later processing
@@ -412,42 +416,12 @@ class ForwardHandler {
         content = `**${message.author.displayName}** from **${message.guild?.name || 'Unknown Server'}**:\n${content}`;
       }
 
-      // Handle @everyone/@here mentions if enabled in config
-      if (config.allowEveryoneHereMentions === true) {
-        const hasEveryone = content.includes('@everyone');
-        const hasHere = content.includes('@here');
-
-        if (hasEveryone || hasHere) {
-          // Check if bot has MENTION_EVERYONE permission in target channel
-          const targetChannel = this.client.channels.cache.get(config.targetChannelId);
-          const botMember = targetChannel?.guild?.members?.cache?.get(this.client.user?.id);
-          const canMentionEveryone = botMember?.permissions?.has('MentionEveryone');
-
-          if (canMentionEveryone) {
-            // Allow @everyone mentions if present
-            if (hasEveryone) {
-              messageOptions.allowedMentions = {
-                parse: ['everyone'],
-                users: [],
-                roles: []
-              };
-            }
-            // @here doesn't work reliably with allowedMentions, replace with indicator
-            if (hasHere) {
-              content = content.replace(/@here/g, '**[📢 @here]**');
-            }
-          } else {
-            // Bot doesn't have permission, replace both with text indicators
-            content = content
-              .replace(/@everyone/g, '**[📢 @everyone]**')
-              .replace(/@here/g, '**[📢 @here]**');
-          }
-        }
-      } else if (content.includes('@everyone') || content.includes('@here')) {
-        // Config disabled, replace with text indicators
-        content = content
-          .replace(/@everyone/g, '**[📢 @everyone]**')
-          .replace(/@here/g, '**[📢 @here]**');
+      // Handle @everyone/@here mentions
+      const targetChannel = this.client.channels.cache.get(config.targetChannelId);
+      if (targetChannel) {
+        const mentionResult = processMentions(content, config, targetChannel, this.client.user?.id);
+        content = mentionResult.content;
+        messageOptions.allowedMentions = mentionResult.allowedMentions;
       }
 
       messageOptions.content = content;

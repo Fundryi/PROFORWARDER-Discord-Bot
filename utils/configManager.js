@@ -3,14 +3,50 @@ const path = require('path');
 const { logInfo, logSuccess, logError } = require('./logger');
 
 // ─── File paths ───
-const FORWARD_CONFIGS_PATH = path.join(__dirname, '..', 'config', 'forwardConfigs.json');
-const AUTO_PUBLISH_PATH = path.join(__dirname, '..', 'config', 'autoPublish.json');
-const CACHED_INVITES_PATH = path.join(__dirname, '..', 'config', 'cachedInvites.json');
+const FORWARD_CONFIGS_PATH = path.join(__dirname, '..', 'data', 'forwardConfigs.json');
+const AUTO_PUBLISH_PATH = path.join(__dirname, '..', 'data', 'autoPublish.json');
+const CACHED_INVITES_PATH = path.join(__dirname, '..', 'data', 'cachedInvites.json');
+
+// Legacy paths (pre-migration, files lived under config/)
+const LEGACY_FORWARD_CONFIGS_PATH = path.join(__dirname, '..', 'config', 'forwardConfigs.json');
+const LEGACY_AUTO_PUBLISH_PATH = path.join(__dirname, '..', 'config', 'autoPublish.json');
+const LEGACY_CACHED_INVITES_PATH = path.join(__dirname, '..', 'config', 'cachedInvites.json');
+
+// Ensure data directory exists
+const fsSync = require('fs');
+const dataDir = path.join(__dirname, '..', 'data');
+if (!fsSync.existsSync(dataDir)) {
+  fsSync.mkdirSync(dataDir, { recursive: true });
+}
+
+// Auto-migrate: move runtime JSON from config/ to data/ on first run
+(function migrateConfigToData() {
+  const migrations = [
+    [LEGACY_FORWARD_CONFIGS_PATH, FORWARD_CONFIGS_PATH],
+    [LEGACY_AUTO_PUBLISH_PATH, AUTO_PUBLISH_PATH],
+    [LEGACY_CACHED_INVITES_PATH, CACHED_INVITES_PATH],
+  ];
+  for (const [oldPath, newPath] of migrations) {
+    if (fsSync.existsSync(oldPath) && !fsSync.existsSync(newPath)) {
+      try {
+        fsSync.copyFileSync(oldPath, newPath);
+        fsSync.unlinkSync(oldPath);
+        logInfo(`Migrated ${path.basename(oldPath)} from config/ to data/`);
+      } catch (err) {
+        logError(`Failed to migrate ${path.basename(oldPath)}: ${err.message}`);
+      }
+    }
+  }
+})();
 
 // Cache for configs to avoid repeated file reads
 let configCache = null;
 let lastConfigLoad = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+// Cache for auto-publish config
+let autoPublishCache = null;
+let lastAutoPublishLoad = 0;
 
 // Simple write lock to prevent concurrent modifications
 let isWriting = false;
@@ -41,6 +77,11 @@ function releaseWriteLock() {
 function invalidateCache() {
   configCache = null;
   lastConfigLoad = 0;
+}
+
+function invalidateAutoPublishCache() {
+  autoPublishCache = null;
+  lastAutoPublishLoad = 0;
 }
 
 // ─── JSON file helpers ───
@@ -316,12 +357,21 @@ async function getConfigStats() {
 
 // ─── Auto-publish management ───
 
-async function getAutoPublishConfig() {
+async function getAutoPublishConfig(forceReload = false) {
   try {
-    return await readJsonFile(AUTO_PUBLISH_PATH, {});
+    const now = Date.now();
+
+    if (!forceReload && autoPublishCache && (now - lastAutoPublishLoad) < CACHE_DURATION) {
+      return autoPublishCache;
+    }
+
+    const config = await readJsonFile(AUTO_PUBLISH_PATH, {});
+    autoPublishCache = config;
+    lastAutoPublishLoad = now;
+    return config;
   } catch (error) {
     logError('Error loading auto-publish config:', error);
-    return {};
+    return autoPublishCache || {};
   }
 }
 
@@ -334,7 +384,7 @@ async function toggleAutoPublishChannel(serverId, channelId) {
 async function setAutoPublishChannelEnabled(serverId, channelId, enabled) {
   await acquireWriteLock();
   try {
-    const currentConfig = await readJsonFile(AUTO_PUBLISH_PATH, {});
+    const currentConfig = await getAutoPublishConfig(true);
 
     if (!currentConfig[serverId]) {
       currentConfig[serverId] = [];
@@ -357,7 +407,7 @@ async function setAutoPublishChannelEnabled(serverId, channelId, enabled) {
     }
 
     await writeJsonFile(AUTO_PUBLISH_PATH, currentConfig);
-    invalidateCache();
+    invalidateAutoPublishCache();
 
     logSuccess(`Auto-publish ${isEnabled ? 'enabled' : 'disabled'} for channel ${channelId} in server ${serverId}`);
     return { enabled: isEnabled, serverId, channelId };
@@ -443,6 +493,7 @@ module.exports = {
   setAutoPublishChannelEnabled,
   toggleAutoPublishChannel,
   isChannelAutoPublishEnabled,
+  invalidateAutoPublishCache,
   migrateToJsonConfigs,
   // Expose paths for other modules (e.g., discordInviteManager)
   CACHED_INVITES_PATH

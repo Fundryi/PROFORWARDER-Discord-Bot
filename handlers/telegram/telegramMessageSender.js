@@ -253,7 +253,7 @@ class TelegramMessageSender {
     try {
       const envConfig = require('../../config/config');
       const isDebugMode = envConfig.debugMode;
-      const textLengthLimit = 4000; // Safe limit for text messages
+      const textLengthLimit = envConfig.telegram?.textLengthLimit || 4000;
       const splitIndicator = envConfig.telegram?.splitIndicator || '...(continued)';
       
       if (isDebugMode) {
@@ -499,7 +499,8 @@ class TelegramMessageSender {
       }
     }
     
-    const textLengthLimit = 4000;
+    const senderEnvConfig = require('../../config/config');
+    const textLengthLimit = senderEnvConfig.telegram?.textLengthLimit || 4000;
     
     if (textToSend.length <= textLengthLimit) {
       // Content fits in single message

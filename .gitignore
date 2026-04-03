@@ -3,14 +3,12 @@ node_modules/
 
 # Environment & secrets (NEVER commit)
 .env
-.env.local
-.env.*.local
 config/.env
 
-# Runtime-managed config (bot writes these at runtime)
-config/forwardConfigs.json
-config/autoPublish.json
-config/cachedInvites.json
+# Runtime-managed data (bot writes these at runtime)
+data/forwardConfigs.json
+data/autoPublish.json
+data/cachedInvites.json
 
 # Database
 data/proforwarder.db

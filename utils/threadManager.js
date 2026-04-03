@@ -1,3 +1,4 @@
+const { ChannelType } = require('discord.js');
 const { logInfo, logSuccess, logError } = require('./logger');
 const translationManager = require('./translationManager');
 const { logTranslationThread, getTranslationThreads, deleteTranslationThreads } = require('./database');
@@ -277,7 +278,7 @@ class ThreadManager {
    */
   channelSupportsThreads(channel) {
     // Text channels and announcement channels support threads
-    return channel.type === 0 || channel.type === 5; // TEXT or ANNOUNCEMENT
+    return channel.type === ChannelType.GuildText || channel.type === ChannelType.GuildAnnouncement;
   }
 
   /**

@@ -283,17 +283,17 @@ class TelegramConverter {
       
       if (inviteLink) {
         // Server name as clickable link
-        const escapedServerName = this.escapeMarkdownV2ForText(serverName);
+        const escapedServerName = FormatConverter.escapeMarkdownV2ForText(serverName);
         const escapedInviteLink = inviteLink.replace(/([)\\])/g, '\\$1');
         header += `[${escapedServerName}](${escapedInviteLink})`;
       } else {
         // Server name as plain text if no invite available
-        header += this.escapeMarkdownV2ForText(serverName);
+        header += FormatConverter.escapeMarkdownV2ForText(serverName);
       }
       
       // Add arrow and channel name
       header += ` → `;
-      header += `\\#${this.escapeMarkdownV2ForText(channelName)}`;
+      header += `\\#${FormatConverter.escapeMarkdownV2ForText(channelName)}`;
       
       // Add elegant separator using Unicode box drawing characters
       // These work well in Telegram and look clean on all screen sizes
@@ -333,17 +333,6 @@ class TelegramConverter {
     }
     
     return false;
-  }
-
-  /**
-   * Escape text for use in Telegram MarkdownV2 (for plain text content)
-   */
-  escapeMarkdownV2ForText(text) {
-    if (!text) return '';
-    
-    // Characters that need escaping in MarkdownV2 plain text:
-    // _ * [ ] ( ) ~ ` > # + - = | { } . ! \
-    return text.replace(/([_*\[\]()~`>#+=\-|{}.!\\])/g, '\\$1');
   }
 
   /**

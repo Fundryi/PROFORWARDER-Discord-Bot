@@ -13,18 +13,21 @@ module.exports = {
   // ─── Startup Log Maintenance ────────────────────────────────────
   // Background validation/cleanup of message_logs on startup
   startupLogMaintenance: {
-    enabled: true,
+    enabled: process.env.STARTUP_LOG_MAINTENANCE !== 'false', // default: true
     batchSize: 200,
     maxRuntimeMs: 2 * 60 * 1000, // 2 minutes max per startup run
     delayBetweenBatchesMs: 250,
-    retentionDays: 180, // 6 months
-    retentionAction: 'skip' // 'skip' | 'delete'
+    retentionDays: parseInt(process.env.LOG_RETENTION_DAYS || '180', 10), // 6 months
+    retentionAction: process.env.LOG_RETENTION_ACTION || 'skip' // 'skip' | 'delete'
   },
 
   // ─── Command UI ─────────────────────────────────────────────────
   commandUi: {
-    enabled: true,
-    allowedRoleIds: [] // Optional: array of role IDs allowed to use the UI
+    enabled: process.env.COMMAND_UI_ENABLED !== 'false', // default: true
+    allowedRoleIds: (process.env.COMMAND_UI_ALLOWED_ROLE_IDS || '')
+      .split(',')
+      .map(roleId => roleId.trim())
+      .filter(Boolean)
   },
 
   // ─── Reader Bot (Optional) ─────────────────────────────────────
@@ -38,8 +41,8 @@ module.exports = {
     enabled: process.env.TELEGRAM_ENABLED === 'true',
     botToken: process.env.TELEGRAM_BOT_TOKEN,
     apiUrl: process.env.TELEGRAM_API_URL || 'https://api.telegram.org',
-    hideSourceHeader: false,
-    smartLinkPreviews: true,
+    hideSourceHeader: process.env.TELEGRAM_HIDE_SOURCE_HEADER === 'true', // default: false
+    smartLinkPreviews: process.env.TELEGRAM_SMART_LINK_PREVIEWS !== 'false', // default: true
 
     // Smart Caption Length Management
     captionLengthLimit: 900,
@@ -56,7 +59,7 @@ module.exports = {
       // Google Gemini (primary)
       gemini: {
         apiKey: process.env.GEMINI_API_KEY,
-        model: 'gemini-2.0-flash-exp',
+        model: process.env.GEMINI_MODEL || 'gemini-2.0-flash-exp',
         maxTokens: 2048,
         temperature: 0
       },
@@ -69,7 +72,7 @@ module.exports = {
 
     translation: {
       enabled: true,
-      defaultProvider: 'gemini',
+      defaultProvider: process.env.AI_TRANSLATION_PROVIDER || 'gemini',
       cacheTranslations: true,
       maxCacheAge: 24 * 60 * 60 * 1000, // 24 hours
       fallbackProvider: 'google'
