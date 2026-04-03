@@ -251,6 +251,42 @@ function buildDiscordAuthorizeUrl(webAdminConfig, state) {
   return `https://discord.com/api/oauth2/authorize?${params.toString()}`;
 }
 
+function createOauthStateToken(sessionSecret) {
+  const issuedAt = Date.now().toString(36);
+  const nonce = crypto.randomBytes(16).toString('hex');
+  const payload = `${issuedAt}.${nonce}`;
+  const signature = crypto
+    .createHmac('sha256', String(sessionSecret || ''))
+    .update(payload)
+    .digest('hex');
+  return `${payload}.${signature}`;
+}
+
+function verifyOauthStateToken(stateToken, sessionSecret, maxAgeMs = 10 * 60 * 1000) {
+  const raw = String(stateToken || '');
+  const parts = raw.split('.');
+  if (parts.length !== 3) return false;
+
+  const [issuedAtRaw, nonce, providedSignature] = parts;
+  if (!issuedAtRaw || !nonce || !providedSignature) return false;
+
+  const issuedAt = parseInt(issuedAtRaw, 36);
+  if (!Number.isFinite(issuedAt)) return false;
+  if ((Date.now() - issuedAt) > maxAgeMs) return false;
+
+  const payload = `${issuedAtRaw}.${nonce}`;
+  const expectedSignature = crypto
+    .createHmac('sha256', String(sessionSecret || ''))
+    .update(payload)
+    .digest('hex');
+
+  const providedBuffer = Buffer.from(providedSignature, 'hex');
+  const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+  if (providedBuffer.length !== expectedBuffer.length) return false;
+
+  return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+}
+
 async function exchangeCodeForToken(webAdminConfig, code, overrides) {
   const opts = overrides || {};
   const body = new URLSearchParams({
@@ -557,16 +593,6 @@ function buildConfigView(configItem) {
   };
 }
 
-function hasAdminPermission(permissionString) {
-  try {
-    if (!permissionString) return false;
-    const bitfield = BigInt(permissionString);
-    return (bitfield & 0x8n) === 0x8n;
-  } catch (error) {
-    return false;
-  }
-}
-
 function buildOauthGuildMap(auth) {
   const map = new Map();
   const oauthGuilds = Array.isArray(auth.oauthGuilds) ? auth.oauthGuilds : [];
@@ -578,6 +604,14 @@ function buildOauthGuildMap(auth) {
 
 async function getManageableGuilds(client, auth, allowedRoleIds) {
   if (!client || !client.isReady || !client.isReady()) return [];
+  if (auth && auth.localBypass) {
+    return Array.from(client.guilds.cache.values())
+      .map(guild => ({ id: guild.id, name: guild.name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  const normalizedAllowedRoleIds = Array.isArray(allowedRoleIds) ? allowedRoleIds : [];
+  const useRoleAllowlist = normalizedAllowedRoleIds.length > 0;
   const oauthGuildMap = buildOauthGuildMap(auth);
   const botGuilds = Array.from(client.guilds.cache.values());
 
@@ -585,19 +619,13 @@ async function getManageableGuilds(client, auth, allowedRoleIds) {
     const oauthGuild = oauthGuildMap.get(guild.id);
     if (!oauthGuild) return null;
 
-    if (hasAdminPermission(oauthGuild.permissions)) {
-      return {
-        id: guild.id,
-        name: guild.name
-      };
-    }
-
     try {
       const member = await guild.members.fetch(auth.user.id);
-      const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
-      const hasAllowedRole = allowedRoleIds.length > 0 &&
-        member.roles.cache.some(role => allowedRoleIds.includes(role.id));
-      if (isAdmin || hasAllowedRole) {
+      const hasAllowedRole = useRoleAllowlist
+        ? member.roles.cache.some(role => normalizedAllowedRoleIds.includes(role.id))
+        : false;
+      const isDiscordAdmin = !useRoleAllowlist && member.permissions.has(PermissionFlagsBits.Administrator);
+      if (hasAllowedRole || isDiscordAdmin) {
         return {
           id: guild.id,
           name: guild.name
@@ -758,6 +786,26 @@ function clearWebAdminSessionState(req) {
   delete req.session.webAdminAuth;
   delete req.session.oauthState;
   delete req.session.botInviteState;
+  delete req.session.csrfToken;
+}
+
+function destroySession(req) {
+  return new Promise(resolve => {
+    if (!req || !req.session) {
+      resolve();
+      return;
+    }
+
+    req.session.destroy(() => resolve());
+  });
+}
+
+function ensureCsrfToken(req) {
+  if (!req || !req.session) return null;
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(24).toString('hex');
+  }
+  return req.session.csrfToken;
 }
 
 function isProtectedWebAdminRequest(req) {
@@ -883,13 +931,6 @@ function createWebAdminApp(client, config) {
     }
   }));
 
-  app.use((req, _res, next) => {
-    if (req.session && !req.session.csrfToken) {
-      req.session.csrfToken = crypto.randomBytes(24).toString('hex');
-    }
-    next();
-  });
-
   app.use(async (req, res, next) => {
     if (!isProtectedWebAdminRequest(req)) {
       next();
@@ -910,6 +951,7 @@ function createWebAdminApp(client, config) {
       }
 
       clearWebAdminSessionState(req);
+      await destroySession(req);
       const errorMessage = 'Your Discord account is not authorized for this web admin.';
       if (req.path.startsWith('/api/')) {
         res.status(403).json({ error: errorMessage });
@@ -1034,8 +1076,7 @@ function createWebAdminApp(client, config) {
       return;
     }
 
-    const state = crypto.randomBytes(20).toString('hex');
-    req.session.oauthState = state;
+    const state = createOauthStateToken(webAdminConfig.sessionSecret);
     res.redirect(buildDiscordAuthorizeUrl(webAdminConfig, state));
   });
 
@@ -1063,13 +1104,17 @@ function createWebAdminApp(client, config) {
     const { code, state, error, error_description: errorDescription } = req.query;
 
     if (error) {
+      clearWebAdminSessionState(req);
+      await destroySession(req);
       logError(`Web admin OAuth error: ${errorDescription || error}`);
       const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
       res.status(400).send(renderLoginPage(webAdminConfig, 'OAuth login failed.', localBypassAvailable));
       return;
     }
 
-    if (!code || !state || !req.session.oauthState || state !== req.session.oauthState) {
+    if (!code || !state || !verifyOauthStateToken(state, webAdminConfig.sessionSecret)) {
+      clearWebAdminSessionState(req);
+      await destroySession(req);
       const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
       res.status(400).send(renderLoginPage(webAdminConfig, 'Invalid OAuth state.', localBypassAvailable));
       return;
@@ -1099,6 +1144,7 @@ function createWebAdminApp(client, config) {
       const allowedGuildIds = await getAuthorizedGuildSet(client, sessionAuth, webAdminConfig.allowedRoleIds);
       if (allowedGuildIds.size === 0) {
         clearWebAdminSessionState(req);
+        await destroySession(req);
         const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
         res.status(403).send(renderLoginPage(
           webAdminConfig,
@@ -1110,9 +1156,14 @@ function createWebAdminApp(client, config) {
 
       req.session.webAdminAuth = sessionAuth;
       delete req.session.oauthState;
+      if (webAdminConfig.securityStrict) {
+        ensureCsrfToken(req);
+      }
 
       res.redirect('/admin');
     } catch (oauthError) {
+      clearWebAdminSessionState(req);
+      await destroySession(req);
       logError(`Web admin OAuth callback failed: ${oauthError.message}`);
       const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
       res.status(500).send(renderLoginPage(
@@ -1153,12 +1204,11 @@ function createWebAdminApp(client, config) {
 
     try {
       const guilds = await getManageableSourceGuilds(client, auth, webAdminConfig.allowedRoleIds);
+      const csrfToken = webAdminConfig.securityStrict ? ensureCsrfToken(req) : null;
       res.json({
         user: auth.user,
         guilds,
-        csrfToken: webAdminConfig.securityStrict
-          ? (req.session && req.session.csrfToken ? req.session.csrfToken : null)
-          : null
+        csrfToken
       });
     } catch (error) {
       logError(`Web admin /api/me failed: ${error.message}`);
