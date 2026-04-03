@@ -815,12 +815,6 @@ function isProtectedWebAdminRequest(req) {
     || requestPath.startsWith('/api/');
 }
 
-function filterGuildViewsByAuthorization(guilds, auth, allowedGuildIds) {
-  if (!Array.isArray(guilds) || !guilds.length) return [];
-  if (auth && auth.localBypass) return guilds;
-  return guilds.filter(guild => allowedGuildIds.has(guild.id));
-}
-
 function getSourceGuildContexts(mainClient, guildId) {
   const contexts = {};
   const mainGuild = mainClient.guilds.cache.get(guildId);
@@ -2540,25 +2534,57 @@ function createWebAdminApp(client, config) {
   });
 
   // --- Guild Management API ---
-  function mapGuilds(guildCache) {
-    const guilds = Array.from(guildCache.values()).map(guild => {
-      let ownerName = null;
-      if (guild.ownerId) {
-        const ownerMember = guild.members.cache.get(guild.ownerId);
-        if (ownerMember) ownerName = ownerMember.user.username;
+  function mapGuildToView(guild) {
+    if (!guild) return null;
+
+    let ownerName = null;
+    if (guild.ownerId) {
+      const ownerMember = guild.members && guild.members.cache
+        ? guild.members.cache.get(guild.ownerId)
+        : null;
+      if (ownerMember && ownerMember.user) ownerName = ownerMember.user.username;
+    }
+
+    return {
+      id: guild.id,
+      name: guild.name,
+      memberCount: guild.memberCount,
+      joinedAt: guild.joinedAt ? guild.joinedAt.toISOString() : null,
+      icon: typeof guild.iconURL === 'function' ? (guild.iconURL({ size: 64 }) || null) : null,
+      owner: ownerName,
+      ownerId: guild.ownerId || null
+    };
+  }
+
+  async function getAuthorizedGuildViews(botClient, auth, allowedRoleIds) {
+    if (botClient && typeof botClient.isReady === 'function' && botClient.isReady()) {
+      try {
+        await botClient.guilds.fetch();
+      } catch (_error) {
+        // Continue with the current cache if Discord rejects the refresh.
       }
-      return {
-        id: guild.id,
-        name: guild.name,
-        memberCount: guild.memberCount,
-        joinedAt: guild.joinedAt ? guild.joinedAt.toISOString() : null,
-        icon: guild.iconURL({ size: 64 }) || null,
-        owner: ownerName,
-        ownerId: guild.ownerId || null
-      };
-    });
-    guilds.sort((a, b) => a.name.localeCompare(b.name));
-    return guilds;
+    }
+
+    const manageableGuilds = await getManageableGuilds(botClient, auth, allowedRoleIds);
+    if (!manageableGuilds.length) return [];
+
+    const views = [];
+    for (const manageableGuild of manageableGuilds) {
+      let guild = botClient.guilds.cache.get(manageableGuild.id) || null;
+      if (!guild) {
+        try {
+          guild = await botClient.guilds.fetch(manageableGuild.id);
+        } catch (_error) {
+          guild = null;
+        }
+      }
+
+      const guildView = mapGuildToView(guild);
+      if (guildView) views.push(guildView);
+    }
+
+    views.sort((a, b) => a.name.localeCompare(b.name));
+    return views;
   }
 
   app.get('/api/guilds', async (req, res) => {
@@ -2569,9 +2595,8 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const allowedGuildIds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
       const result = {
-        mainBot: { guilds: filterGuildViewsByAuthorization(mapGuilds(client.guilds.cache), auth, allowedGuildIds) },
+        mainBot: { guilds: await getAuthorizedGuildViews(client, auth, webAdminConfig.allowedRoleIds) },
         readerBot: { enabled: false, online: false, guilds: [] }
       };
 
@@ -2582,15 +2607,15 @@ function createWebAdminApp(client, config) {
           result.readerBot.enabled = true;
           if (readerBot && readerBot.isReady && readerBot.client) {
             result.readerBot.online = true;
-            result.readerBot.guilds = filterGuildViewsByAuthorization(
-              mapGuilds(readerBot.client.guilds.cache),
+            result.readerBot.guilds = await getAuthorizedGuildViews(
+              readerBot.client,
               auth,
-              allowedGuildIds
+              webAdminConfig.allowedRoleIds
             );
           }
         }
-      } catch (_e) {
-        // reader bot module not available
+      } catch (error) {
+        logError(`Web admin /api/guilds reader bot lookup failed: ${error.message}`);
       }
 
       res.json(result);
