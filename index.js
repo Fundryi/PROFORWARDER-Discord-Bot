@@ -1,21 +1,19 @@
 const fs = require('fs');
-const path = require('path');
 
-// Check for required config files
-const configFiles = [
-  { path: './config/config.js', name: 'Environment configuration' },
-  { path: './.env', name: 'Environment variables' }
-];
+const dotenv = require('dotenv');
 
-configFiles.forEach(file => {
-  if (!fs.existsSync(file.path)) {
-    console.error(`Error: ${file.name} file not found at ${file.path}`);
-    console.error(`Please create ${file.path} based on the example files provided.`);
-    process.exit(1);
+// Support both file-based local development and injected container env vars.
+['./.env', './config/.env'].forEach((envPath) => {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, override: false });
   }
 });
 
-require('dotenv').config();
+if (!fs.existsSync('./config/config.js')) {
+  console.error('Error: Environment configuration file not found at ./config/config.js');
+  console.error('Please restore ./config/config.js from the repository.');
+  process.exit(1);
+}
 require("./errorHandlers");
 
 const { Client, GatewayIntentBits } = require("discord.js");
