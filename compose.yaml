@@ -58,6 +58,21 @@ services:
     networks:
       - proforwarder
 
+  cloudflared:
+    build:
+      context: ./docker/cloudflared
+    env_file:
+      - path: ./config/.env
+        required: false
+    depends_on:
+      proforwarder-bot:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - proforwarder
+    profiles:
+      - tunnel
+
 networks:
   proforwarder:
     driver: bridge

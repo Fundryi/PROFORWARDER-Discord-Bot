@@ -82,8 +82,8 @@ By default, Docker Compose loads both files in this repo:
 
 That means local development behavior is active unless you override it:
 - data/config mounted from local `./data` and `./config`
-- Web Admin exposed at `127.0.0.1:80 -> container:3001`
-- Admin URL: `http://localhost/admin`
+- Web Admin exposed at `127.0.0.1:8080 -> container:3001`
+- Admin URL: `http://localhost:8080/admin`
 
 If you want base `compose.yaml` only:
 
@@ -94,6 +94,19 @@ docker compose -f compose.yaml up -d
 Base file behavior:
 - no host port is published for Web Admin
 - persistent paths are `/srv/docker-data/proforwarder/data` and `/srv/docker-data/proforwarder/config`
+
+## Cloudflare Tunnel (Optional)
+
+To expose the web admin externally via Cloudflare Tunnel:
+
+1. Set `CLOUDFLARE_TUNNEL_API_TOKEN` in `config/.env` (needs Account:Tunnel:Edit + Zone:DNS:Edit)
+2. Start with the tunnel profile:
+
+```bash
+COMPOSE_PROFILES=tunnel docker compose up -d
+```
+
+The tunnel auto-provisions on boot — creates the named tunnel, configures ingress, and sets up DNS. No manual Cloudflare dashboard setup needed.
 
 ## Native Run (Optional)
 
