@@ -1,4 +1,18 @@
-require('dotenv').config();
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+
+const envCandidates = [
+  process.env.PROFORWARDER_ENV_FILE,
+  path.resolve(process.cwd(), '.env'),
+  path.resolve(process.cwd(), 'config/.env'),
+  '/app/config/.env',
+  '/config/.env'
+].filter(Boolean);
+
+const envPath = envCandidates.find(candidate => fs.existsSync(candidate));
+
+dotenv.config(envPath ? { path: envPath } : undefined);
 
 module.exports = {
   // ─── Bot Core ────────────────────────────────────────────────────
