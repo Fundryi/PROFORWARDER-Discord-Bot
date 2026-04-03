@@ -753,6 +753,26 @@ async function getAuthorizedGuildSet(client, auth, allowedRoleIds) {
   return new Set(guilds.map(guild => guild.id));
 }
 
+function clearWebAdminSessionState(req) {
+  if (!req || !req.session) return;
+  delete req.session.webAdminAuth;
+  delete req.session.oauthState;
+  delete req.session.botInviteState;
+}
+
+function isProtectedWebAdminRequest(req) {
+  const requestPath = String((req && req.path) || '');
+  return requestPath === '/admin'
+    || requestPath === '/admin/bot-invite'
+    || requestPath.startsWith('/api/');
+}
+
+function filterGuildViewsByAuthorization(guilds, auth, allowedGuildIds) {
+  if (!Array.isArray(guilds) || !guilds.length) return [];
+  if (auth && auth.localBypass) return guilds;
+  return guilds.filter(guild => allowedGuildIds.has(guild.id));
+}
+
 function getSourceGuildContexts(mainClient, guildId) {
   const contexts = {};
   const mainGuild = mainClient.guilds.cache.get(guildId);
@@ -868,6 +888,44 @@ function createWebAdminApp(client, config) {
       req.session.csrfToken = crypto.randomBytes(24).toString('hex');
     }
     next();
+  });
+
+  app.use(async (req, res, next) => {
+    if (!isProtectedWebAdminRequest(req)) {
+      next();
+      return;
+    }
+
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth || auth.localBypass) {
+      next();
+      return;
+    }
+
+    try {
+      const allowedGuildIds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      if (allowedGuildIds.size > 0) {
+        next();
+        return;
+      }
+
+      clearWebAdminSessionState(req);
+      const errorMessage = 'Your Discord account is not authorized for this web admin.';
+      if (req.path.startsWith('/api/')) {
+        res.status(403).json({ error: errorMessage });
+        return;
+      }
+
+      const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
+      res.status(403).send(renderLoginPage(webAdminConfig, errorMessage, localBypassAvailable));
+    } catch (error) {
+      logError(`Web admin authorization check failed: ${error.message}`);
+      if (req.path.startsWith('/api/')) {
+        res.status(500).json({ error: 'Failed to verify web admin authorization' });
+        return;
+      }
+      res.status(500).send('Failed to verify web admin authorization.');
+    }
   });
 
   if (webAdminConfig.securityStrict) {
@@ -1027,7 +1085,7 @@ function createWebAdminApp(client, config) {
         logInfo(`Web admin OAuth guild fetch skipped: ${guildError.message}`);
       }
 
-      req.session.webAdminAuth = {
+      const sessionAuth = {
         user: {
           id: user.id,
           username: user.username,
@@ -1037,6 +1095,20 @@ function createWebAdminApp(client, config) {
         oauthGuilds: Array.isArray(guilds) ? guilds : [],
         loggedInAt: Date.now()
       };
+
+      const allowedGuildIds = await getAuthorizedGuildSet(client, sessionAuth, webAdminConfig.allowedRoleIds);
+      if (allowedGuildIds.size === 0) {
+        clearWebAdminSessionState(req);
+        const localBypassAvailable = isLocalBypassRequestAllowed(req, webAdminConfig);
+        res.status(403).send(renderLoginPage(
+          webAdminConfig,
+          'Your Discord account is not authorized for this web admin.',
+          localBypassAvailable
+        ));
+        return;
+      }
+
+      req.session.webAdminAuth = sessionAuth;
       delete req.session.oauthState;
 
       res.redirect('/admin');
@@ -2447,8 +2519,9 @@ function createWebAdminApp(client, config) {
     }
 
     try {
+      const allowedGuildIds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
       const result = {
-        mainBot: { guilds: mapGuilds(client.guilds.cache) },
+        mainBot: { guilds: filterGuildViewsByAuthorization(mapGuilds(client.guilds.cache), auth, allowedGuildIds) },
         readerBot: { enabled: false, online: false, guilds: [] }
       };
 
@@ -2459,7 +2532,11 @@ function createWebAdminApp(client, config) {
           result.readerBot.enabled = true;
           if (readerBot && readerBot.isReady && readerBot.client) {
             result.readerBot.online = true;
-            result.readerBot.guilds = mapGuilds(readerBot.client.guilds.cache);
+            result.readerBot.guilds = filterGuildViewsByAuthorization(
+              mapGuilds(readerBot.client.guilds.cache),
+              auth,
+              allowedGuildIds
+            );
           }
         }
       } catch (_e) {
@@ -2489,6 +2566,14 @@ function createWebAdminApp(client, config) {
     const botType = req.query.bot || 'main';
 
     try {
+      if (!auth.localBypass) {
+        const allowedGuildIds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+        if (!allowedGuildIds.has(guildId)) {
+          res.status(403).json({ error: 'Forbidden for this guild' });
+          return;
+        }
+      }
+
       let guild;
       let botLabel;
 
