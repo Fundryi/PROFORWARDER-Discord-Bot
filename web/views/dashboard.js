@@ -458,6 +458,15 @@ function renderDashboardPage(auth, webAdminConfig) {
           </table>
         </div>
       </div>
+
+      <div class="card">
+        <div class="header-bar">
+          <h2>Reader Bot Debug</h2>
+          <button id="reader-debug-refresh" class="button secondary sm" type="button">Refresh Debug</button>
+        </div>
+        <p class="muted-text">Shows the live OAuth, main bot, and reader bot guild state for the currently selected guild.</p>
+        <pre id="reader-debug-output" class="debug-panel-output mono">Loading debug data...</pre>
+      </div>
     </section>
 
     <!-- Logs Tab -->

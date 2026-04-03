@@ -39,6 +39,8 @@ const { clearTelegramDiscoveryCache, collectTelegramChatOptions, verifyAndTrackT
 const { buildDebugDatabaseSnapshot, buildDebugMessageSearchSnapshot } = require('./lib/debugDiagnostics');
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const GUILD_CACHE_REFRESH_TTL_MS = 15 * 1000;
+const guildCacheRefreshState = new WeakMap();
 
 function isMutatingApiRequest(req) {
   if (!req || !req.path || !req.method) return false;
@@ -604,6 +606,23 @@ function buildOauthGuildMap(auth) {
 
 async function getManageableGuilds(client, auth, allowedRoleIds) {
   if (!client || !client.isReady || !client.isReady()) return [];
+
+  async function refreshGuildCache(targetClient) {
+    const now = Date.now();
+    const lastRefreshAt = guildCacheRefreshState.get(targetClient) || 0;
+    if (now - lastRefreshAt < GUILD_CACHE_REFRESH_TTL_MS) return;
+
+    try {
+      await targetClient.guilds.fetch();
+    } catch (_error) {
+      // Continue with the current cache if Discord rejects the refresh.
+    } finally {
+      guildCacheRefreshState.set(targetClient, now);
+    }
+  }
+
+  await refreshGuildCache(client);
+
   if (auth && auth.localBypass) {
     return Array.from(client.guilds.cache.values())
       .map(guild => ({ id: guild.id, name: guild.name }))
@@ -654,9 +673,20 @@ async function getManageableSourceGuilds(mainClient, auth, allowedRoleIds) {
   }
 
   const readerClient = getReaderBotClient();
-  if (readerClient) {
-    const readerGuilds = await getManageableGuilds(readerClient, auth, allowedRoleIds);
-    for (const guild of readerGuilds) {
+  if (readerClient && readerClient.isReady && readerClient.isReady()) {
+    const now = Date.now();
+    const lastRefreshAt = guildCacheRefreshState.get(readerClient) || 0;
+    if (now - lastRefreshAt >= GUILD_CACHE_REFRESH_TTL_MS) {
+      try {
+        await readerClient.guilds.fetch();
+      } catch (_error) {
+        // Continue with the current cache if Discord rejects the refresh.
+      } finally {
+        guildCacheRefreshState.set(readerClient, now);
+      }
+    }
+
+    for (const guild of readerClient.guilds.cache.values()) {
       const existing = combined.get(guild.id);
       if (existing) {
         existing.sourceBot = 'both';
@@ -777,8 +807,130 @@ function buildLogTargetLabel(log, targetType, configItem) {
 }
 
 async function getAuthorizedGuildSet(client, auth, allowedRoleIds) {
+  const guilds = await getManageableGuilds(client, auth, allowedRoleIds);
+  return new Set(guilds.map(guild => guild.id));
+}
+
+async function getVisibleSourceGuildSet(client, auth, allowedRoleIds) {
   const guilds = await getManageableSourceGuilds(client, auth, allowedRoleIds);
   return new Set(guilds.map(guild => guild.id));
+}
+
+function mapGuildDebugSummary(guild) {
+  if (!guild) return null;
+  return {
+    id: guild.id,
+    name: guild.name,
+    memberCount: guild.memberCount ?? null,
+    joinedAt: guild.joinedAt ? guild.joinedAt.toISOString() : null
+  };
+}
+
+async function tryFetchGuildSummary(client, guildId) {
+  if (!client || !guildId) return null;
+  try {
+    const guild = await client.guilds.fetch(guildId);
+    return {
+      ok: true,
+      guild: mapGuildDebugSummary(guild)
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code: error && error.code ? error.code : null,
+      message: error && error.message ? error.message : 'Unknown guild fetch error'
+    };
+  }
+}
+
+async function buildReaderBotDebugPayload(mainClient, auth, allowedRoleIds, requestedGuildId = '') {
+  const startedAt = Date.now();
+  const runtimeConfig = require('../config/config');
+  const readerClient = getReaderBotClient();
+  const oauthGuilds = Array.from(buildOauthGuildMap(auth).values())
+    .map(guild => ({
+      id: guild.id,
+      name: guild.name || null,
+      permissions: guild.permissions || null
+    }))
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+
+  const mainCacheGuilds = Array.from(mainClient.guilds.cache.values())
+    .map(mapGuildDebugSummary)
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const readerCacheGuilds = readerClient
+    ? Array.from(readerClient.guilds.cache.values())
+      .map(mapGuildDebugSummary)
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name))
+    : [];
+
+  const oauthGuildIdSet = new Set(oauthGuilds.map(guild => guild.id));
+  const authorizedMainGuilds = await getManageableGuilds(mainClient, auth, allowedRoleIds);
+  const visibleSourceGuilds = await getManageableSourceGuilds(mainClient, auth, allowedRoleIds);
+  const readerVisibleGuilds = visibleSourceGuilds
+    .filter(guild => guild.sourceBot === 'reader' || guild.sourceBot === 'both')
+    .map(guild => ({
+      id: guild.id,
+      name: guild.name,
+      sourceBot: guild.sourceBot
+    }));
+  const allConfigs = await loadForwardConfigs();
+  const readerConfigs = (allConfigs || [])
+    .filter(configItem => configItem && configItem.sourceType === 'discord' && configItem.useReaderBot === true)
+    .map(configItem => ({
+      id: configItem.id,
+      name: configItem.name || '',
+      enabled: configItem.enabled !== false,
+      sourceServerId: configItem.sourceServerId || '',
+      sourceChannelId: configItem.sourceChannelId || ''
+    }))
+    .sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
+
+  const normalizedRequestedGuildId = String(requestedGuildId || '').trim();
+
+  return {
+    generatedAt: new Date().toISOString(),
+    durationMs: Date.now() - startedAt,
+    auth: {
+      userId: auth && auth.user ? auth.user.id : null,
+      username: auth && auth.user ? (auth.user.username || auth.user.global_name || null) : null,
+      localBypass: Boolean(auth && auth.localBypass),
+      oauthGuildCount: oauthGuilds.length
+    },
+    requestedGuildId: normalizedRequestedGuildId || null,
+    oauthGuilds,
+    mainBot: {
+      ready: Boolean(mainClient && mainClient.isReady && mainClient.isReady()),
+      userId: mainClient && mainClient.user ? mainClient.user.id : null,
+      username: mainClient && mainClient.user ? mainClient.user.username : null,
+      cacheGuildCount: mainCacheGuilds.length,
+      cacheGuilds: mainCacheGuilds,
+      authorizedGuilds: authorizedMainGuilds,
+      requestedGuildFetch: normalizedRequestedGuildId
+        ? await tryFetchGuildSummary(mainClient, normalizedRequestedGuildId)
+        : null
+    },
+    readerBot: {
+      enabled: Boolean(runtimeConfig.readerBot && runtimeConfig.readerBot.enabled),
+      ready: Boolean(readerClient && readerClient.isReady && readerClient.isReady()),
+      userId: readerClient && readerClient.user ? readerClient.user.id : null,
+      username: readerClient && readerClient.user ? readerClient.user.username : null,
+      inviteUrl: buildReaderInviteUrlFromClient(readerClient),
+      cacheGuildCount: readerCacheGuilds.length,
+      cacheGuilds: readerCacheGuilds,
+      visibleGuilds: readerVisibleGuilds,
+      hiddenFromOauthGuilds: readerCacheGuilds.filter(guild => !oauthGuildIdSet.has(guild.id)),
+      requestedGuildFetch: normalizedRequestedGuildId && readerClient
+        ? await tryFetchGuildSummary(readerClient, normalizedRequestedGuildId)
+        : null
+    },
+    authorizedMainGuilds,
+    visibleSourceGuilds,
+    readerConfigs
+  };
 }
 
 function clearWebAdminSessionState(req) {
@@ -1370,7 +1522,7 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      const allowedGuilds = await getVisibleSourceGuildSet(client, auth, webAdminConfig.allowedRoleIds);
       if (!allowedGuilds.has(guildId)) {
         res.status(403).json({ error: 'Forbidden for this guild' });
         return;
@@ -1522,7 +1674,7 @@ function createWebAdminApp(client, config) {
         return;
       }
 
-      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      const allowedGuilds = await getVisibleSourceGuildSet(client, auth, webAdminConfig.allowedRoleIds);
       if (!allowedGuilds.has(existing.sourceServerId)) {
         res.status(403).json({ error: 'Forbidden for this guild' });
         return;
@@ -1569,7 +1721,7 @@ function createWebAdminApp(client, config) {
         return;
       }
 
-      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      const allowedGuilds = await getVisibleSourceGuildSet(client, auth, webAdminConfig.allowedRoleIds);
       if (!allowedGuilds.has(existing.sourceServerId)) {
         res.status(403).json({ error: 'Forbidden for this guild' });
         return;
@@ -1612,7 +1764,7 @@ function createWebAdminApp(client, config) {
         return;
       }
 
-      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      const allowedGuilds = await getVisibleSourceGuildSet(client, auth, webAdminConfig.allowedRoleIds);
       if (!allowedGuilds.has(existing.sourceServerId)) {
         res.status(403).json({ error: 'Forbidden for this guild' });
         return;
@@ -1814,7 +1966,7 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const allowedGuildIds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      const allowedGuildIds = await getVisibleSourceGuildSet(client, auth, webAdminConfig.allowedRoleIds);
       const isLocalBypass = Boolean(auth.localBypass);
       const allConfigs = await loadForwardConfigs();
       const scopedConfigs = (allConfigs || []).filter(configItem => {
@@ -1830,6 +1982,28 @@ function createWebAdminApp(client, config) {
     } catch (error) {
       logError(`Web admin /api/reader-status failed: ${error.message}`);
       res.status(500).json({ error: 'Failed to load reader diagnostics' });
+    }
+  });
+
+  app.get('/api/debug/reader-bot', async (req, res) => {
+    const auth = getEffectiveAuth(req, client, webAdminConfig);
+    if (!auth) {
+      res.status(401).json({ error: 'Not authenticated' });
+      return;
+    }
+
+    try {
+      const guildId = typeof req.query.guildId === 'string' ? req.query.guildId.trim() : '';
+      const payload = await buildReaderBotDebugPayload(
+        client,
+        auth,
+        webAdminConfig.allowedRoleIds,
+        guildId
+      );
+      res.json(payload);
+    } catch (error) {
+      logError(`Web admin /api/debug/reader-bot failed: ${error.message}`);
+      res.status(500).json({ error: 'Failed to load reader debug data' });
     }
   });
 
@@ -1883,7 +2057,7 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const allowedGuildIds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      const allowedGuildIds = await getVisibleSourceGuildSet(client, auth, webAdminConfig.allowedRoleIds);
       if (!allowedGuildIds.size) {
         res.status(403).json({ error: 'No authorized source guilds' });
         return;
@@ -2432,7 +2606,7 @@ function createWebAdminApp(client, config) {
     }
 
     try {
-      const allowedGuilds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+      const allowedGuilds = await getVisibleSourceGuildSet(client, auth, webAdminConfig.allowedRoleIds);
       if (!allowedGuilds.has(guildId)) {
         res.status(403).json({ error: 'Forbidden for this guild' });
         return;
@@ -2557,14 +2731,6 @@ function createWebAdminApp(client, config) {
   }
 
   async function getAuthorizedGuildViews(botClient, auth, allowedRoleIds) {
-    if (botClient && typeof botClient.isReady === 'function' && botClient.isReady()) {
-      try {
-        await botClient.guilds.fetch();
-      } catch (_error) {
-        // Continue with the current cache if Discord rejects the refresh.
-      }
-    }
-
     const manageableGuilds = await getManageableGuilds(botClient, auth, allowedRoleIds);
     if (!manageableGuilds.length) return [];
 
@@ -2587,6 +2753,27 @@ function createWebAdminApp(client, config) {
     return views;
   }
 
+  async function getAllGuildViews(botClient) {
+    if (!botClient || !botClient.isReady || !botClient.isReady()) return [];
+
+    const now = Date.now();
+    const lastRefreshAt = guildCacheRefreshState.get(botClient) || 0;
+    if (now - lastRefreshAt >= GUILD_CACHE_REFRESH_TTL_MS) {
+      try {
+        await botClient.guilds.fetch();
+      } catch (_error) {
+        // Continue with the current cache if Discord rejects the refresh.
+      } finally {
+        guildCacheRefreshState.set(botClient, now);
+      }
+    }
+
+    return Array.from(botClient.guilds.cache.values())
+      .map(mapGuildToView)
+      .filter(Boolean)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   app.get('/api/guilds', async (req, res) => {
     const auth = getEffectiveAuth(req, client, webAdminConfig);
     if (!auth) {
@@ -2595,9 +2782,20 @@ function createWebAdminApp(client, config) {
     }
 
     try {
+      const mainGuildViews = await getAuthorizedGuildViews(client, auth, webAdminConfig.allowedRoleIds);
       const result = {
-        mainBot: { guilds: await getAuthorizedGuildViews(client, auth, webAdminConfig.allowedRoleIds) },
-        readerBot: { enabled: false, online: false, guilds: [] }
+        mainBot: {
+          guilds: mainGuildViews,
+          visibleGuildCount: mainGuildViews.length,
+          totalGuildCount: client.guilds.cache.size
+        },
+        readerBot: {
+          enabled: false,
+          online: false,
+          guilds: [],
+          visibleGuildCount: 0,
+          totalGuildCount: 0
+        }
       };
 
       try {
@@ -2607,11 +2805,9 @@ function createWebAdminApp(client, config) {
           result.readerBot.enabled = true;
           if (readerBot && readerBot.isReady && readerBot.client) {
             result.readerBot.online = true;
-            result.readerBot.guilds = await getAuthorizedGuildViews(
-              readerBot.client,
-              auth,
-              webAdminConfig.allowedRoleIds
-            );
+            result.readerBot.guilds = await getAllGuildViews(readerBot.client);
+            result.readerBot.visibleGuildCount = result.readerBot.guilds.length;
+            result.readerBot.totalGuildCount = readerBot.client.guilds.cache.size;
           }
         }
       } catch (error) {
@@ -2642,7 +2838,7 @@ function createWebAdminApp(client, config) {
 
     try {
       if (!auth.localBypass) {
-        const allowedGuildIds = await getAuthorizedGuildSet(client, auth, webAdminConfig.allowedRoleIds);
+        const allowedGuildIds = await getVisibleSourceGuildSet(client, auth, webAdminConfig.allowedRoleIds);
         if (!allowedGuildIds.has(guildId)) {
           res.status(403).json({ error: 'Forbidden for this guild' });
           return;

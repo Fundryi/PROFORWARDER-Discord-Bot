@@ -7,6 +7,8 @@
   var readerGuildsStatus = document.getElementById('reader-guilds-status');
   var readerGuildsWrapper = document.getElementById('reader-guilds-wrapper');
   var inviteCards = document.getElementById('invite-cards');
+  var readerDebugOutput = document.getElementById('reader-debug-output');
+  var readerDebugRefresh = document.getElementById('reader-debug-refresh');
 
   // -- Invite cards --
   function renderInviteCards(botInfo) {
@@ -107,13 +109,13 @@
    * @param {HTMLElement} tbody - Target tbody element
    * @param {string} botType - 'main' or 'reader'
    */
-  function renderGuildTable(guilds, tbody, botType) {
+  function renderGuildTable(guilds, tbody, botType, emptyMessage) {
     tbody.innerHTML = '';
 
     if (!guilds.length) {
-      setTableMessage(tbody, botType === 'main'
+      setTableMessage(tbody, emptyMessage || (botType === 'main'
         ? 'Main bot is not in any guilds.'
-        : 'Reader bot is not in any guilds.');
+        : 'Reader bot is not in any guilds.'));
       return;
     }
 
@@ -216,7 +218,12 @@
 
       // Main bot guilds
       var mainGuilds = (data.mainBot && data.mainBot.guilds) || [];
-      renderGuildTable(mainGuilds, mainGuildsBody, 'main');
+      var mainVisibleCount = Number(data.mainBot && data.mainBot.visibleGuildCount) || mainGuilds.length;
+      var mainTotalCount = Number(data.mainBot && data.mainBot.totalGuildCount) || mainVisibleCount;
+      var mainEmptyMessage = mainTotalCount > 0 && mainVisibleCount === 0
+        ? 'Main bot is in guilds, but none are visible to your account.'
+        : 'Main bot is not in any guilds.';
+      renderGuildTable(mainGuilds, mainGuildsBody, 'main', mainEmptyMessage);
 
       // Reader bot guilds
       if (!data.readerBot || !data.readerBot.enabled) {
@@ -226,10 +233,19 @@
         readerGuildsStatus.textContent = 'Reader bot is offline.';
         readerGuildsWrapper.classList.add('is-hidden');
       } else {
-        readerGuildsStatus.textContent = 'Servers the reader bot is currently in.';
+        var readerVisibleCount = Number(data.readerBot.visibleGuildCount) || 0;
+        var readerTotalCount = Number(data.readerBot.totalGuildCount) || 0;
+        if (readerTotalCount > 0 && readerVisibleCount < readerTotalCount) {
+          readerGuildsStatus.textContent = 'Showing ' + readerVisibleCount + ' of ' + readerTotalCount + ' reader bot guilds visible to your account.';
+        } else {
+          readerGuildsStatus.textContent = 'Servers the reader bot is currently in.';
+        }
         readerGuildsWrapper.classList.remove('is-hidden');
         var readerGuilds = data.readerBot.guilds || [];
-        renderGuildTable(readerGuilds, readerGuildsBody, 'reader');
+        var readerEmptyMessage = readerTotalCount > 0 && readerVisibleCount === 0
+          ? 'Reader bot is in ' + readerTotalCount + ' guild' + (readerTotalCount === 1 ? '' : 's') + ', but none are visible to your account.'
+          : 'Reader bot is not in any guilds.';
+        renderGuildTable(readerGuilds, readerGuildsBody, 'reader', readerEmptyMessage);
       }
     } catch (error) {
       setTableMessage(mainGuildsBody, 'Failed to load guilds: ' + error.message);
@@ -237,8 +253,37 @@
     }
   }
 
+  async function loadReaderDebug() {
+    if (!readerDebugOutput) return;
+
+    readerDebugOutput.textContent = 'Loading debug data...';
+
+    try {
+      var currentGuildId = String(AdminApp.state && AdminApp.state.currentGuildId || '').trim();
+      var url = '/api/debug/reader-bot';
+      if (currentGuildId) {
+        url += '?guildId=' + encodeURIComponent(currentGuildId);
+      }
+      var payload = await AdminApp.fetchJson(url);
+      readerDebugOutput.textContent = JSON.stringify(payload, null, 2);
+    } catch (error) {
+      readerDebugOutput.textContent = 'Failed to load debug data: ' + error.message;
+    }
+  }
+
   AdminApp.onTabActivate('guilds', function () {
     loadInviteCards();
     loadGuilds();
+    loadReaderDebug();
+  });
+
+  if (readerDebugRefresh) {
+    readerDebugRefresh.addEventListener('click', function () {
+      loadReaderDebug();
+    });
+  }
+
+  AdminApp.onGuildChange(function () {
+    loadReaderDebug();
   });
 })();

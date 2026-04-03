@@ -27,6 +27,7 @@
     var opts = options || {};
     var method = String((opts.method || 'GET')).toUpperCase();
     var headers = { 'Content-Type': 'application/json' };
+    var timeoutMs = Number(opts.timeoutMs || 0);
     if (opts.headers && typeof opts.headers === 'object') {
       headers = { ...headers, ...opts.headers };
     }
@@ -34,11 +35,31 @@
       headers['X-CSRF-Token'] = state.csrfToken;
     }
 
-    var response = await fetch(url, {
-      credentials: 'same-origin',
-      headers: headers,
-      ...opts
-    });
+    var controller = null;
+    var timeoutHandle = null;
+    if (timeoutMs > 0 && typeof AbortController !== 'undefined') {
+      controller = new AbortController();
+      timeoutHandle = setTimeout(function () {
+        controller.abort();
+      }, timeoutMs);
+    }
+
+    var response;
+    try {
+      response = await fetch(url, {
+        credentials: 'same-origin',
+        headers: headers,
+        ...opts,
+        signal: controller ? controller.signal : opts.signal
+      });
+    } catch (error) {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+      if (error && error.name === 'AbortError') {
+        throw new Error('Request timed out');
+      }
+      throw error;
+    }
+    if (timeoutHandle) clearTimeout(timeoutHandle);
     if (!response.ok) {
       var message = 'Request failed';
       try {
@@ -195,13 +216,14 @@
   // -- Load user context --
   async function loadMe() {
     try {
-      var payload = await fetchJson('/api/me');
+      var payload = await fetchJson('/api/me', { timeoutMs: 12000 });
       state.user = payload.user;
       state.guilds = payload.guilds || [];
       state.csrfToken = payload.csrfToken || '';
       populateGuilds(state.guilds);
+      setStatus('Ready.', false);
     } catch (error) {
-      setStatus('Failed to load user context.', true);
+      setStatus('Failed to load user context: ' + error.message, true);
     }
   }
 
@@ -222,10 +244,8 @@
 
   // -- Init --
   handleInviteStatus();
-  loadMe().then(function () {
-    // Activate the default tab (dashboard) after user context is loaded
-    switchTab('dashboard');
-  });
+  switchTab('dashboard');
+  loadMe();
 
   // -- Public API --
   window.AdminApp = {
