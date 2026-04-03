@@ -11,6 +11,7 @@ SERVICE_URL="${CLOUDFLARE_TUNNEL_SERVICE_URL:-http://proforwarder-bot:3001}"
 
 if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
   echo "cloudflared: using named tunnel (token provided)"
+  unset CLOUDFLARE_TUNNEL_API_TOKEN
   exec cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN"
 fi
 
@@ -162,4 +163,5 @@ if [ -n "$CLOUDFLARE_TUNNEL_EXTRA_ROUTES" ]; then
 fi
 echo "cloudflared: starting connector..."
 
+unset CLOUDFLARE_TUNNEL_API_TOKEN
 exec cloudflared tunnel --no-autoupdate run --token "$FETCHED_TOKEN"

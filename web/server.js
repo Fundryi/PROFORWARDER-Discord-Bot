@@ -106,6 +106,140 @@ function createSimpleRateLimiter(options = {}) {
   };
 }
 
+class SQLiteSessionStore extends session.Store {
+  constructor(options = {}) {
+    super();
+    this.ttlMs = Math.max(60 * 1000, Number(options.ttlMs) || (24 * 60 * 60 * 1000));
+    this.cleanupIntervalMs = Math.max(60 * 1000, Number(options.cleanupIntervalMs) || (15 * 60 * 1000));
+    this.lastCleanupAt = 0;
+    this.ready = this.initialize();
+  }
+
+  async initialize() {
+    await dbRun(`
+      CREATE TABLE IF NOT EXISTS web_admin_sessions (
+        sid TEXT PRIMARY KEY,
+        sess TEXT NOT NULL,
+        expiresAt INTEGER NOT NULL,
+        updatedAt INTEGER NOT NULL
+      )
+    `);
+    await dbRun('CREATE INDEX IF NOT EXISTS idx_web_admin_sessions_expires ON web_admin_sessions(expiresAt)');
+    await this.pruneExpiredSessions();
+  }
+
+  get(sid, callback) {
+    this.withCallback(callback, async () => {
+      await this.ready;
+      await this.pruneExpiredSessionsIfNeeded();
+
+      const row = await dbGet(
+        'SELECT sess, expiresAt FROM web_admin_sessions WHERE sid = ?',
+        [String(sid)]
+      );
+
+      if (!row) {
+        return null;
+      }
+
+      if (Number(row.expiresAt) <= Date.now()) {
+        await dbRun('DELETE FROM web_admin_sessions WHERE sid = ?', [String(sid)]);
+        return null;
+      }
+
+      try {
+        return JSON.parse(row.sess);
+      } catch (_error) {
+        await dbRun('DELETE FROM web_admin_sessions WHERE sid = ?', [String(sid)]);
+        return null;
+      }
+    });
+  }
+
+  set(sid, sess, callback) {
+    this.withCallback(callback, async () => {
+      await this.ready;
+      await this.pruneExpiredSessionsIfNeeded();
+
+      const expiresAt = this.getExpiresAt(sess);
+      await dbRun(
+        `INSERT INTO web_admin_sessions (sid, sess, expiresAt, updatedAt)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(sid) DO UPDATE SET
+           sess = excluded.sess,
+           expiresAt = excluded.expiresAt,
+           updatedAt = excluded.updatedAt`,
+        [
+          String(sid),
+          JSON.stringify(sess),
+          expiresAt,
+          Date.now()
+        ]
+      );
+    });
+  }
+
+  destroy(sid, callback) {
+    this.withCallback(callback, async () => {
+      await this.ready;
+      await dbRun('DELETE FROM web_admin_sessions WHERE sid = ?', [String(sid)]);
+    });
+  }
+
+  touch(sid, sess, callback) {
+    this.withCallback(callback, async () => {
+      await this.ready;
+      const expiresAt = this.getExpiresAt(sess);
+      await dbRun(
+        `UPDATE web_admin_sessions
+         SET sess = ?, expiresAt = ?, updatedAt = ?
+         WHERE sid = ?`,
+        [
+          JSON.stringify(sess),
+          expiresAt,
+          Date.now(),
+          String(sid)
+        ]
+      );
+    });
+  }
+
+  withCallback(callback, operation) {
+    Promise.resolve()
+      .then(operation)
+      .then(result => callback && callback(null, result))
+      .catch(error => callback && callback(error));
+  }
+
+  getExpiresAt(sess) {
+    const cookie = sess && sess.cookie ? sess.cookie : null;
+    const explicitExpires = cookie && cookie.expires ? new Date(cookie.expires).getTime() : NaN;
+    if (Number.isFinite(explicitExpires)) {
+      return explicitExpires;
+    }
+
+    if (cookie && typeof cookie.maxAge === 'number' && Number.isFinite(cookie.maxAge)) {
+      return Date.now() + cookie.maxAge;
+    }
+
+    return Date.now() + this.ttlMs;
+  }
+
+  async pruneExpiredSessionsIfNeeded() {
+    const now = Date.now();
+    if ((now - this.lastCleanupAt) < this.cleanupIntervalMs) {
+      return;
+    }
+
+    this.lastCleanupAt = now;
+    await this.pruneExpiredSessions(now);
+  }
+
+  async pruneExpiredSessions(now = Date.now()) {
+    await dbRun('DELETE FROM web_admin_sessions WHERE expiresAt <= ?', [now]);
+  }
+}
+
 function buildDiscordAuthorizeUrl(webAdminConfig, state) {
   const params = new URLSearchParams({
     client_id: webAdminConfig.oauthClientId,
@@ -710,6 +844,7 @@ function createWebAdminApp(client, config) {
   }
 
   const sessionTtlMs = Math.max(1, webAdminConfig.sessionTtlHours) * 60 * 60 * 1000;
+  const sessionStore = new SQLiteSessionStore({ ttlMs: sessionTtlMs });
 
   app.use(express.urlencoded({ extended: false }));
   app.use(express.json());
@@ -717,6 +852,7 @@ function createWebAdminApp(client, config) {
   app.use(session({
     name: 'proforwarder_admin',
     secret: webAdminConfig.sessionSecret || crypto.randomBytes(32).toString('hex'),
+    store: sessionStore,
     resave: false,
     saveUninitialized: false,
     cookie: {

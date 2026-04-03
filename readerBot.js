@@ -1,7 +1,12 @@
 const fs = require('fs');
-const path = require('path');
 
-require('dotenv').config({ path: './config/.env' });
+const dotenv = require('dotenv');
+
+['./.env', './config/.env'].forEach((envPath) => {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath, override: false });
+  }
+});
 require("./errorHandlers");
 
 const { Client, GatewayIntentBits } = require("discord.js");
@@ -65,7 +70,7 @@ class ReaderBot {
       await this.handleMessageDelete(message);
     });
 
-    this.client.on("ready", async () => {
+    this.client.on('clientReady', async () => {
       this.isReady = true;
       logSuccess(`Reader Bot logged in as ${this.client.user.tag}`);
       logInfo(`Reader Bot monitoring ${this.client.guilds.cache.size} servers`);
