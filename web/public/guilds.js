@@ -7,8 +7,6 @@
   var readerGuildsStatus = document.getElementById('reader-guilds-status');
   var readerGuildsWrapper = document.getElementById('reader-guilds-wrapper');
   var inviteCards = document.getElementById('invite-cards');
-  var readerDebugOutput = document.getElementById('reader-debug-output');
-  var readerDebugRefresh = document.getElementById('reader-debug-refresh');
 
   // -- Invite cards --
   function renderInviteCards(botInfo) {
@@ -253,37 +251,8 @@
     }
   }
 
-  async function loadReaderDebug() {
-    if (!readerDebugOutput) return;
-
-    readerDebugOutput.textContent = 'Loading debug data...';
-
-    try {
-      var currentGuildId = String(AdminApp.state && AdminApp.state.currentGuildId || '').trim();
-      var url = '/api/debug/reader-bot';
-      if (currentGuildId) {
-        url += '?guildId=' + encodeURIComponent(currentGuildId);
-      }
-      var payload = await AdminApp.fetchJson(url);
-      readerDebugOutput.textContent = JSON.stringify(payload, null, 2);
-    } catch (error) {
-      readerDebugOutput.textContent = 'Failed to load debug data: ' + error.message;
-    }
-  }
-
   AdminApp.onTabActivate('guilds', function () {
     loadInviteCards();
     loadGuilds();
-    loadReaderDebug();
-  });
-
-  if (readerDebugRefresh) {
-    readerDebugRefresh.addEventListener('click', function () {
-      loadReaderDebug();
-    });
-  }
-
-  AdminApp.onGuildChange(function () {
-    loadReaderDebug();
   });
 })();
