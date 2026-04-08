@@ -129,7 +129,9 @@ module.exports = {
     oauthClientSecret: process.env.WEB_ADMIN_DISCORD_CLIENT_SECRET || '',
     oauthRedirectUri: process.env.WEB_ADMIN_DISCORD_REDIRECT_URI || '',
     oauthScopes: process.env.WEB_ADMIN_DISCORD_SCOPES || 'identify guilds',
-    securityStrict: process.env.WEB_ADMIN_SECURITY_STRICT === 'true',
+    securityStrict: process.env.WEB_ADMIN_SECURITY_STRICT
+      ? process.env.WEB_ADMIN_SECURITY_STRICT === 'true'
+      : (process.env.WEB_ADMIN_AUTH_MODE || 'local').toLowerCase() !== 'local',
     authRateLimitWindowMs: parseInt(process.env.WEB_ADMIN_AUTH_RATE_LIMIT_WINDOW_MS || String(5 * 60 * 1000), 10),
     authRateLimitMax: parseInt(process.env.WEB_ADMIN_AUTH_RATE_LIMIT_MAX || '60', 10),
     mutationRateLimitWindowMs: parseInt(process.env.WEB_ADMIN_MUTATION_RATE_LIMIT_WINDOW_MS || String(60 * 1000), 10),

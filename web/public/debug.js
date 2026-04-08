@@ -261,7 +261,18 @@
       renderSettings(data.recentSettings || []);
       AdminApp.setStatus('Debug diagnostics refreshed.');
     } catch (error) {
-      summaryContainer.innerHTML = createSummaryCard('Error', error.message || 'Failed', 'offline');
+      while (summaryContainer.firstChild) summaryContainer.removeChild(summaryContainer.firstChild);
+      var errCard = document.createElement('div');
+      errCard.className = 'stat-card';
+      var errValue = document.createElement('div');
+      errValue.className = 'stat-value offline';
+      errValue.textContent = 'Error';
+      var errLabel = document.createElement('div');
+      errLabel.className = 'stat-label';
+      errLabel.textContent = error.message || 'Failed';
+      errCard.appendChild(errValue);
+      errCard.appendChild(errLabel);
+      summaryContainer.appendChild(errCard);
       setTableMessage(statusBody, 2, 'Failed to load diagnostics.');
       setTableMessage(discoveredViaBody, 2, 'Failed to load diagnostics.');
       setTableMessage(recentLogsBody, 6, 'Failed to load diagnostics.');

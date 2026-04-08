@@ -194,8 +194,18 @@
 
       statsContainer.innerHTML = html;
     } catch (error) {
-      statsContainer.innerHTML = '<div class="stat-card"><div class="stat-value offline">Error</div>' +
-        '<div class="stat-label">' + error.message + '</div></div>';
+      clearNode(statsContainer);
+      var errCard = document.createElement('div');
+      errCard.className = 'stat-card';
+      var errValue = document.createElement('div');
+      errValue.className = 'stat-value offline';
+      errValue.textContent = 'Error';
+      var errLabel = document.createElement('div');
+      errLabel.className = 'stat-label';
+      errLabel.textContent = error.message;
+      errCard.appendChild(errValue);
+      errCard.appendChild(errLabel);
+      statsContainer.appendChild(errCard);
     }
 
     if (responses[2].status === 'fulfilled') {
