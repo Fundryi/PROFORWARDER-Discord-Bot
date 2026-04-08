@@ -34,8 +34,11 @@ compose.override.yaml
 Thumbs.db
 desktop.ini
 
-# Local agent state
-.claude/settings.local.json
+# AI agent config (local-only, not pushed to GitHub)
+CLAUDE.md
+AGENTS.md
+AI_TOOLS.md
+.claude/
 .mcp.json
 
 # Local Roam data
