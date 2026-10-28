@@ -1,4 +1,4 @@
-FROM alpine:3.20 AS base
+FROM alpine:latest AS base
 RUN apk add --no-cache curl jq ca-certificates
 
 # Copy cloudflared binary from official image
